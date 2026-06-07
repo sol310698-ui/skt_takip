@@ -13,6 +13,7 @@ import 'disposal_sheet.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
 import 'scanner_screen.dart';
+import 'web_search_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -62,6 +63,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           onDelete: () => _confirmDelete(product),
                           onTap: () => _openEditSheet(product),
                           onDispose: () => _openDisposalSheet(product),
+                          onSearch: product.barcode == null
+                              ? null
+                              : () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => WebSearchScreen(
+                                          query: product.barcode!),
+                                    ),
+                                  ),
                         );
                       },
                     ),

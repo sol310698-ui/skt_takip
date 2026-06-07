@@ -11,6 +11,7 @@ class ProductCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
   final VoidCallback? onDispose;
+  final VoidCallback? onSearch;
 
   const ProductCard({
     super.key,
@@ -18,6 +19,7 @@ class ProductCard extends StatelessWidget {
     this.onTap,
     this.onDelete,
     this.onDispose,
+    this.onSearch,
   });
 
   @override
@@ -105,6 +107,16 @@ class ProductCard extends StatelessWidget {
                         Text('Düzenle'),
                       ]),
                     ),
+                    if (product.barcode != null)
+                      const PopupMenuItem(
+                        value: 'search',
+                        child: Row(children: [
+                          Icon(Icons.search, size: 18, color: AppTheme.primary),
+                          SizedBox(width: 8),
+                          Text("Google'da Ara",
+                              style: TextStyle(color: AppTheme.primary)),
+                        ]),
+                      ),
                     const PopupMenuItem(
                       value: 'dispose',
                       child: Row(children: [
@@ -129,6 +141,7 @@ class ProductCard extends StatelessWidget {
                     if (value == 'edit') onTap?.call();
                     if (value == 'dispose') onDispose?.call();
                     if (value == 'delete') onDelete?.call();
+                    if (value == 'search') onSearch?.call();
                   },
                 ),
               ],

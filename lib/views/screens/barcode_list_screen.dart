@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/google_search_button.dart';
 import 'import_screen.dart';
 import 'universal_scan_screen.dart';
 
@@ -161,6 +162,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
               fontFamily: 'monospace',
               fontSize: 12,
               color: AppTheme.textSecondary)),
+      trailing: GoogleSearchButton(query: e.barcode, compact: true),
     );
   }
 
