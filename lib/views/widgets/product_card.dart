@@ -59,13 +59,13 @@ class ProductCard extends StatelessWidget {
                       Row(
                         children: [
                           Icon(Icons.event,
-                              size: 14, color: Colors.grey.shade600),
+                              size: 14, color: AppTheme.textSecondary),
                           const SizedBox(width: 4),
                           Text(
                             '$dateStr  ·  $daysLabel',
                             style: TextStyle(
                               fontSize: 13,
-                              color: Colors.grey.shade700,
+                              color: AppTheme.textSecondary,
                             ),
                           ),
                         ],
@@ -76,7 +76,7 @@ class ProductCard extends StatelessWidget {
                           'Adet: ${product.quantity}',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade600,
+                            color: AppTheme.textSecondary,
                           ),
                         ),
                       ],
@@ -88,7 +88,7 @@ class ProductCard extends StatelessWidget {
                 if (onDelete != null)
                   IconButton(
                     icon: Icon(Icons.delete_outline,
-                        color: Colors.grey.shade400),
+                        color: AppTheme.textSecondary),
                     onPressed: onDelete,
                   ),
               ],

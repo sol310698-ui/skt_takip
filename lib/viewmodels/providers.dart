@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/services/database_service.dart';
-import '../core/services/ocr_service.dart';
 import '../data/datasources/product_local_datasource.dart';
 import '../data/models/product.dart';
 import '../data/repositories/product_repository.dart';
@@ -19,12 +18,6 @@ final productLocalDataSourceProvider =
 
 final productRepositoryProvider = Provider<ProductRepository>((ref) {
   return ProductRepository(ref.watch(productLocalDataSourceProvider));
-});
-
-final ocrServiceProvider = Provider<OcrService>((ref) {
-  final service = OcrService();
-  ref.onDispose(service.dispose);
-  return service;
 });
 
 /// Arama metni durumu.

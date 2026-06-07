@@ -19,6 +19,7 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _buildBanner(context, ref),
@@ -28,9 +29,7 @@ class HomeScreen extends ConsumerWidget {
                     const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Hata: $e')),
                 data: (_) {
-                  if (filtered.isEmpty) {
-                    return _buildEmpty();
-                  }
+                  if (filtered.isEmpty) return _buildEmpty();
                   return RefreshIndicator(
                     onRefresh: () =>
                         ref.read(productListProvider.notifier).refresh(),
@@ -41,8 +40,9 @@ class HomeScreen extends ConsumerWidget {
                         final product = filtered[i];
                         return ProductCard(
                           product: product,
-                          onDelete: () => _confirmDelete(context, ref, product),
-                          onTap: () => _openEdit(context, product),
+                          onDelete: () =>
+                              _confirmDelete(context, ref, product),
+                          onTap: () => _openEditSheet(context, product),
                         );
                       },
                     ),
@@ -56,6 +56,7 @@ class HomeScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openScanner(context),
         backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.black,
         icon: const Icon(Icons.document_scanner_outlined),
         label: const Text('SKT Tara'),
       ),
@@ -64,7 +65,7 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _buildBanner(BuildContext context, WidgetRef ref) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       decoration: const BoxDecoration(
         gradient: AppTheme.bannerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
@@ -85,11 +86,7 @@ class HomeScreen extends ConsumerWidget {
               ),
               IconButton(
                 icon: const Icon(Icons.add, color: Colors.white),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const AddProductScreen(),
-                  ),
-                ),
+                onPressed: () => _openAddSheet(context),
               ),
             ],
           ),
@@ -112,29 +109,51 @@ class HomeScreen extends ConsumerWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
+          Icon(Icons.inventory_2_outlined,
+              size: 64, color: AppTheme.textSecondary),
           SizedBox(height: 12),
           Text('Henüz ürün yok',
-              style: TextStyle(color: Colors.grey, fontSize: 16)),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
           SizedBox(height: 4),
           Text('SKT taramak için aşağıdaki butonu kullan',
-              style: TextStyle(color: Colors.grey, fontSize: 13)),
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
         ],
       ),
     );
   }
 
-  Future<void> _openScanner(BuildContext context) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+  /// Yeni urun ekleme - kayan pencere (modal bottom sheet).
+  Future<void> _openAddSheet(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const ProductFormSheet(),
     );
   }
 
-  Future<void> _openEdit(BuildContext context, Product product) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => AddProductScreen(existing: product),
-      ),
+  /// Duzenleme - kayan pencere.
+  Future<void> _openEditSheet(BuildContext context, Product product) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProductFormSheet(existing: product),
+    );
+  }
+
+  Future<void> _openScanner(BuildContext context) async {
+    final result = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (result == null || !context.mounted) return;
+    // 1900 = elle gir sentineli (tarih okunmadi)
+    final scanned = result.year == 1900 ? null : result;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProductFormSheet(scannedExpiry: scanned),
     );
   }
 

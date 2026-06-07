@@ -8,17 +8,19 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 
-class AddProductScreen extends ConsumerStatefulWidget {
+/// Kayan pencere (bottom sheet) icinde calisan urun formu.
+/// Yeni ekleme ve duzenleme icin kullanilir.
+class ProductFormSheet extends ConsumerStatefulWidget {
   final Product? existing;
   final DateTime? scannedExpiry;
 
-  const AddProductScreen({super.key, this.existing, this.scannedExpiry});
+  const ProductFormSheet({super.key, this.existing, this.scannedExpiry});
 
   @override
-  ConsumerState<AddProductScreen> createState() => _AddProductScreenState();
+  ConsumerState<ProductFormSheet> createState() => _ProductFormSheetState();
 }
 
-class _AddProductScreenState extends ConsumerState<AddProductScreen> {
+class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _barcodeCtrl;
@@ -58,16 +60,17 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
 
   Future<void> _scanBarcode() async {
     final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const _BarcodeScanPage()),
+      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
     );
-    if (code != null) {
+    if (code != null && mounted) {
       _barcodeCtrl.text = code;
-      // Var olan barkodu kontrol et.
       final existing =
           await ref.read(productRepositoryProvider).findByBarcode(code);
       if (existing != null && mounted) {
-        _nameCtrl.text = existing.name;
-        _categoryCtrl.text = existing.category ?? '';
+        setState(() {
+          _nameCtrl.text = existing.name;
+          _categoryCtrl.text = existing.category ?? '';
+        });
       }
     }
   }
@@ -87,9 +90,8 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     final product = Product(
       id: base?.id,
       name: _nameCtrl.text.trim(),
-      barcode: _barcodeCtrl.text.trim().isEmpty
-          ? null
-          : _barcodeCtrl.text.trim(),
+      barcode:
+          _barcodeCtrl.text.trim().isEmpty ? null : _barcodeCtrl.text.trim(),
       expiryDate: _expiryDate!,
       quantity: _quantity,
       category: _categoryCtrl.text.trim().isEmpty
@@ -107,7 +109,6 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
       await NotificationService.instance.cancelForProduct(savedId);
     }
 
-    // Kaydedilen ürün için bildirim planla.
     await NotificationService.instance
         .scheduleForProduct(product.copyWith(id: savedId));
 
@@ -121,64 +122,99 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
         ? 'SKT seçilmedi'
         : DateFormat('dd.MM.yyyy').format(_expiryDate!);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Ürün adı *'),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Zorunlu alan' : null,
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _barcodeCtrl,
-              decoration: InputDecoration(
-                labelText: 'Barkod',
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: _scanBarcode,
+    // Klavye acilinca form yukari kayar (viewInsets).
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 150),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Tutamac
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.textSecondary.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _categoryCtrl,
-              decoration: const InputDecoration(labelText: 'Kategori / Reyon'),
-            ),
-            const SizedBox(height: 14),
-            InkWell(
-              onTap: _pickDate,
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
+                Text(
+                  isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nameCtrl,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Ürün adı *'),
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Zorunlu alan'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _barcodeCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Barkod',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      onPressed: _scanBarcode,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _categoryCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Kategori / Reyon'),
+                ),
+                const SizedBox(height: 14),
+                InkWell(
+                  onTap: _pickDate,
                   borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 18),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceAlt,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.event, color: AppTheme.primary),
+                        const SizedBox(width: 12),
+                        Text('Son kullanma: $dateStr',
+                            style: const TextStyle(fontSize: 15)),
+                      ],
+                    ),
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.event, color: AppTheme.primary),
-                    const SizedBox(width: 12),
-                    Text('Son kullanma: $dateStr',
-                        style: const TextStyle(fontSize: 15)),
-                  ],
+                const SizedBox(height: 14),
+                _buildQuantitySelector(),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _save,
+                  child: Text(isEdit ? 'Güncelle' : 'Kaydet'),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 14),
-            _buildQuantitySelector(),
-            const SizedBox(height: 28),
-            FilledButton(
-              onPressed: _save,
-              child: Text(isEdit ? 'Güncelle' : 'Kaydet'),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -188,7 +224,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -199,9 +235,8 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
             children: [
               IconButton(
                 icon: const Icon(Icons.remove_circle_outline),
-                onPressed: _quantity > 1
-                    ? () => setState(() => _quantity--)
-                    : null,
+                onPressed:
+                    _quantity > 1 ? () => setState(() => _quantity--) : null,
               ),
               Text('$_quantity',
                   style: const TextStyle(
@@ -218,24 +253,63 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
   }
 }
 
-/// Barkod tarama yardımcı sayfası.
-class _BarcodeScanPage extends StatelessWidget {
-  const _BarcodeScanPage();
+/// Barkod tarama sayfasi. Tek seferlik algilama (coklu pop engellenir).
+class BarcodeScanPage extends StatefulWidget {
+  const BarcodeScanPage({super.key});
+
+  @override
+  State<BarcodeScanPage> createState() => _BarcodeScanPageState();
+}
+
+class _BarcodeScanPageState extends State<BarcodeScanPage> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+    final value = barcodes.first.rawValue;
+    if (value == null || value.isEmpty) return;
+    _handled = true;
+    Navigator.of(context).pop(value);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Barkod Tara')),
-      body: MobileScanner(
-        onDetect: (capture) {
-          final barcodes = capture.barcodes;
-          if (barcodes.isNotEmpty) {
-            final value = barcodes.first.rawValue;
-            if (value != null) {
-              Navigator.of(context).pop(value);
-            }
-          }
-        },
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+          ),
+          Container(
+            width: 260,
+            height: 160,
+            decoration: BoxDecoration(
+              border: Border.all(color: AppTheme.primary, width: 3),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const Positioned(
+            bottom: 60,
+            child: Text(
+              'Barkodu çerçeveye getirin',
+              style: TextStyle(color: Colors.white, fontSize: 15),
+            ),
+          ),
+        ],
       ),
     );
   }
