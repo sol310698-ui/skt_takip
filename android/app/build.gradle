@@ -9,7 +9,7 @@ android {
     // ML Kit ve mobile_scanner için 34/35 önerilir
     compileSdk = 36
     // NDK uyumsuzluğunu önlemek için sürümü sabitliyoruz
-    ndkVersion = "28.1.13356709"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         // flutter_local_notifications için zorunlu
