@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
+import 'shelf_check_screen.dart';
 
 /// Alt navigasyon barli ana kabuk.
 class MainShell extends StatefulWidget {
@@ -15,7 +16,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
-  final _pages = const [
+  final List<Widget> _pages = const [
     HomeScreen(),
     BarcodeListScreen(),
   ];
@@ -23,7 +24,14 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(
+        index: _index,
+        children: [
+          ..._pages,
+          // Reyon kontrol sadece secili oldugunda kamerayi calistirir.
+          ShelfCheckScreen(isActive: _index == 2),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: AppTheme.surface,
@@ -41,8 +49,7 @@ class _MainShellState extends State<MainShell> {
           backgroundColor: AppTheme.surface,
           indicatorColor: AppTheme.primary.withOpacity(0.2),
           height: 64,
-          labelBehavior:
-              NavigationDestinationLabelBehavior.alwaysShow,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.event_note_outlined),
@@ -53,6 +60,11 @@ class _MainShellState extends State<MainShell> {
               icon: Icon(Icons.qr_code_2_outlined),
               selectedIcon: Icon(Icons.qr_code_2, color: AppTheme.primary),
               label: 'Barkod Liste',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.price_check_outlined),
+              selectedIcon: Icon(Icons.price_check, color: AppTheme.primary),
+              label: 'Reyon Kontrol',
             ),
           ],
         ),
