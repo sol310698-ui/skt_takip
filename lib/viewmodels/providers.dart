@@ -55,7 +55,7 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
     return id;
   }
 
-  Future<void> update(Product product) async {
+  Future<void> updateProduct(Product product) async {
     await _repo.updateProduct(product);
     await refresh();
   }

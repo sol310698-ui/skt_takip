@@ -102,7 +102,7 @@ class _AddProductScreenState extends ConsumerState<AddProductScreen> {
     if (base == null) {
       savedId = await notifier.add(product);
     } else {
-      await notifier.update(product);
+      await notifier.updateProduct(product);
       savedId = base.id!;
       await NotificationService.instance.cancelForProduct(savedId);
     }
