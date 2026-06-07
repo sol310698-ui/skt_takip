@@ -1,0 +1,28 @@
+name: skt_takip
+description: "Son kullanma tarihi takip uygulaması"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+  camera: ^0.11.0+2
+  mobile_scanner: ^5.2.3
+  google_mlkit_text_recognition: ^0.13.1
+  flutter_local_notifications: ^17.2.3
+  timezone: ^0.9.4
+  file_picker: ^8.1.2
+  excel: ^4.0.6
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
