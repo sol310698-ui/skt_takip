@@ -121,4 +121,3 @@ final filteredProductsProvider = Provider<List<Product>>((ref) {
 });
 
 // DisposalStatus import icin
-export '../data/models/product.dart' show DisposalStatus;
