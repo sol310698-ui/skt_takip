@@ -21,10 +21,35 @@ class DatabaseService {
       path,
       version: AppConstants.dbVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
+  /// Yeni kurulum.
   Future<void> _onCreate(Database db, int version) async {
+    await _createProductsTable(db);
+    await _createBarcodeTable(db);
+  }
+
+  /// v1 -> v2 migration: mevcut veriler korunur.
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Disposal sutunlari ekle (varsayilan: active).
+      await db.execute(
+        "ALTER TABLE ${AppConstants.productTable} ADD COLUMN disposal_status TEXT NOT NULL DEFAULT 'active'",
+      );
+      await db.execute(
+        'ALTER TABLE ${AppConstants.productTable} ADD COLUMN disposal_date INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE ${AppConstants.productTable} ADD COLUMN disposal_note TEXT',
+      );
+      // Barkod dizini tablosu olustur.
+      await _createBarcodeTable(db);
+    }
+  }
+
+  Future<void> _createProductsTable(Database db) async {
     await db.execute('''
       CREATE TABLE ${AppConstants.productTable} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,11 +58,31 @@ class DatabaseService {
         expiry_date INTEGER NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 1,
         category TEXT,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        disposal_status TEXT NOT NULL DEFAULT 'active',
+        disposal_date INTEGER,
+        disposal_note TEXT
       )
     ''');
     await db.execute(
       'CREATE INDEX idx_expiry ON ${AppConstants.productTable} (expiry_date)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_disposal ON ${AppConstants.productTable} (disposal_status)',
+    );
+  }
+
+  Future<void> _createBarcodeTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.barcodeTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL UNIQUE,
+        product_name TEXT NOT NULL,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_barcode ON ${AppConstants.barcodeTable} (barcode)',
     );
   }
 

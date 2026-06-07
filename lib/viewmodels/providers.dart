@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/services/database_service.dart';
+import '../data/datasources/barcode_directory_datasource.dart';
 import '../data/datasources/product_local_datasource.dart';
 import '../data/models/product.dart';
+import '../data/repositories/barcode_directory_repository.dart';
 import '../data/repositories/product_repository.dart';
 
-/// Bağımlılık sağlayıcıları (DI).
+// ─── DI Providers ────────────────────────────────────────────────────────────
 
 final databaseServiceProvider = Provider<DatabaseService>((ref) {
   return DatabaseService.instance;
@@ -20,10 +22,23 @@ final productRepositoryProvider = Provider<ProductRepository>((ref) {
   return ProductRepository(ref.watch(productLocalDataSourceProvider));
 });
 
-/// Arama metni durumu.
+final barcodeDirectoryDataSourceProvider =
+    Provider<BarcodeDirectoryDataSource>((ref) {
+  return BarcodeDirectoryDataSource(ref.watch(databaseServiceProvider));
+});
+
+final barcodeDirectoryRepositoryProvider =
+    Provider<BarcodeDirectoryRepository>((ref) {
+  return BarcodeDirectoryRepository(
+      ref.watch(barcodeDirectoryDataSourceProvider));
+});
+
+// ─── UI State Providers ───────────────────────────────────────────────────────
+
 final searchQueryProvider = StateProvider<String>((ref) => '');
 
-/// Ürün listesini yöneten AsyncNotifier.
+// ─── Product List ─────────────────────────────────────────────────────────────
+
 final productListProvider =
     AsyncNotifierProvider<ProductListNotifier, List<Product>>(
   ProductListNotifier.new,
@@ -57,9 +72,44 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
     await _repo.deleteProduct(id);
     await refresh();
   }
+
+  /// Urunu imha veya iade olarak isaretle (silmez, gunceller).
+  Future<void> dispose_(int id, DisposalStatus status, String? note) async {
+    final products = state.valueOrNull ?? [];
+    final product = products.firstWhere((p) => p.id == id);
+    final updated = product.copyWith(
+      disposalStatus: status,
+      disposalDate: DateTime.now(),
+      disposalNote: note,
+    );
+    await _repo.updateProduct(updated);
+    await refresh();
+  }
 }
 
-/// Aramaya göre filtrelenmiş ürün listesi (türetilmiş).
+// ─── Disposal History ─────────────────────────────────────────────────────────
+
+final disposalHistoryProvider =
+    AsyncNotifierProvider<DisposalHistoryNotifier, List<Product>>(
+  DisposalHistoryNotifier.new,
+);
+
+class DisposalHistoryNotifier extends AsyncNotifier<List<Product>> {
+  ProductRepository get _repo => ref.read(productRepositoryProvider);
+
+  @override
+  Future<List<Product>> build() async {
+    return _repo.getDisposalHistory();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_repo.getDisposalHistory);
+  }
+}
+
+// ─── Filtered Products ────────────────────────────────────────────────────────
+
 final filteredProductsProvider = Provider<List<Product>>((ref) {
   final query = ref.watch(searchQueryProvider).toLowerCase().trim();
   final products = ref.watch(productListProvider).valueOrNull ?? [];
@@ -69,3 +119,6 @@ final filteredProductsProvider = Provider<List<Product>>((ref) {
         (p.barcode?.toLowerCase().contains(query) ?? false);
   }).toList();
 });
+
+// DisposalStatus import icin
+export '../data/models/product.dart' show DisposalStatus;

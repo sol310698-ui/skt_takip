@@ -1,6 +1,21 @@
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/date_utils.dart';
 
+/// Urun imha/iade durumu.
+enum DisposalStatus {
+  active,    // Aktif, rafta
+  disposed,  // Imha edildi
+  returned;  // Tedarikçiye iade
+
+  String get label {
+    switch (this) {
+      case DisposalStatus.active:   return 'Aktif';
+      case DisposalStatus.disposed: return 'İmha';
+      case DisposalStatus.returned: return 'İade';
+    }
+  }
+}
+
 /// Ürün veri modeli.
 class Product {
   final int? id;
@@ -10,6 +25,9 @@ class Product {
   final int quantity;
   final String? category;
   final DateTime createdAt;
+  final DisposalStatus disposalStatus;
+  final DateTime? disposalDate;
+  final String? disposalNote;
 
   const Product({
     this.id,
@@ -19,13 +37,14 @@ class Product {
     this.quantity = 1,
     this.category,
     required this.createdAt,
+    this.disposalStatus = DisposalStatus.active,
+    this.disposalDate,
+    this.disposalNote,
   });
 
-  /// SKT durumunu döner (hesaplanmış alan).
   ExpiryStatus get status => DateUtils.statusFor(expiryDate);
-
-  /// SKT'ye kalan gün.
   int get daysUntilExpiry => DateUtils.daysUntil(expiryDate);
+  bool get isActive => disposalStatus == DisposalStatus.active;
 
   Product copyWith({
     int? id,
@@ -35,6 +54,9 @@ class Product {
     int? quantity,
     String? category,
     DateTime? createdAt,
+    DisposalStatus? disposalStatus,
+    DateTime? disposalDate,
+    String? disposalNote,
   }) {
     return Product(
       id: id ?? this.id,
@@ -44,6 +66,9 @@ class Product {
       quantity: quantity ?? this.quantity,
       category: category ?? this.category,
       createdAt: createdAt ?? this.createdAt,
+      disposalStatus: disposalStatus ?? this.disposalStatus,
+      disposalDate: disposalDate ?? this.disposalDate,
+      disposalNote: disposalNote ?? this.disposalNote,
     );
   }
 
@@ -56,10 +81,21 @@ class Product {
       'quantity': quantity,
       'category': category,
       'created_at': createdAt.millisecondsSinceEpoch,
+      'disposal_status': disposalStatus.name,
+      'disposal_date': disposalDate?.millisecondsSinceEpoch,
+      'disposal_note': disposalNote,
     };
   }
 
   factory Product.fromMap(Map<String, Object?> map) {
+    DisposalStatus ds = DisposalStatus.active;
+    final dsStr = map['disposal_status'] as String?;
+    if (dsStr != null) {
+      ds = DisposalStatus.values.firstWhere(
+        (e) => e.name == dsStr,
+        orElse: () => DisposalStatus.active,
+      );
+    }
     return Product(
       id: map['id'] as int?,
       name: map['name'] as String,
@@ -70,6 +106,11 @@ class Product {
       category: map['category'] as String?,
       createdAt:
           DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
+      disposalStatus: ds,
+      disposalDate: map['disposal_date'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['disposal_date'] as int)
+          : null,
+      disposalNote: map['disposal_note'] as String?,
     );
   }
 }

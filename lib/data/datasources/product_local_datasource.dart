@@ -5,14 +5,30 @@ import '../models/product.dart';
 /// Ürünler için yerel (SQLite) veri kaynağı.
 class ProductLocalDataSource {
   final DatabaseService _dbService;
-
   ProductLocalDataSource(this._dbService);
 
-  Future<List<Product>> getAll() async {
+  /// Sadece aktif urunler (disposal_status = active).
+  Future<List<Product>> getActive() async {
     final db = await _dbService.database;
     final rows = await db.query(
       AppConstants.productTable,
+      where: "disposal_status = 'active'",
       orderBy: 'expiry_date ASC',
+    );
+    return rows.map(Product.fromMap).toList();
+  }
+
+  /// Imha ve iade gecmisi - son 90 gun.
+  Future<List<Product>> getDisposalHistory() async {
+    final db = await _dbService.database;
+    final cutoff = DateTime.now()
+        .subtract(const Duration(days: AppConstants.disposalHistoryDays))
+        .millisecondsSinceEpoch;
+    final rows = await db.query(
+      AppConstants.productTable,
+      where: "disposal_status != 'active' AND disposal_date >= ?",
+      whereArgs: [cutoff],
+      orderBy: 'disposal_date DESC',
     );
     return rows.map(Product.fromMap).toList();
   }
@@ -21,7 +37,7 @@ class ProductLocalDataSource {
     final db = await _dbService.database;
     final rows = await db.query(
       AppConstants.productTable,
-      where: 'barcode = ?',
+      where: "barcode = ? AND disposal_status = 'active'",
       whereArgs: [barcode],
       limit: 1,
     );
@@ -56,9 +72,22 @@ class ProductLocalDataSource {
   Future<void> insertAll(List<Product> products) async {
     final db = await _dbService.database;
     final batch = db.batch();
-    for (final product in products) {
-      batch.insert(AppConstants.productTable, product.toMap());
+    for (final p in products) {
+      batch.insert(AppConstants.productTable, p.toMap());
     }
     await batch.commit(noResult: true);
+  }
+
+  /// 90 gun gecmis imha/iade kayitlarini temizle.
+  Future<void> purgeOldDisposals() async {
+    final db = await _dbService.database;
+    final cutoff = DateTime.now()
+        .subtract(const Duration(days: AppConstants.disposalHistoryDays))
+        .millisecondsSinceEpoch;
+    await db.delete(
+      AppConstants.productTable,
+      where: "disposal_status != 'active' AND disposal_date < ?",
+      whereArgs: [cutoff],
+    );
   }
 }

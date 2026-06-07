@@ -7,7 +7,6 @@ import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
-
 /// Kayan pencere (bottom sheet) icinde calisan urun formu.
 /// Yeni ekleme ve duzenleme icin kullanilir.
 class ProductFormSheet extends ConsumerStatefulWidget {
@@ -64,6 +63,8 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     );
     if (code != null && mounted) {
       _barcodeCtrl.text = code;
+
+      // 1) Once aktif urunlerde ara.
       final existing =
           await ref.read(productRepositoryProvider).findByBarcode(code);
       if (existing != null && mounted) {
@@ -71,6 +72,15 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
           _nameCtrl.text = existing.name;
           _categoryCtrl.text = existing.category ?? '';
         });
+        return;
+      }
+
+      // 2) Aktif urunde bulamazsa barkod dizinine bak.
+      final dirName = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .findProductName(code);
+      if (dirName != null && mounted) {
+        setState(() => _nameCtrl.text = dirName);
       }
     }
   }

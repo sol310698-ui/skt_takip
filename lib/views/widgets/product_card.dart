@@ -5,17 +5,19 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import 'status_badge.dart';
 
-/// Tek bir ürünü glass-style kart olarak gösterir.
+/// Tek bir urunu glass-style kart olarak gosterir.
 class ProductCard extends StatelessWidget {
   final Product product;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
+  final VoidCallback? onDispose;
 
   const ProductCard({
     super.key,
     required this.product,
     this.onTap,
     this.onDelete,
+    this.onDispose,
   });
 
   @override
@@ -39,7 +41,7 @@ class ProductCard extends StatelessWidget {
           onTap: onTap,
           child: Container(
             decoration: AppTheme.glassCard(accent: status.color),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
             child: Row(
               children: [
                 Expanded(
@@ -59,25 +61,29 @@ class ProductCard extends StatelessWidget {
                       Row(
                         children: [
                           Icon(Icons.event,
-                              size: 14, color: AppTheme.textSecondary),
+                              size: 13,
+                              color: AppTheme.textSecondary),
                           const SizedBox(width: 4),
                           Text(
                             '$dateStr  ·  $daysLabel',
-                            style: TextStyle(
-                              fontSize: 13,
+                            style: const TextStyle(
+                              fontSize: 12,
                               color: AppTheme.textSecondary,
                             ),
                           ),
                         ],
                       ),
-                      if (product.quantity > 1) ...[
-                        const SizedBox(height: 4),
+                      if (product.quantity > 1 || product.category != null) ...[
+                        const SizedBox(height: 3),
                         Text(
-                          'Adet: ${product.quantity}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.textSecondary,
-                          ),
+                          [
+                            if (product.quantity > 1)
+                              'Adet: ${product.quantity}',
+                            if (product.category != null) product.category!,
+                          ].join('  ·  '),
+                          style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary),
                         ),
                       ],
                       const SizedBox(height: 8),
@@ -85,12 +91,46 @@ class ProductCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (onDelete != null)
-                  IconButton(
-                    icon: Icon(Icons.delete_outline,
-                        color: AppTheme.textSecondary),
-                    onPressed: onDelete,
-                  ),
+                // Islem menusu
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert,
+                      color: AppTheme.textSecondary),
+                  color: AppTheme.surfaceAlt,
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('Düzenle'),
+                      ]),
+                    ),
+                    const PopupMenuItem(
+                      value: 'dispose',
+                      child: Row(children: [
+                        Icon(Icons.delete_sweep_outlined,
+                            size: 18, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text('İmha / İade',
+                            style: TextStyle(color: Colors.orange)),
+                      ]),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline,
+                            size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Sil', style: TextStyle(color: Colors.red)),
+                      ]),
+                    ),
+                  ],
+                  onSelected: (value) {
+                    if (value == 'edit') onTap?.call();
+                    if (value == 'dispose') onDispose?.call();
+                    if (value == 'delete') onDelete?.call();
+                  },
+                ),
               ],
             ),
           ),
