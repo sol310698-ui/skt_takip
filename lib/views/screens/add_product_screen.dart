@@ -12,8 +12,16 @@ import '../../viewmodels/providers.dart';
 class ProductFormSheet extends ConsumerStatefulWidget {
   final Product? existing;
   final DateTime? scannedExpiry;
+  final String? prefillBarcode;
+  final String? prefillName;
 
-  const ProductFormSheet({super.key, this.existing, this.scannedExpiry});
+  const ProductFormSheet({
+    super.key,
+    this.existing,
+    this.scannedExpiry,
+    this.prefillBarcode,
+    this.prefillName,
+  });
 
   @override
   ConsumerState<ProductFormSheet> createState() => _ProductFormSheetState();
@@ -31,8 +39,10 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _nameCtrl = TextEditingController(text: e?.name ?? '');
-    _barcodeCtrl = TextEditingController(text: e?.barcode ?? '');
+    _nameCtrl =
+        TextEditingController(text: e?.name ?? widget.prefillName ?? '');
+    _barcodeCtrl = TextEditingController(
+        text: e?.barcode ?? widget.prefillBarcode ?? '');
     _categoryCtrl = TextEditingController(text: e?.category ?? '');
     _quantity = e?.quantity ?? 1;
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;

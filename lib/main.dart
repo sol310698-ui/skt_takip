@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
-import 'views/screens/home_screen.dart';
+import 'views/screens/main_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +28,7 @@ class SktTakipApp extends StatelessWidget {
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.dark,
-      home: const HomeScreen(),
+      home: const MainShell(),
     );
   }
 }

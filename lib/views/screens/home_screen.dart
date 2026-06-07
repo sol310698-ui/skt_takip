@@ -333,7 +333,7 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
-    final value = capture.barcodes.firstOrNull?.rawValue;
+    final value = capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
     if (value == null || value.isEmpty) return;
     _handled = true;
     Navigator.of(context).pop(value);

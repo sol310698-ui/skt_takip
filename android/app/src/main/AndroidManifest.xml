@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Internet (webview arama + ML Kit model indirme) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Kamera (OCR + barkod tarama) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
