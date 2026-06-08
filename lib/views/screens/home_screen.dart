@@ -302,11 +302,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _openAddSheet() async {
+    // Arama kutusunda bir deger varsa (barkod arandi, sonuc yok),
+    // onu barkod olarak forma tasi.
+    final searchText = _searchCtrl.text.trim();
+    final prefillBarcode = searchText.isNotEmpty ? searchText : null;
+
+    // Eger barkod dizininde ad varsa onu da getir.
+    String? prefillName;
+    if (prefillBarcode != null) {
+      prefillName = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .findProductName(prefillBarcode);
+    }
+
+    if (!mounted) return;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const ProductFormSheet(),
+      builder: (_) => ProductFormSheet(
+        prefillBarcode: prefillBarcode,
+        prefillName: prefillName,
+      ),
     );
   }
 

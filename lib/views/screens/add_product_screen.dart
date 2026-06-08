@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_utils.dart' as du;
 import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
@@ -66,6 +69,50 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
       lastDate: DateTime(now.year + 10),
     );
     if (picked != null) setState(() => _expiryDate = picked);
+  }
+
+  /// Fotograf cekerek SKT oku (ML Kit + akilli parser).
+  Future<void> _scanDateFromPhoto() async {
+    final picker = ImagePicker();
+    final recognizer =
+        TextRecognizer(script: TextRecognitionScript.latin);
+    try {
+      final photo = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 100,
+      );
+      if (photo == null) return;
+
+      final input = InputImage.fromFilePath(photo.path);
+      final result = await recognizer.processImage(input);
+      final date = du.DateUtils.parseFromOcr(result.text);
+
+      if (!mounted) return;
+      if (date != null) {
+        setState(() => _expiryDate = date);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
+            backgroundColor: AppTheme.statusSafe,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tarih okunamadı, takvimden seçebilirsiniz'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hata: $e')),
+        );
+      }
+    } finally {
+      recognizer.close();
+    }
   }
 
   Future<void> _scanBarcode() async {
@@ -217,25 +264,51 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
                       labelText: 'Kategori / Reyon'),
                 ),
                 const SizedBox(height: 14),
-                InkWell(
-                  onTap: _pickDate,
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 18),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceAlt,
+                Row(
+                  children: [
+                    // Takvimden manuel secim
+                    Expanded(
+                      child: InkWell(
+                        onTap: _pickDate,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 18),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceAlt,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.event,
+                                  color: AppTheme.primary),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text('Son kullanma: $dateStr',
+                                    style: const TextStyle(fontSize: 15),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Fotograf cekerek tarih oku
+                    Material(
+                      color: AppTheme.primary.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: _scanDateFromPhoto,
+                        child: const Padding(
+                          padding: EdgeInsets.all(18),
+                          child: Icon(Icons.camera_alt_rounded,
+                              color: AppTheme.primary, size: 24),
+                        ),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.event, color: AppTheme.primary),
-                        const SizedBox(width: 12),
-                        Text('Son kullanma: $dateStr',
-                            style: const TextStyle(fontSize: 15)),
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 _buildQuantitySelector(),
