@@ -274,40 +274,52 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
   Widget _buildTopControls() {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          children: [
-            _circleBtn(Icons.flash_on_rounded,
-                () => _controller.toggleTorch()),
-            if (_productBarcode != null) ...[
-              const SizedBox(width: 4),
-              GoogleSearchButton(query: _productBarcode!, compact: true),
-            ],
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.only(left: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                children: [
-                  const Text('EAN-13',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600)),
-                  Switch(
-                    value: _ean13Only,
-                    activeColor: AppTheme.accent,
-                    onChanged: (v) => setState(() => _ean13Only = v),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _circleBtn(Icons.flash_on_rounded,
+                    () => _controller.toggleTorch()),
+                if (_productBarcode != null) ...[
+                  const SizedBox(width: 6),
+                  Material(
+                    color: Colors.black.withOpacity(0.6),
+                    shape: const CircleBorder(),
+                    child: GoogleSearchButton(
+                        query: _productBarcode!, compact: true),
                   ),
                 ],
-              ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.only(left: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('EAN-13',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600)),
+                      Switch(
+                        value: _ean13Only,
+                        activeColor: AppTheme.accent,
+                        onChanged: (v) => setState(() => _ean13Only = v),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
