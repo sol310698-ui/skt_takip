@@ -24,14 +24,28 @@ jobs:
           channel: 'stable'
           flutter-version: '3.32.0'
 
+      - name: Repodaki kritik dosyaları yedekle
+        run: |
+          cp android/app/build.gradle /tmp/build.gradle.bak
+          cp android/app/src/main/AndroidManifest.xml /tmp/manifest.bak
+          mkdir -p /tmp/kotlin_bak
+          cp -r android/app/src/main/kotlin /tmp/kotlin_bak/
+
       - name: Eksik platform dosyalarını oluştur
         run: flutter create --platforms=android .
 
-      - name: Cakisan kts dosyalarini temizle
+      - name: Çakışan kts dosyalarını temizle
         run: |
           rm -f android/app/build.gradle.kts
           rm -f android/build.gradle.kts
           rm -f android/settings.gradle.kts
+
+      - name: Kritik dosyaları geri yükle
+        run: |
+          cp /tmp/build.gradle.bak android/app/build.gradle
+          cp /tmp/manifest.bak android/app/src/main/AndroidManifest.xml
+          rm -rf android/app/src/main/kotlin
+          cp -r /tmp/kotlin_bak/kotlin android/app/src/main/kotlin
 
       - name: Bağımlılıkları indir
         run: flutter pub get
