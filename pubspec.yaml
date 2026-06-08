@@ -13,8 +13,9 @@ dependencies:
   sqflite: ^2.3.3+1
   path: ^1.9.0
   image_picker: ^1.1.2
+  flutter_scalable_ocr: ^2.2.1
   mobile_scanner: ^5.2.3
-  google_mlkit_text_recognition: ^0.13.1
+  google_mlkit_text_recognition: ^0.14.0
   flutter_local_notifications: ^17.2.3
   timezone: ^0.9.4
   file_picker: ^8.1.2

@@ -1,198 +1,161 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
 
-/// Fotograf cekerek OCR ile SKT okuyan ekran (guvenilir yontem).
-class ScannerScreen extends ConsumerStatefulWidget {
+/// Canli SKT tarama - flutter_scalable_ocr ile.
+/// Kameranin dar penceresinden surekli metin okur, tarih bulunca durur.
+/// pop ile DateTime dondurur (1900 = elle gir sentineli).
+class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
 
   @override
-  ConsumerState<ScannerScreen> createState() => _ScannerScreenState();
+  State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends ConsumerState<ScannerScreen> {
-  final ImagePicker _picker = ImagePicker();
-  final TextRecognizer _recognizer =
-      TextRecognizer(script: TextRecognitionScript.latin);
+class _ScannerScreenState extends State<ScannerScreen> {
+  DateTime? _detected;
+  bool _done = false;
 
-  bool _processing = false;
-  String? _rawText;
-  DateTime? _detectedDate;
-
-  @override
-  void dispose() {
-    _recognizer.close();
-    super.dispose();
-  }
-
-  Future<void> _capture(ImageSource source) async {
-    setState(() {
-      _processing = true;
-      _rawText = null;
-      _detectedDate = null;
-    });
-
-    try {
-      final XFile? photo = await _picker.pickImage(
-        source: source,
-        imageQuality: 100,
-      );
-      if (photo == null) {
-        setState(() => _processing = false);
-        return;
-      }
-
-      final inputImage = InputImage.fromFilePath(photo.path);
-      final RecognizedText result =
-          await _recognizer.processImage(inputImage);
-
-      DateTime? found;
-      for (final block in result.blocks) {
-        for (final line in block.lines) {
-          final d = du.DateUtils.parseFromOcr(line.text);
-          if (d != null) {
-            found = d;
-            break;
-          }
-        }
-        if (found != null) break;
-      }
-      found ??= du.DateUtils.parseFromOcr(result.text);
-
+  void _onScannedText(String value) {
+    if (_done) return;
+    final date = du.DateUtils.parseFromOcr(value);
+    if (date != null) {
       setState(() {
-        _processing = false;
-        _rawText = result.text;
-        _detectedDate = found;
+        _detected = date;
+        _done = true;
       });
-    } catch (e) {
-      setState(() => _processing = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
-      }
     }
   }
 
-  void _confirm() {
-    final date = _detectedDate;
-    if (date == null) return;
-    Navigator.of(context).pop(date);
-  }
-
-  void _manualEntry() {
-    Navigator.of(context).pop(DateTime(1900));
-  }
+  void _confirm() => Navigator.of(context).pop(_detected);
+  void _manual() => Navigator.of(context).pop(DateTime(1900));
+  void _retry() => setState(() {
+        _detected = null;
+        _done = false;
+      });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('SKT Tara')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 8),
-            const Icon(Icons.document_scanner_outlined,
-                size: 72, color: AppTheme.primary),
-            const SizedBox(height: 16),
-            const Text(
-              'Ürünün son kullanma tarihini\nfotoğraflayın',
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('SKT Tara'),
+      ),
+      extendBodyBehindAppBar: true,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Canli OCR - dar pencere
+          Center(
+            child: ScalableOCR(
+              paintboxCustom: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 4.0
+                ..color = AppTheme.primary,
+              boxLeftOff: 4,
+              boxBottomOff: 2.8,
+              boxRightOff: 4,
+              boxTopOff: 2.8,
+              boxHeight: MediaQuery.of(context).size.height / 3.5,
+              getScannedText: _onScannedText,
+            ),
+          ),
+          _buildHint(),
+          if (_done) _buildResultSheet(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHint() {
+    if (_done) return const SizedBox.shrink();
+    return Positioned(
+      top: MediaQuery.of(context).size.height * 0.18,
+      left: 0,
+      right: 0,
+      child: Column(
+        children: [
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            margin: const EdgeInsets.symmetric(horizontal: 40),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.92),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Text(
+              'Son kullanma tarihini çerçeveye getirin',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15),
             ),
-            const SizedBox(height: 28),
-            if (_processing)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text('Tarih okunuyor...',
-                        style: TextStyle(color: AppTheme.textSecondary)),
-                  ],
+          ),
+          const SizedBox(height: 10),
+          // Elle gir secenegi her zaman acik
+          TextButton.icon(
+            onPressed: _manual,
+            icon: const Icon(Icons.keyboard_rounded,
+                color: Colors.white70, size: 18),
+            label: const Text('Elle gir',
+                style: TextStyle(color: Colors.white70)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultSheet() {
+    final dateStr = DateFormat('dd.MM.yyyy').format(_detected!);
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_rounded,
+                color: AppTheme.statusSafe, size: 52),
+            const SizedBox(height: 12),
+            const Text('Tarih Bulundu',
+                style: TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 14)),
+            const SizedBox(height: 4),
+            Text(dateStr,
+                style: const TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.w900,
+                    color: AppTheme.statusSafe)),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _retry,
+                    child: const Text('Tekrar Tara'),
+                  ),
                 ),
-              )
-            else if (_detectedDate != null)
-              _buildResult()
-            else if (_rawText != null)
-              _buildNotFound(),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: _processing ? null : () => _capture(ImageSource.camera),
-              icon: const Icon(Icons.camera_alt),
-              label: const Text('Fotoğraf Çek'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed:
-                  _processing ? null : () => _capture(ImageSource.gallery),
-              icon: const Icon(Icons.photo_library_outlined),
-              label: const Text('Galeriden Seç'),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: _processing ? null : _manualEntry,
-              child: const Text('Elle gir'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _confirm,
+                    child: const Text('Devam Et'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildResult() {
-    final dateStr = DateFormat('dd.MM.yyyy').format(_detectedDate!);
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: AppTheme.glassCard(accent: Colors.greenAccent),
-      child: Column(
-        children: [
-          const Icon(Icons.check_circle, color: Colors.greenAccent, size: 44),
-          const SizedBox(height: 10),
-          const Text('Tarih bulundu',
-              style: TextStyle(color: AppTheme.textSecondary)),
-          const SizedBox(height: 4),
-          Text(dateStr,
-              style: const TextStyle(
-                  fontSize: 26, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _confirm,
-            child: const Text('Devam Et'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNotFound() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: AppTheme.glassCard(accent: Colors.orangeAccent),
-      child: Column(
-        children: [
-          const Icon(Icons.error_outline,
-              color: Colors.orangeAccent, size: 40),
-          const SizedBox(height: 10),
-          const Text(
-            'Tarih okunamadı. Tekrar deneyin ya da elle girin.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: _manualEntry,
-            child: const Text('Elle Gir'),
-          ),
-        ],
       ),
     );
   }
