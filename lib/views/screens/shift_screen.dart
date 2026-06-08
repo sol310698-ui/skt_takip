@@ -82,7 +82,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
         outLongitude: pos?.longitude,
         photoOutPath: photo,
       );
-      await ref.read(shiftListProvider.notifier).update(updated);
+      await ref.read(shiftListProvider.notifier).updateShift(updated);
       ref.invalidate(openShiftProvider);
     } finally {
       if (mounted) setState(() => _busy = false);

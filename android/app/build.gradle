@@ -4,15 +4,20 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Sabit imza icin keystore bilgileri (CI'da Secret'tan gelir)
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+def hasKeystore = keystorePropertiesFile.exists()
+if (hasKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.example.skt_takip"
-    // ML Kit ve mobile_scanner için 34/35 önerilir
     compileSdk = 36
-    // NDK uyumsuzluğunu önlemek için sürümü sabitliyoruz
     ndkVersion = "28.2.13676358"
 
     compileOptions {
-        // flutter_local_notifications için zorunlu
         coreLibraryDesugaringEnabled true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -24,18 +29,28 @@ android {
 
     defaultConfig {
         applicationId = "com.example.skt_takip"
-        // ML Kit ve camera için minSdk 21+ gerekli
         minSdk = 21
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        // ML Kit native kütüphaneleri için
         multiDexEnabled = true
+    }
+
+    signingConfigs {
+        release {
+            if (hasKeystore) {
+                keyAlias = keystoreProperties['keyAlias']
+                keyPassword = keystoreProperties['keyPassword']
+                storeFile = file(keystoreProperties['storeFile'])
+                storePassword = keystoreProperties['storePassword']
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            // Keystore varsa sabit imza, yoksa debug (gelistirme)
+            signingConfig = hasKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = false
             shrinkResources = false
         }
@@ -47,6 +62,5 @@ flutter {
 }
 
 dependencies {
-    // core library desugaring (flutter_local_notifications gereği)
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.2"
 }

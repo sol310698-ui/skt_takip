@@ -155,7 +155,6 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   }
 
   Widget _tile(BarcodeEntry e) {
-  Widget _tile(BarcodeEntry e) {
     return Dismissible(
       key: ValueKey('bc_${e.id}_${e.barcode}'),
       direction: DismissDirection.endToStart,

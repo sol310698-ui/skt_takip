@@ -69,7 +69,7 @@ class ShiftListNotifier extends AsyncNotifier<List<ShiftEntry>> {
     return id;
   }
 
-  Future<void> update(ShiftEntry s) async {
+  Future<void> updateShift(ShiftEntry s) async {
     await _repo.updateShift(s);
     await refresh();
   }
