@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 /// Kayan pencere (bottom sheet) icinde calisan urun formu.
@@ -131,6 +132,17 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
 
     await NotificationService.instance
         .scheduleForProduct(product.copyWith(id: savedId));
+
+    // Barkod + ad varsa, barkod dizinine de yaz (Barkod Liste'de gorunsun).
+    if (product.barcode != null && product.name.isNotEmpty) {
+      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
+        BarcodeEntry(
+          barcode: product.barcode!,
+          productName: product.name,
+          importedAt: DateTime.now(),
+        ),
+      ]);
+    }
 
     if (mounted) Navigator.of(context).pop();
   }

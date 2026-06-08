@@ -10,7 +10,8 @@ import 'universal_scan_screen.dart';
 
 /// Barkod dizini liste ekrani (Excel'den import edilenler).
 class BarcodeListScreen extends ConsumerStatefulWidget {
-  const BarcodeListScreen({super.key});
+  final bool isActive;
+  const BarcodeListScreen({super.key, this.isActive = true});
 
   @override
   ConsumerState<BarcodeListScreen> createState() =>
@@ -27,6 +28,15 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(BarcodeListScreen old) {
+    super.didUpdateWidget(old);
+    // Sekmeye geri donulunce listeyi yenile.
+    if (widget.isActive && !old.isActive) {
+      _load();
+    }
   }
 
   @override

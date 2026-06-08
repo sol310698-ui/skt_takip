@@ -16,18 +16,15 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _index = 0;
 
-  final List<Widget> _pages = const [
-    HomeScreen(),
-    BarcodeListScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
-          ..._pages,
+          const HomeScreen(),
+          // Barkod liste sekmeye her donuste yenilensin.
+          BarcodeListScreen(isActive: _index == 1),
           // Reyon kontrol sadece secili oldugunda kamerayi calistirir.
           ShelfCheckScreen(isActive: _index == 2),
         ],
