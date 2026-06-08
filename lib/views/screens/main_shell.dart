@@ -47,23 +47,26 @@ class _MainShellState extends State<MainShell> {
           selectedIndex: _index,
           onDestinationSelected: (i) => setState(() => _index = i),
           backgroundColor: AppTheme.surface,
-          indicatorColor: AppTheme.primary.withOpacity(0.2),
-          height: 64,
+          indicatorColor: AppTheme.primary.withOpacity(0.25),
+          height: 68,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.event_note_outlined),
-              selectedIcon: Icon(Icons.event_note, color: AppTheme.primary),
+              selectedIcon:
+                  Icon(Icons.event_note_rounded, color: AppTheme.primaryLight),
               label: 'SKT Takip',
             ),
             NavigationDestination(
               icon: Icon(Icons.qr_code_2_outlined),
-              selectedIcon: Icon(Icons.qr_code_2, color: AppTheme.primary),
+              selectedIcon:
+                  Icon(Icons.qr_code_2_rounded, color: AppTheme.primaryLight),
               label: 'Barkod Liste',
             ),
             NavigationDestination(
               icon: Icon(Icons.price_check_outlined),
-              selectedIcon: Icon(Icons.price_check, color: AppTheme.primary),
+              selectedIcon:
+                  Icon(Icons.price_check_rounded, color: AppTheme.primaryLight),
               label: 'Reyon Kontrol',
             ),
           ],

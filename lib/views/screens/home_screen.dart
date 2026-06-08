@@ -48,16 +48,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 loading: () =>
                     const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Hata: $e')),
-                data: (_) {
-                  if (filtered.isEmpty) return _buildEmpty();
+                data: (products) {
+                  if (filtered.isEmpty && _searchCtrl.text.isEmpty) {
+                    return Column(children: [_buildStats(products), Expanded(child: _buildEmpty())]);
+                  }
                   return RefreshIndicator(
                     onRefresh: () =>
                         ref.read(productListProvider.notifier).refresh(),
                     child: ListView.builder(
-                      padding: const EdgeInsets.only(top: 8, bottom: 100),
-                      itemCount: filtered.length,
+                      padding: const EdgeInsets.only(top: 4, bottom: 100),
+                      itemCount: filtered.length + 1,
                       itemBuilder: (context, i) {
-                        final product = filtered[i];
+                        if (i == 0) return _buildStats(products);
+                        final product = filtered[i - 1];
                         return ProductCard(
                           product: product,
                           onDelete: () => _confirmDelete(product),
@@ -84,9 +87,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openScanner,
         backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.document_scanner_outlined),
-        label: const Text('SKT Tara'),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.document_scanner_rounded),
+        label: const Text('SKT Tara',
+            style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
@@ -181,6 +185,67 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStats(List<Product> products) {
+    final expired = products.where((p) => p.daysUntilExpiry < 0).length;
+    final critical = products
+        .where((p) =>
+            p.daysUntilExpiry >= 0 &&
+            p.daysUntilExpiry <= AppConstants.criticalDays)
+        .length;
+    final warning = products
+        .where((p) =>
+            p.daysUntilExpiry > AppConstants.criticalDays &&
+            p.daysUntilExpiry <= AppConstants.warningDays)
+        .length;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      child: Row(
+        children: [
+          _statCard('Doldu', expired, AppTheme.statusExpired,
+              Icons.dangerous_rounded),
+          const SizedBox(width: 10),
+          _statCard('Kritik', critical, AppTheme.statusCritical,
+              Icons.warning_rounded),
+          const SizedBox(width: 10),
+          _statCard('Yaklaşan', warning, AppTheme.statusWarning,
+              Icons.schedule_rounded),
+        ],
+      ),
+    );
+  }
+
+  Widget _statCard(String label, int count, Color color, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withOpacity(0.3), width: 1),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text('$count',
+                style: TextStyle(
+                    color: color,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    height: 1)),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
     );
   }

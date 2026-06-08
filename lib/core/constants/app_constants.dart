@@ -35,10 +35,10 @@ enum ExpiryStatus {
 
   Color get color {
     switch (this) {
-      case ExpiryStatus.expired:  return const Color(0xFFD32F2F);
-      case ExpiryStatus.critical: return const Color(0xFFF57C00);
-      case ExpiryStatus.warning:  return const Color(0xFFFBC02D);
-      case ExpiryStatus.safe:     return const Color(0xFF388E3C);
+      case ExpiryStatus.expired:  return const Color(0xFFFF5470);
+      case ExpiryStatus.critical: return const Color(0xFFFF8A3D);
+      case ExpiryStatus.warning:  return const Color(0xFFFFB627);
+      case ExpiryStatus.safe:     return const Color(0xFF00D9A3);
     }
   }
 }

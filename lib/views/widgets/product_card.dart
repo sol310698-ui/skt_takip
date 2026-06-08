@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
-import 'status_badge.dart';
 
-/// Tek bir urunu glass-style kart olarak gosterir.
+/// Urun karti - guclu hiyerarsi, belirgin SKT durumu.
 class ProductCard extends StatelessWidget {
   final Product product;
   final VoidCallback? onTap;
@@ -28,24 +28,22 @@ class ProductCard extends StatelessWidget {
     final days = product.daysUntilExpiry;
     final dateStr = DateFormat('dd.MM.yyyy').format(product.expiryDate);
 
-    final daysLabel = days < 0
-        ? '${-days} gün önce doldu'
-        : days == 0
-            ? 'Bugün doluyor'
-            : '$days gün kaldı';
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           onTap: onTap,
           child: Container(
-            decoration: AppTheme.glassCard(accent: status.color),
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+            decoration: AppTheme.card(accentColor: status.color),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
+                // Sol: gun sayaci rozeti (buyuk, vurgulu)
+                _dayCounter(status, days),
+                const SizedBox(width: 14),
+                // Orta: urun bilgileri
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -55,100 +53,173 @@ class ProductCard extends StatelessWidget {
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
+                          height: 1.2,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
-                          Icon(Icons.event,
-                              size: 13,
-                              color: AppTheme.textSecondary),
-                          const SizedBox(width: 4),
-                          Text(
-                            '$dateStr  ·  $daysLabel',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
+                          Icon(Icons.calendar_today_rounded,
+                              size: 12, color: AppTheme.textTertiary),
+                          const SizedBox(width: 5),
+                          Text(dateStr,
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w500)),
                         ],
                       ),
-                      if (product.quantity > 1 || product.category != null) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          [
+                      if (product.quantity > 1 ||
+                          product.category != null) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
                             if (product.quantity > 1)
-                              'Adet: ${product.quantity}',
-                            if (product.category != null) product.category!,
-                          ].join('  ·  '),
-                          style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondary),
+                              _chip('${product.quantity} adet',
+                                  Icons.inventory_2_rounded),
+                            if (product.category != null)
+                              _chip(product.category!,
+                                  Icons.category_rounded),
+                          ],
                         ),
                       ],
-                      const SizedBox(height: 8),
-                      StatusBadge(status: status),
                     ],
                   ),
                 ),
-                // Islem menusu
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert,
-                      color: AppTheme.textSecondary),
-                  color: AppTheme.surfaceAlt,
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(children: [
-                        Icon(Icons.edit_outlined, size: 18),
-                        SizedBox(width: 8),
-                        Text('Düzenle'),
-                      ]),
-                    ),
-                    if (product.barcode != null)
-                      const PopupMenuItem(
-                        value: 'search',
-                        child: Row(children: [
-                          Icon(Icons.search, size: 18, color: AppTheme.primary),
-                          SizedBox(width: 8),
-                          Text("Google'da Ara",
-                              style: TextStyle(color: AppTheme.primary)),
-                        ]),
-                      ),
-                    const PopupMenuItem(
-                      value: 'dispose',
-                      child: Row(children: [
-                        Icon(Icons.delete_sweep_outlined,
-                            size: 18, color: Colors.orange),
-                        SizedBox(width: 8),
-                        Text('İmha / İade',
-                            style: TextStyle(color: Colors.orange)),
-                      ]),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(children: [
-                        Icon(Icons.delete_outline,
-                            size: 18, color: Colors.red),
-                        SizedBox(width: 8),
-                        Text('Sil', style: TextStyle(color: Colors.red)),
-                      ]),
-                    ),
-                  ],
-                  onSelected: (value) {
-                    if (value == 'edit') onTap?.call();
-                    if (value == 'dispose') onDispose?.call();
-                    if (value == 'delete') onDelete?.call();
-                    if (value == 'search') onSearch?.call();
-                  },
-                ),
+                // Sag: menu
+                _menu(),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// Buyuk gun sayaci rozeti.
+  Widget _dayCounter(ExpiryStatus status, int days) {
+    final color = status.color;
+    final String big;
+    final String small;
+    if (days < 0) {
+      big = '${-days}';
+      small = 'gün geçti';
+    } else if (days == 0) {
+      big = '!';
+      small = 'bugün';
+    } else {
+      big = '$days';
+      small = 'gün';
+    }
+
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.25), color.withOpacity(0.08)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.4), width: 1.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(big,
+              style: TextStyle(
+                  color: color,
+                  fontSize: days < 0 || days > 99 ? 20 : 24,
+                  fontWeight: FontWeight.w900,
+                  height: 1)),
+          Text(small,
+              style: TextStyle(
+                  color: color.withOpacity(0.9),
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: AppTheme.textTertiary),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _menu() {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert_rounded, color: AppTheme.textTertiary),
+      color: AppTheme.surfaceHigh,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'edit',
+          child: Row(children: [
+            Icon(Icons.edit_rounded, size: 18),
+            SizedBox(width: 10),
+            Text('Düzenle'),
+          ]),
+        ),
+        if (product.barcode != null)
+          const PopupMenuItem(
+            value: 'search',
+            child: Row(children: [
+              Icon(Icons.search_rounded, size: 18, color: AppTheme.accent),
+              SizedBox(width: 10),
+              Text("Google'da Ara",
+                  style: TextStyle(color: AppTheme.accent)),
+            ]),
+          ),
+        const PopupMenuItem(
+          value: 'dispose',
+          child: Row(children: [
+            Icon(Icons.delete_sweep_rounded,
+                size: 18, color: AppTheme.statusWarning),
+            SizedBox(width: 10),
+            Text('İmha / İade',
+                style: TextStyle(color: AppTheme.statusWarning)),
+          ]),
+        ),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Row(children: [
+            Icon(Icons.delete_outline_rounded,
+                size: 18, color: AppTheme.statusExpired),
+            SizedBox(width: 10),
+            Text('Sil', style: TextStyle(color: AppTheme.statusExpired)),
+          ]),
+        ),
+      ],
+      onSelected: (value) {
+        if (value == 'edit') onTap?.call();
+        if (value == 'dispose') onDispose?.call();
+        if (value == 'delete') onDelete?.call();
+        if (value == 'search') onSearch?.call();
+      },
     );
   }
 }
