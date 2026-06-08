@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/services/database_service.dart';
 import '../data/datasources/barcode_directory_datasource.dart';
 import '../data/datasources/product_local_datasource.dart';
+import '../data/datasources/shift_local_datasource.dart';
 import '../data/models/product.dart';
+import '../data/models/shift_entry.dart';
 import '../data/repositories/barcode_directory_repository.dart';
 import '../data/repositories/product_repository.dart';
+import '../data/repositories/shift_repository.dart';
 
 // ─── DI Providers ────────────────────────────────────────────────────────────
 
@@ -31,6 +34,57 @@ final barcodeDirectoryRepositoryProvider =
     Provider<BarcodeDirectoryRepository>((ref) {
   return BarcodeDirectoryRepository(
       ref.watch(barcodeDirectoryDataSourceProvider));
+});
+
+final shiftLocalDataSourceProvider = Provider<ShiftLocalDataSource>((ref) {
+  return ShiftLocalDataSource(ref.watch(databaseServiceProvider));
+});
+
+final shiftRepositoryProvider = Provider<ShiftRepository>((ref) {
+  return ShiftRepository(ref.watch(shiftLocalDataSourceProvider));
+});
+
+/// Mesai listesi + acik vardiya durumu.
+final shiftListProvider =
+    AsyncNotifierProvider<ShiftListNotifier, List<ShiftEntry>>(
+  ShiftListNotifier.new,
+);
+
+class ShiftListNotifier extends AsyncNotifier<List<ShiftEntry>> {
+  ShiftRepository get _repo => ref.read(shiftRepositoryProvider);
+
+  @override
+  Future<List<ShiftEntry>> build() async {
+    return _repo.getShifts();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(_repo.getShifts);
+  }
+
+  Future<int> add(ShiftEntry s) async {
+    final id = await _repo.addShift(s);
+    await refresh();
+    return id;
+  }
+
+  Future<void> update(ShiftEntry s) async {
+    await _repo.updateShift(s);
+    await refresh();
+  }
+
+  Future<void> remove(int id) async {
+    await _repo.deleteShift(id);
+    await refresh();
+  }
+}
+
+/// Acik (devam eden) vardiya - null ise mesaide degil.
+final openShiftProvider = FutureProvider<ShiftEntry?>((ref) {
+  // shiftList degisince bu da yenilensin
+  ref.watch(shiftListProvider);
+  return ref.read(shiftRepositoryProvider).getOpenShift();
 });
 
 // ─── UI State Providers ───────────────────────────────────────────────────────

@@ -155,25 +155,112 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   }
 
   Widget _tile(BarcodeEntry e) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
+  Widget _tile(BarcodeEntry e) {
+    return Dismissible(
+      key: ValueKey('bc_${e.id}_${e.barcode}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceAlt,
-          borderRadius: BorderRadius.circular(10),
+          color: AppTheme.statusExpired,
+          borderRadius: BorderRadius.circular(0),
         ),
-        child: const Icon(Icons.qr_code, color: AppTheme.primary, size: 22),
+        child: const Icon(Icons.delete_rounded,
+            color: Colors.white, size: 26),
       ),
-      title: Text(e.productName,
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(e.barcode,
-          style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              color: AppTheme.textSecondary)),
-      trailing: GoogleSearchButton(query: e.barcode, compact: true),
+      confirmDismiss: (_) => _confirmDelete(e),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child:
+              const Icon(Icons.qr_code, color: AppTheme.primary, size: 22),
+        ),
+        title: Text(e.productName,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(e.barcode,
+            style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: AppTheme.textSecondary)),
+        trailing: GoogleSearchButton(query: e.barcode, compact: true),
+      ),
     );
+  }
+
+  /// Silme onayi. Benzer barkod/ayni ad varsa ozel uyari gosterir.
+  Future<bool> _confirmDelete(BarcodeEntry e) async {
+    final similar = await ref
+        .read(barcodeDirectoryRepositoryProvider)
+        .countSimilar(
+          excludeId: e.id ?? -1,
+          productName: e.productName,
+          barcode: e.barcode,
+        );
+
+    if (!mounted) return false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Barkodu Sil'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('"${e.productName}"\n${e.barcode}'),
+            if (similar > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.statusWarning.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: AppTheme.statusWarning, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bu ürünle aynı ad veya benzer barkoda sahip $similar kayıt daha var.',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusExpired),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true && e.id != null) {
+      await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .deleteById(e.id!);
+      await _load();
+      return true;
+    }
+    return false;
   }
 
   Widget _buildEmpty() {

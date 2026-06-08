@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
+    <!-- Konum (mesai giris/cikis kaydi) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- Bildirimler (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Tam zamanlı alarm (zonedSchedule exact) -->

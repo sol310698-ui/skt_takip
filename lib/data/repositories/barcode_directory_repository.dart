@@ -13,4 +13,15 @@ class BarcodeDirectoryRepository {
   Future<List<BarcodeEntry>> getAll() => _local.getAll();
   Future<int> count() => _local.count();
   Future<void> clearAll() => _local.clearAll();
+  Future<void> deleteById(int id) => _local.deleteById(id);
+  Future<int> countSimilar({
+    required int excludeId,
+    required String productName,
+    required String barcode,
+  }) =>
+      _local.countSimilar(
+        excludeId: excludeId,
+        productName: productName,
+        barcode: barcode,
+      );
 }

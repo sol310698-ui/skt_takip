@@ -58,4 +58,35 @@ class BarcodeDirectoryDataSource {
     final db = await _dbService.database;
     await db.delete(AppConstants.barcodeTable);
   }
+
+  /// Tekil kayit sil (id ile).
+  Future<void> deleteById(int id) async {
+    final db = await _dbService.database;
+    await db.delete(
+      AppConstants.barcodeTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Ayni urun adi VEYA benzer barkod sayisi (silme uyarisi icin).
+  /// Verilen kaydin disindaki eslesmeleri sayar.
+  Future<int> countSimilar({
+    required int excludeId,
+    required String productName,
+    required String barcode,
+  }) async {
+    final db = await _dbService.database;
+    // Ayni ad VEYA ilk 8 hanesi ayni barkod (ayni urun ailesi)
+    final prefix =
+        barcode.length >= 8 ? barcode.substring(0, 8) : barcode;
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) as c FROM ${AppConstants.barcodeTable}
+      WHERE id != ? AND (product_name = ? OR barcode LIKE ?)
+      ''',
+      [excludeId, productName, '$prefix%'],
+    );
+    return (result.first['c'] as int?) ?? 0;
+  }
 }

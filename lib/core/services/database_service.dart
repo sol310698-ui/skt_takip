@@ -29,6 +29,7 @@ class DatabaseService {
   Future<void> _onCreate(Database db, int version) async {
     await _createProductsTable(db);
     await _createBarcodeTable(db);
+    await _createShiftTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -46,6 +47,9 @@ class DatabaseService {
       );
       // Barkod dizini tablosu olustur.
       await _createBarcodeTable(db);
+    }
+    if (oldVersion < 3) {
+      await _createShiftTable(db);
     }
   }
 
@@ -83,6 +87,26 @@ class DatabaseService {
     ''');
     await db.execute(
       'CREATE INDEX idx_barcode ON ${AppConstants.barcodeTable} (barcode)',
+    );
+  }
+
+  Future<void> _createShiftTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE ${AppConstants.shiftTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clock_in INTEGER NOT NULL,
+        clock_out INTEGER,
+        in_lat REAL,
+        in_lng REAL,
+        out_lat REAL,
+        out_lng REAL,
+        photo_in TEXT,
+        photo_out TEXT,
+        note TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_clockin ON ${AppConstants.shiftTable} (clock_in)',
     );
   }
 

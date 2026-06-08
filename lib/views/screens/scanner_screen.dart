@@ -3,15 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:intl/intl.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
 
 /// Canli SKT tarama. Karasizlik cozumu:
-/// - Widget'i acip kapamak yerine hep acik tut (kamera cakismasi olmasin)
+/// - Acilista once kamera iznini al + kisa isitma gecikmesi (kasma fix)
 /// - Her yeni taramada ValueKey degistir (eski veri/state sifirlanir)
 /// - Throttle (buffer dolmasin)
-/// - _done iken islemeyi durdur ama kamerayi yok etme
+/// - Cift dogrulama (yanlis pozitif/eski veri azalt)
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
 
@@ -23,16 +24,37 @@ class _ScannerScreenState extends State<ScannerScreen> {
   // Her sifirlamada degisir -> ScalableOCR tamamen yeniden kurulur (stale fix)
   int _scanSession = 0;
 
+  bool _ready = false; // izin + isitma tamam mi
+  bool _denied = false;
+
   DateTime? _detected;
   bool _done = false;
 
-  // En son okunan ham metin - tarih bu turda mi okundu kontrolu icin
   DateTime _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
   static const _throttleMs = 600;
 
-  // Ayni tarihi ust uste dogrulama: 2 kez ayni cikinca kabul et (yanlis pozitif azalt)
   DateTime? _pendingDate;
   int _pendingCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prepare();
+  }
+
+  /// Kamera iznini al, kisa bekle (donanim hazirlansin), sonra OCR'i kur.
+  /// Bu adim, mobile_scanner'in yaptigi "isitma"yi taklit eder.
+  Future<void> _prepare() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (!status.isGranted) {
+      setState(() => _denied = true);
+      return;
+    }
+    // Kamera donanimi hazirlanmasi icin kisa gecikme (kasma onler).
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (mounted) setState(() => _ready = true);
+  }
 
   @override
   void dispose() {
@@ -91,28 +113,80 @@ class _ScannerScreenState extends State<ScannerScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Kamera hep acik. _done iken sadece islemiyoruz.
-          // ValueKey ile her session'da temiz kurulum.
-          Center(
-            child: ScalableOCR(
-              key: ValueKey('ocr_$_scanSession'),
-              paintboxCustom: Paint()
-                ..style = PaintingStyle.stroke
-                ..strokeWidth = 4.0
-                ..color = _done
-                    ? AppTheme.statusSafe
-                    : AppTheme.primary,
-              boxLeftOff: 4,
-              boxBottomOff: 2.8,
-              boxRightOff: 4,
-              boxTopOff: 2.8,
-              boxHeight: MediaQuery.of(context).size.height / 3.5,
-              getScannedText: _onScannedText,
+          // Izin reddedildiyse uyari
+          if (_denied)
+            _buildDenied()
+          // Hazir degilse yukleniyor
+          else if (!_ready)
+            const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: AppTheme.primary),
+                  SizedBox(height: 12),
+                  Text('Kamera hazırlanıyor...',
+                      style: TextStyle(color: Colors.white70)),
+                ],
+              ),
+            )
+          // Hazir: OCR kamerasi
+          else
+            Center(
+              child: ScalableOCR(
+                key: ValueKey('ocr_$_scanSession'),
+                paintboxCustom: Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 4.0
+                  ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
+                boxLeftOff: 4,
+                boxBottomOff: 2.8,
+                boxRightOff: 4,
+                boxTopOff: 2.8,
+                boxHeight: MediaQuery.of(context).size.height / 3.5,
+                getScannedText: _onScannedText,
+              ),
             ),
-          ),
-          _buildHint(),
+          if (_ready && !_denied) _buildHint(),
           if (_done) _buildResultSheet(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDenied() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.no_photography_rounded,
+                color: Colors.white54, size: 56),
+            const SizedBox(height: 16),
+            const Text('Kamera izni gerekli',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            const Text(
+              'SKT taramak için kamera iznine ihtiyaç var. Ayarlardan izin verebilirsiniz.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () => openAppSettings(),
+              child: const Text('Ayarları Aç'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _manual,
+              child: const Text('Elle Gir',
+                  style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        ),
       ),
     );
   }

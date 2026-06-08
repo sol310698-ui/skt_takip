@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'shelf_check_screen.dart';
+import 'shift_screen.dart';
 
 /// Alt navigasyon barli ana kabuk.
 class MainShell extends StatefulWidget {
@@ -27,6 +28,7 @@ class _MainShellState extends State<MainShell> {
           BarcodeListScreen(isActive: _index == 1),
           // Reyon kontrol sadece secili oldugunda kamerayi calistirir.
           ShelfCheckScreen(isActive: _index == 2),
+          const ShiftScreen(),
         ],
       ),
       bottomNavigationBar: Container(
@@ -65,6 +67,12 @@ class _MainShellState extends State<MainShell> {
               selectedIcon:
                   Icon(Icons.price_check_rounded, color: AppTheme.primaryLight),
               label: 'Reyon Kontrol',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.access_time_outlined),
+              selectedIcon:
+                  Icon(Icons.access_time_filled_rounded, color: AppTheme.primaryLight),
+              label: 'Mesai',
             ),
           ],
         ),

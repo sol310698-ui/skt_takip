@@ -369,6 +369,7 @@ class BarcodeScanPage extends StatefulWidget {
 class _BarcodeScanPageState extends State<BarcodeScanPage> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.ean13],
   );
   bool _handled = false;
 
