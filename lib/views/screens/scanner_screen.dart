@@ -52,6 +52,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
     super.dispose();
   }
 
+  // Son karelerin metinlerini biriktir (coklu kare oylamasi icin)
+  final List<String> _recentTexts = [];
+  static const _maxRecentTexts = 4;
+
   void _onScannedText(String value) {
     if (_done) return;
 
@@ -59,23 +63,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (now.difference(_lastProcess).inMilliseconds < _throttleMs) return;
     _lastProcess = now;
 
-    final date = du.DateUtils.parseFromOcr(value);
-    if (date == null) return;
+    if (value.trim().isEmpty) return;
 
-    // Ayni tarih 2 kez ust uste okunursa kabul et (kararlilik).
-    if (_pendingDate != null && _pendingDate!.isAtSameMomentAs(date)) {
+    // Son kareleri biriktir.
+    _recentTexts.add(value);
+    if (_recentTexts.length > _maxRecentTexts) {
+      _recentTexts.removeAt(0);
+    }
+
+    // Once tek karede guclu bir aday var mi bak (hizli yakalama).
+    final single = du.DateUtils.parseAllCandidates(value);
+    if (single.isNotEmpty && single.first.score >= 80) {
+      // Yuksek guvenli tek okuma - hemen kabul (cift dogrulamaya gerek yok).
+      _accept(single.first.date);
+      return;
+    }
+
+    // Coklu kareden oylama (tek kare zayifsa birikimle karar ver).
+    final voted = du.DateUtils.parseFromMultiple(_recentTexts);
+    if (voted == null) return;
+
+    // Oylanan tarih son 2 karede tutarli mi?
+    if (_pendingDate != null && _pendingDate!.isAtSameMomentAs(voted)) {
       _pendingCount++;
     } else {
-      _pendingDate = date;
+      _pendingDate = voted;
       _pendingCount = 1;
     }
-
     if (_pendingCount >= 2) {
-      setState(() {
-        _detected = date;
-        _done = true;
-      });
+      _accept(voted);
     }
+  }
+
+  void _accept(DateTime date) {
+    setState(() {
+      _detected = date;
+      _done = true;
+    });
   }
 
   void _confirm() => Navigator.of(context).pop(_detected);
@@ -91,15 +115,21 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
-  void _retry() {
+  Future<void> _retry() async {
+    // Kamerayi tamamen kapat, kisa bekle, temiz yeniden kur.
     setState(() {
       _detected = null;
       _done = false;
       _pendingDate = null;
       _pendingCount = 0;
       _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
+      _recentTexts.clear(); // eski kare metinlerini temizle
+      _ready = false; // kamerayi kaldir (gri kalmayi onler)
       _scanSession++; // ScalableOCR'i tamamen sifirla (eski veri temizlenir)
     });
+    // Kamera donaniminin serbest kalmasi icin bekle, sonra yeniden kur.
+    await Future.delayed(const Duration(milliseconds: 350));
+    if (mounted) setState(() => _ready = true);
   }
 
   @override
@@ -136,11 +166,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   ..style = PaintingStyle.stroke
                   ..strokeWidth = 4.0
                   ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
-                boxLeftOff: 4,
-                boxBottomOff: 2.8,
-                boxRightOff: 4,
-                boxTopOff: 2.8,
-                boxHeight: MediaQuery.of(context).size.height / 3.5,
+                boxLeftOff: 5,
+                boxBottomOff: 2.5,
+                boxRightOff: 5,
+                boxTopOff: 2.5,
+                boxHeight: MediaQuery.of(context).size.height / 3,
                 getScannedText: _onScannedText,
               ),
             ),
