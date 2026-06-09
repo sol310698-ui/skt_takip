@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -99,13 +100,27 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _confirm() => Navigator.of(context).pop(_detected);
   void _manual() => Navigator.of(context).pop(DateTime(1900));
 
-  /// Hassas (foto-cek + on isleme) moda gec. Sonuc gelirse onu dondur.
+  /// Detayli (foto-cek + on isleme) moda gec. Sonuc gelirse onu dondur.
   Future<void> _openPrecise() async {
     final result = await Navigator.of(context).push<DateTime>(
       MaterialPageRoute(builder: (_) => const PreciseScanScreen()),
     );
     if (result != null && mounted) {
       Navigator.of(context).pop(result);
+    }
+  }
+
+  /// AI ile oku - 3. kademe. Su an arayuz hazir, baglanti sonra kurulacak.
+  /// Fotograf cekilir, "AI'a gonderiliyor" akisi gosterilir (placeholder).
+  Future<void> _openAi() async {
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _AiScanSheet(),
+    );
+    if (picked != null && mounted) {
+      Navigator.of(context).pop(picked);
     }
   }
 
@@ -167,6 +182,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ),
             ),
           if (_ready) _buildHint(),
+          if (_ready && !_done) _buildActionBar(),
           if (_done) _buildResultSheet(),
         ],
       ),
@@ -176,51 +192,98 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Widget _buildHint() {
     if (_done) return const SizedBox.shrink();
     return Positioned(
-      top: MediaQuery.of(context).size.height * 0.16,
+      top: MediaQuery.of(context).size.height * 0.14,
       left: 0,
       right: 0,
-      child: Column(
-        children: [
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            margin: const EdgeInsets.symmetric(horizontal: 40),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.92),
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: const Text(
-              'Son kullanma tarihini çerçeveye getirin',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15),
-            ),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          margin: const EdgeInsets.symmetric(horizontal: 40),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withOpacity(0.92),
+            borderRadius: BorderRadius.circular(22),
           ),
-          const SizedBox(height: 10),
-          // Zor etiket icin hassas (foto-cek) moda gec
-          FilledButton.icon(
-            onPressed: _openPrecise,
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.15),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            ),
-            icon: const Icon(Icons.center_focus_strong_rounded,
-                color: Colors.white, size: 18),
-            label: const Text('Zor okunuyor? Hassas Tara',
-                style: TextStyle(color: Colors.white)),
+          child: const Text(
+            'Son kullanma tarihini çerçeveye getirin',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 15),
           ),
-          const SizedBox(height: 6),
-          TextButton.icon(
-            onPressed: _manual,
-            icon: const Icon(Icons.keyboard_rounded,
-                color: Colors.white70, size: 18),
-            label: const Text('Elle gir',
-                style: TextStyle(color: Colors.white70)),
+        ),
+      ),
+    );
+  }
+
+  /// Alt sabit aksiyon cubugu: kademeli tarama secenekleri (manuel gecis).
+  Widget _buildActionBar() {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Otomatik okumuyor mu?',
+                style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  // 2. kademe: detayli tarama (foto-cek + on isleme)
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _openPrecise,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      icon: const Icon(Icons.center_focus_strong_rounded,
+                          size: 18),
+                      label: const Text('Detaylı Tara',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // 3. kademe: AI ile oku
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _openAi,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.accent.withOpacity(0.2),
+                        foregroundColor: AppTheme.accent,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                      label: const Text('AI ile Oku',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: _manual,
+                icon: const Icon(Icons.keyboard_rounded,
+                    color: AppTheme.textSecondary, size: 18),
+                label: const Text('Elle gir',
+                    style: TextStyle(color: AppTheme.textSecondary)),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -273,5 +336,267 @@ class _ScannerScreenState extends State<ScannerScreen> {
         ),
       ),
     );
+  }
+}
+
+/// 3. kademe: "AI ile Oku" kayan penceresi.
+/// Su an arayuz hazir; gercek AI cagrisi henuz baglanmadi.
+/// Akis: fotograf cek -> "AI'a gonderiliyor" gorunumu -> (placeholder)
+/// sonuc / elle giris. AI baglaninca sadece _sendToAi doldurulacak.
+enum _AiState { idle, captured, sending, done, failed }
+
+class _AiScanSheet extends StatefulWidget {
+  const _AiScanSheet();
+
+  @override
+  State<_AiScanSheet> createState() => _AiScanSheetState();
+}
+
+class _AiScanSheetState extends State<_AiScanSheet> {
+  _AiState _state = _AiState.idle;
+  String? _photoPath;
+  DateTime? _result;
+  String _message = '';
+
+  Future<void> _capture() async {
+    try {
+      final photo = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        imageQuality: 100,
+      );
+      if (photo == null) return;
+      setState(() {
+        _photoPath = photo.path;
+        _state = _AiState.captured;
+      });
+    } catch (e) {
+      setState(() {
+        _state = _AiState.failed;
+        _message = 'Fotoğraf alınamadı: $e';
+      });
+    }
+  }
+
+  /// AI'a gonderme - PLACEHOLDER.
+  /// TODO(ai): Burada cekilen fotograf (_photoPath) AI servisine gonderilip
+  /// donen tarih _result'a yazilacak. Su an baglanti yok.
+  Future<void> _sendToAi() async {
+    if (_photoPath == null) return;
+    setState(() {
+      _state = _AiState.sending;
+      _message = '';
+    });
+
+    // Simulasyon: kisa bir bekleme, ardindan "henuz baglanmadi" durumu.
+    await Future.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+
+    // AI baglanti kurulmadigi icin simdilik basarisiz dur.
+    setState(() {
+      _state = _AiState.failed;
+      _message =
+          'AI okuma yakında aktif olacak. Şimdilik "Detaylı Tara" veya '
+          'elle giriş kullanabilirsiniz.';
+    });
+  }
+
+  void _confirm() {
+    if (_result != null) Navigator.of(context).pop(_result);
+  }
+
+  void _manual() => Navigator.of(context).pop(DateTime(1900));
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 150),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: AppTheme.textSecondary.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.auto_awesome_rounded,
+                      color: AppTheme.accent, size: 26),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('AI ile Tarih Oku',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _buildBody(),
+            const SizedBox(height: 20),
+            _buildActions(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    switch (_state) {
+      case _AiState.idle:
+        return const Text(
+          'Tarihi net çerçeveleyip fotoğraflayın. Görüntü AI ile '
+          'okunacak (yakında).',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+        );
+      case _AiState.captured:
+        return Column(
+          children: [
+            const Icon(Icons.check_circle_rounded,
+                color: AppTheme.statusSafe, size: 40),
+            const SizedBox(height: 8),
+            const Text('Fotoğraf hazır. AI\'a göndermek için dokunun.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ],
+        );
+      case _AiState.sending:
+        return const Column(
+          children: [
+            CircularProgressIndicator(color: AppTheme.accent),
+            SizedBox(height: 12),
+            Text('AI\'a gönderiliyor...',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ],
+        );
+      case _AiState.done:
+        final s = _result != null
+            ? DateFormat('dd.MM.yyyy').format(_result!)
+            : '-';
+        return Column(
+          children: [
+            const Text('AI Sonucu',
+                style: TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 13)),
+            const SizedBox(height: 4),
+            Text(s,
+                style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: AppTheme.statusSafe)),
+          ],
+        );
+      case _AiState.failed:
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.statusWarning.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline_rounded,
+                  color: AppTheme.statusWarning, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _message.isEmpty ? 'İşlem tamamlanamadı.' : _message,
+                  style: const TextStyle(
+                      color: AppTheme.statusWarning, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        );
+    }
+  }
+
+  Widget _buildActions() {
+    switch (_state) {
+      case _AiState.idle:
+        return FilledButton.icon(
+          onPressed: _capture,
+          style: FilledButton.styleFrom(backgroundColor: AppTheme.accent),
+          icon: const Icon(Icons.camera_alt_rounded),
+          label: const Text('Fotoğraf Çek'),
+        );
+      case _AiState.captured:
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _capture,
+                child: const Text('Tekrar Çek'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _sendToAi,
+                style:
+                    FilledButton.styleFrom(backgroundColor: AppTheme.accent),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('AI\'a Gönder'),
+              ),
+            ),
+          ],
+        );
+      case _AiState.sending:
+        return const SizedBox.shrink();
+      case _AiState.done:
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _capture,
+                child: const Text('Tekrar Çek'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: _confirm,
+                child: const Text('Kullan'),
+              ),
+            ),
+          ],
+        );
+      case _AiState.failed:
+        return Column(
+          children: [
+            FilledButton.icon(
+              onPressed: _capture,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Tekrar Dene'),
+            ),
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: _manual,
+              icon: const Icon(Icons.keyboard_rounded, size: 18),
+              label: const Text('Elle Gir'),
+            ),
+          ],
+        );
+    }
   }
 }
