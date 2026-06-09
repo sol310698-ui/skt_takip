@@ -13,8 +13,10 @@ Future<void> main() async {
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
   ));
-  await NotificationService.instance.init();
+  // Uygulamayi hemen baslat. Bildirim init'i arka planda, bloke etmeden.
   runApp(const ProviderScope(child: SktTakipApp()));
+  // Bildirimleri arka planda baslat (hata olsa bile uygulama acik kalir).
+  NotificationService.instance.init();
 }
 
 class SktTakipApp extends StatelessWidget {

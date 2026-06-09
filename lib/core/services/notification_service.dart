@@ -16,21 +16,26 @@ class NotificationService {
 
   Future<void> init() async {
     if (_initialized) return;
-    tz.initializeTimeZones();
+    try {
+      tz.initializeTimeZones();
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
+      const androidSettings =
+          AndroidInitializationSettings('@drawable/ic_launcher');
+      const initSettings = InitializationSettings(android: androidSettings);
 
-    await _plugin.initialize(initSettings);
+      await _plugin.initialize(initSettings);
 
-    // Android 13+ bildirim izni.
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+      // Android 13+ bildirim izni.
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
 
-    _initialized = true;
+      _initialized = true;
+    } catch (e) {
+      // Bildirim baslatma basarisiz olsa bile uygulama acilmali.
+      _initialized = false;
+    }
   }
 
   /// Bir ürün için eşik günlerinde bildirim planlar.
