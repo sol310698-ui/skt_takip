@@ -4,9 +4,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
 import '../../viewmodels/providers.dart';
+import 'shift_detail_screen.dart';
 
 /// Mesai takip ekrani - tek dokunus giris/cikis, konum + foto.
 class ShiftScreen extends ConsumerStatefulWidget {
@@ -107,10 +109,35 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                 error: (e, _) => Center(child: Text('Hata: $e')),
                 data: (list) {
                   if (list.isEmpty) return _buildEmpty();
-                  return ListView.builder(
-                    padding: const EdgeInsets.only(top: 8, bottom: 90),
-                    itemCount: list.length,
-                    itemBuilder: (_, i) => _shiftCard(list[i]),
+                  return Column(
+                    children: [
+                      // Disa aktar cubugu
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: Row(
+                          children: [
+                            Text('${list.length} kayıt',
+                                style: const TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            OutlinedButton.icon(
+                              onPressed: () => _showExportMenu(list),
+                              icon: const Icon(Icons.ios_share_rounded,
+                                  size: 18),
+                              label: const Text('Dışa Aktar'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(top: 4, bottom: 90),
+                          itemCount: list.length,
+                          itemBuilder: (_, i) => _shiftCard(list[i]),
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -199,6 +226,61 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
     );
   }
 
+  /// Disa aktarma secenekleri (Excel / Metin).
+  void _showExportMenu(List<ShiftEntry> list) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.textTertiary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.table_chart_rounded,
+                  color: AppTheme.statusSafe),
+              title: const Text('Excel olarak'),
+              subtitle: const Text('Tüm mesailer tablo halinde'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await ShiftExportService.instance.exportExcel(list);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.description_rounded,
+                  color: AppTheme.primary),
+              title: const Text('Metin özet'),
+              subtitle: const Text('Paylaşılabilir özet'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await ShiftExportService.instance.exportText(list);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openDetail(ShiftEntry s) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ShiftDetailScreen(shift: s),
+    ));
+  }
+
   Widget _buildEmpty() {
     return const Center(
       child: Column(
@@ -226,16 +308,21 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Container(
-        decoration: AppTheme.card(
-            accentColor: s.isOpen ? AppTheme.statusSafe : null),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _openDetail(s),
+          child: Container(
+            decoration: AppTheme.card(
+                accentColor: s.isOpen ? AppTheme.statusSafe : null),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(dateStr,
+                Row(
+                  children: [
+                    Text(dateStr,
                     style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 15)),
                 const Spacer(),
@@ -270,7 +357,9 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                     s.outLatitude != null, s.photoOutPath != null),
               ],
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
