@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/ui_kit.dart';
 
 /// Imha ve iade gecmisi ekrani (son 90 gun).
 class HistoryScreen extends ConsumerWidget {
@@ -17,24 +18,15 @@ class HistoryScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('İmha & İade Geçmişi')),
       body: historyAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Hata: $e')),
+        loading: () => const LoadingState(),
+        error: (e, _) =>
+            const ErrorStateView(message: 'Geçmiş yüklenemedi'),
         data: (list) {
           if (list.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history, size: 64, color: AppTheme.textSecondary),
-                  SizedBox(height: 12),
-                  Text('Geçmiş kaydı yok',
-                      style: TextStyle(color: AppTheme.textSecondary)),
-                  SizedBox(height: 4),
-                  Text('Son 90 günlük kayıtlar burada görünür',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 13)),
-                ],
-              ),
+            return const EmptyState(
+              icon: Icons.history_rounded,
+              title: 'Geçmiş kaydı yok',
+              subtitle: 'Son 90 günlük imha ve iade kayıtları burada görünür',
             );
           }
           return ListView.builder(

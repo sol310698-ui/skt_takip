@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
 import 'import_screen.dart';
 import 'universal_scan_screen.dart';
@@ -77,7 +78,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             _buildHeader(),
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const LoadingState()
                   : _all.isEmpty
                       ? _buildEmpty()
                       : RefreshIndicator(
@@ -272,30 +273,18 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   }
 
   Widget _buildEmpty() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.qr_code_2,
-              size: 64, color: AppTheme.textSecondary),
-          const SizedBox(height: 12),
-          const Text('Barkod listesi boş',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
-          const SizedBox(height: 4),
-          const Text('Excel ile barkod listesi yükleyin',
-              style: TextStyle(
-                  color: AppTheme.textSecondary, fontSize: 13)),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () async {
-              await Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const ImportScreen()));
-              _load();
-            },
-            icon: const Icon(Icons.upload_file),
-            label: const Text('Excel Yükle'),
-          ),
-        ],
+    return EmptyState(
+      icon: Icons.qr_code_2_rounded,
+      title: 'Barkod listesi boş',
+      subtitle: 'Excel ile barkod listesi yükleyin veya tarayarak ekleyin',
+      action: FilledButton.icon(
+        onPressed: () async {
+          await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const ImportScreen()));
+          _load();
+        },
+        icon: const Icon(Icons.upload_file),
+        label: const Text('Excel Yükle'),
       ),
     );
   }

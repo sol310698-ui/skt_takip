@@ -8,6 +8,7 @@ import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/ui_kit.dart';
 import 'shift_detail_screen.dart';
 
 /// Mesai takip ekrani - tek dokunus giris/cikis, konum + foto.
@@ -112,9 +113,12 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             _buildHeader(openAsync.valueOrNull),
             Expanded(
               child: shiftsAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Hata: $e')),
+                loading: () => const LoadingState(),
+                error: (e, _) => ErrorStateView(
+                  message: 'Mesai kayıtları yüklenemedi',
+                  onRetry: () =>
+                      ref.read(shiftListProvider.notifier).refresh(),
+                ),
                 data: (list) {
                   if (list.isEmpty) return _buildEmpty();
                   return Column(
@@ -290,21 +294,11 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   }
 
   Widget _buildEmpty() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.access_time_rounded,
-              size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 12),
-          Text('Henüz mesai kaydı yok',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 16)),
-          SizedBox(height: 4),
-          Text('Giriş Yap butonuyla başlayın',
-              style:
-                  TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.access_time_rounded,
+      iconColor: AppTheme.accent,
+      title: 'Henüz mesai kaydı yok',
+      subtitle: 'Yukarıdaki "Giriş Yap" butonuyla başlayın',
     );
   }
 

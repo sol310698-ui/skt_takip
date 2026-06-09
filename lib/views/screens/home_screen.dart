@@ -9,6 +9,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
+import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
 import 'history_screen.dart';
@@ -46,9 +47,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             _buildBanner(),
             Expanded(
               child: productsAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Hata: $e')),
+                loading: () => const LoadingState(),
+                error: (e, _) => ErrorStateView(
+                  message: 'Ürünler yüklenemedi',
+                  onRetry: () =>
+                      ref.read(productListProvider.notifier).refresh(),
+                ),
                 data: (products) {
                   if (filtered.isEmpty && _searchCtrl.text.isEmpty) {
                     return Column(children: [_buildStats(products), Expanded(child: _buildEmpty())]);
@@ -207,67 +211,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
       child: Row(
         children: [
-          _statCard('Doldu', expired, AppTheme.statusExpired,
-              Icons.dangerous_rounded),
+          Expanded(
+            child: StatTile(
+                label: 'Doldu',
+                count: expired,
+                color: AppTheme.statusExpired,
+                icon: Icons.dangerous_rounded),
+          ),
           const SizedBox(width: 10),
-          _statCard('Kritik', critical, AppTheme.statusCritical,
-              Icons.warning_rounded),
+          Expanded(
+            child: StatTile(
+                label: 'Kritik',
+                count: critical,
+                color: AppTheme.statusCritical,
+                icon: Icons.warning_rounded),
+          ),
           const SizedBox(width: 10),
-          _statCard('Yaklaşan', warning, AppTheme.statusWarning,
-              Icons.schedule_rounded),
+          Expanded(
+            child: StatTile(
+                label: 'Yaklaşan',
+                count: warning,
+                color: AppTheme.statusWarning,
+                icon: Icons.schedule_rounded),
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _statCard(String label, int count, Color color, IconData icon) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.3), width: 1),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 6),
-            Text('$count',
-                style: TextStyle(
-                    color: color,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    height: 1)),
-            const SizedBox(height: 2),
-            Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600)),
-          ],
-        ),
       ),
     );
   }
 
   Widget _buildEmpty() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.inventory_2_outlined,
-              size: 64, color: AppTheme.textSecondary),
-          SizedBox(height: 12),
-          Text('Henüz ürün yok',
-              style: TextStyle(
-                  color: AppTheme.textSecondary, fontSize: 16)),
-          SizedBox(height: 4),
-          Text('SKT taramak için aşağıdaki butonu kullan',
-              style: TextStyle(
-                  color: AppTheme.textSecondary, fontSize: 13)),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.inventory_2_outlined,
+      title: 'Henüz ürün yok',
+      subtitle: 'SKT taramak için aşağıdaki "SKT Tara" butonunu kullanın',
     );
   }
 
