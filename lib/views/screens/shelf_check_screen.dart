@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/google_search_button.dart';
 import 'shelf_result_sheet.dart';
@@ -92,10 +94,30 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     final parsed = ScanParser.parse(raw);
     final code = _normalize(parsed.barcode ?? raw);
 
-    // Dizinden ad sorgula.
-    final name = await ref
-        .read(barcodeDirectoryRepositoryProvider)
-        .findProductName(code);
+    // Kademeli ad arama: 1) dizin 2) aktif urunler 3) Open Food Facts.
+    String? name;
+    bool inDirectory = false;
+    try {
+      name = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .findProductName(code);
+      if (name != null) inDirectory = true;
+    } catch (_) {}
+
+    if (name == null) {
+      try {
+        name =
+            (await ref.read(productRepositoryProvider).findByBarcode(code))
+                ?.name;
+      } catch (_) {}
+    }
+
+    if (name == null) {
+      try {
+        final r = await BarcodeLookupService.instance.lookupDetailed(code);
+        if (r.found) name = r.name;
+      } catch (_) {}
+    }
 
     setState(() {
       _productBarcode = code;
@@ -107,9 +129,36 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       type: ShelfResultType.product,
       barcode: code,
       productName: name,
+      // Dizinde yoksa ve bir ad bulunduysa hizli kayit sun.
+      onSaveToDb: (!inDirectory && name != null)
+          ? () => _quickSaveToDirectory(code, name!)
+          : null,
     ));
 
     setState(() => _phase = _Phase.label);
+  }
+
+  /// Reyon kontrolde okunan urunu barkod dizinine hizlica kaydeder.
+  Future<void> _quickSaveToDirectory(String code, String name) async {
+    if (!ScanResult.looksLikeBarcode(code)) return;
+    try {
+      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
+        BarcodeEntry(
+          barcode: code,
+          productName: name,
+          importedAt: DateTime.now(),
+        ),
+      ]);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$name" listeye kaydedildi'),
+            backgroundColor: AppTheme.statusSafe,
+            duration: const Duration(milliseconds: 1200),
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> _handleLabel(String raw) async {

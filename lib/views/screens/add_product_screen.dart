@@ -19,10 +19,10 @@ import '../../viewmodels/providers.dart';
 import 'precise_scan_screen.dart';
 import 'web_search_screen.dart';
 
-/// Tam ekran urun formu (ekleme + duzenleme). Akilli ozellikler:
-/// - Barkod yazilinca/tarayinca canli isim+detay cekme (dizin -> urunler -> OFF)
-/// - OFF'tan kategori, marka, gorsel onizleme
-/// - SKT icin OCR / hassas tarama / takvim kisayollari
+/// Tam ekran urun formu (ekleme + duzenleme).
+/// Tasarim: gradyanli buyuk header (gorsel + ad), govdede alanlar,
+/// altta sabit aksiyon cubugu (Iptal / Kaydet).
+/// Akilli: barkod -> dizin -> urunler -> Open Food Facts (isim/kategori/gorsel).
 class ProductFormScreen extends ConsumerStatefulWidget {
   final Product? existing;
   final DateTime? scannedExpiry;
@@ -49,12 +49,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late int _quantity;
   DateTime? _expiryDate;
 
-  // Akilli arama durumu
   Timer? _debounce;
   bool _looking = false;
-  String? _lookupInfo;      // kullaniciya gosterilen kisa durum metni
-  String? _previewImageUrl; // OFF urun gorseli
-  String _lastLookedUp = ''; // ayni barkodu tekrar sorgulamamak icin
+  bool _saving = false;
+  String? _lookupInfo;
+  String? _previewImageUrl;
+  String _lastLookedUp = '';
 
   @override
   void initState() {
@@ -68,15 +68,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _quantity = e?.quantity ?? 1;
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;
 
-    // Barkod onceden geldi ve isim bossa, acilista bir kez akilli arama yap.
     final initialBarcode = _barcodeCtrl.text.trim();
     if (initialBarcode.isNotEmpty && _nameCtrl.text.trim().isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _smartLookup(initialBarcode);
-      });
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _smartLookup(initialBarcode));
+    } else if (initialBarcode.isNotEmpty && widget.existing != null) {
+      // Duzenlemede de gorsel cekmeyi dene (isim ezilmez).
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _smartLookup(initialBarcode));
     }
-
-    // Barkod alani elle degisince debounce'lu arama.
     _barcodeCtrl.addListener(_onBarcodeChanged);
   }
 
@@ -95,19 +95,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _debounce?.cancel();
     if (!ScanResult.looksLikeBarcode(code)) return;
     if (code == _lastLookedUp) return;
-    // Kullanici yazmayi bitirince ara.
-    _debounce = Timer(const Duration(milliseconds: 700), () {
-      _smartLookup(code);
-    });
+    _debounce = Timer(const Duration(milliseconds: 700),
+        () => _smartLookup(code));
   }
 
-  /// Kademeli akilli arama: dizin -> aktif urunler -> Open Food Facts.
-  /// Isim bos VEYA kullanici henuz girmemisse doldurur; kategori/gorsel ekler.
+  /// Kademeli arama: yerel dizin -> aktif urunler -> Open Food Facts.
   Future<void> _smartLookup(String rawCode) async {
     final code = rawCode.trim();
     if (!ScanResult.looksLikeBarcode(code)) return;
     _lastLookedUp = code;
-
     setState(() {
       _looking = true;
       _lookupInfo = null;
@@ -115,15 +111,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
     String? name;
     String? category;
+    String? info;
+    String? imageUrl;
 
-    // 1) Yerel dizin
     try {
       name = await ref
           .read(barcodeDirectoryRepositoryProvider)
           .findProductName(code);
     } catch (_) {}
 
-    // 2) Aktif/gecmis urunler
     if (name == null) {
       try {
         final p =
@@ -135,46 +131,42 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       } catch (_) {}
     }
 
-    String? info;
-    String? imageUrl;
-
-    // 3) Open Food Facts
-    if (name == null) {
-      try {
-        final r = await BarcodeLookupService.instance.lookupDetailed(code);
-        if (r.found) {
+    // OFF: isim yoksa isim+kategori+gorsel, varsa sadece gorsel icin yine sor.
+    try {
+      final r = await BarcodeLookupService.instance.lookupDetailed(code);
+      if (r.found) {
+        imageUrl = r.imageUrl;
+        if (name == null) {
           name = r.name;
           category = r.category;
-          imageUrl = r.imageUrl;
           info = 'İnternetten bulundu';
         } else {
-          switch (r.status) {
-            case BarcodeLookupStatus.notFound:
-              info = 'İnternette de bulunamadı';
-              break;
-            case BarcodeLookupStatus.timeout:
-              info = 'İnternet yanıt vermedi';
-              break;
-            default:
-              info = 'İnternetten alınamadı';
-          }
+          info = 'Kayıtlardan bulundu';
         }
-      } catch (_) {
-        info = 'İnternetten alınamadı';
+      } else if (name != null) {
+        info = 'Kayıtlardan bulundu';
+      } else {
+        switch (r.status) {
+          case BarcodeLookupStatus.notFound:
+            info = 'Bilgi bulunamadı';
+            break;
+          case BarcodeLookupStatus.timeout:
+            info = 'İnternet yanıt vermedi';
+            break;
+          default:
+            info = 'Bilgi alınamadı';
+        }
       }
-    } else {
-      info = 'Kayıtlardan bulundu';
+    } catch (_) {
+      if (name != null) info = 'Kayıtlardan bulundu';
     }
 
     if (!mounted) return;
     setState(() {
       _looking = false;
       _lookupInfo = info;
-      _previewImageUrl = imageUrl;
-      // Isim alani bossa doldur (kullanicinin yazdigini ezme).
-      if (name != null && _nameCtrl.text.trim().isEmpty) {
-        _nameCtrl.text = name;
-      }
+      if (imageUrl != null) _previewImageUrl = imageUrl;
+      if (name != null && _nameCtrl.text.trim().isEmpty) _nameCtrl.text = name;
       if (category != null && _categoryCtrl.text.trim().isEmpty) {
         _categoryCtrl.text = category;
       }
@@ -192,23 +184,18 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     if (picked != null) setState(() => _expiryDate = picked);
   }
 
-  /// Fotograf cekerek SKT oku (ML Kit + akilli parser).
   Future<void> _scanDateFromPhoto() async {
     final picker = ImagePicker();
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     List<String> variants = [];
     String? originalPath;
     try {
-      final photo = await picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 100,
-      );
+      final photo =
+          await picker.pickImage(source: ImageSource.camera, imageQuality: 100);
       if (photo == null) return;
       originalPath = photo.path;
-
       variants =
           await ImagePreprocessService.instance.generateVariants(photo.path);
-
       final texts = <String>[];
       for (final path in variants) {
         try {
@@ -217,31 +204,24 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           if (result.text.isNotEmpty) texts.add(result.text);
         } catch (_) {}
       }
-
       final date = du.DateUtils.parseFromMultiple(texts);
-
       if (!mounted) return;
       if (date != null) {
         setState(() => _expiryDate = date);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                Text('Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
-            backgroundColor: AppTheme.statusSafe,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text('Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
+          backgroundColor: AppTheme.statusSafe,
+        ));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tarih okunamadı, takvimden seçebilirsiniz'),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Tarih okunamadı, takvimden seçebilirsiniz'),
+        ));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     } finally {
       recognizer.close();
@@ -251,7 +231,6 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
   }
 
-  /// Hassas (foto-cek + on isleme + aday listesi) SKT tarama.
   Future<void> _preciseDate() async {
     final result = await Navigator.of(context).push<DateTime>(
       MaterialPageRoute(builder: (_) => const PreciseScanScreen()),
@@ -287,17 +266,22 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ürün adı zorunlu')),
+      );
+      return;
+    }
     if (_expiryDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lütfen SKT seçin')),
       );
       return;
     }
+    setState(() => _saving = true);
 
     final notifier = ref.read(productListProvider.notifier);
     final base = widget.existing;
-
     final product = Product(
       id: base?.id,
       name: _nameCtrl.text.trim(),
@@ -311,233 +295,247 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       createdAt: base?.createdAt ?? DateTime.now(),
     );
 
-    int savedId;
-    if (base == null) {
-      savedId = await notifier.add(product);
-    } else {
-      await notifier.updateProduct(product);
-      savedId = base.id!;
-      await NotificationService.instance.cancelForProduct(savedId);
+    try {
+      int savedId;
+      if (base == null) {
+        savedId = await notifier.add(product);
+      } else {
+        await notifier.updateProduct(product);
+        savedId = base.id!;
+        await NotificationService.instance.cancelForProduct(savedId);
+      }
+      await NotificationService.instance
+          .scheduleForProduct(product.copyWith(id: savedId));
+
+      if (product.barcode != null &&
+          product.name.isNotEmpty &&
+          ScanResult.looksLikeBarcode(product.barcode!)) {
+        await ref.read(barcodeDirectoryRepositoryProvider).importAll([
+          BarcodeEntry(
+            barcode: product.barcode!,
+            productName: product.name,
+            importedAt: DateTime.now(),
+          ),
+        ]);
+      }
+      if (mounted) Navigator.of(context).pop(true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-
-    await NotificationService.instance
-        .scheduleForProduct(product.copyWith(id: savedId));
-
-    // Barkod + ad varsa VE barkod gecerli formattaysa dizine de yaz.
-    if (product.barcode != null &&
-        product.name.isNotEmpty &&
-        ScanResult.looksLikeBarcode(product.barcode!)) {
-      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
-        BarcodeEntry(
-          barcode: product.barcode!,
-          productName: product.name,
-          importedAt: DateTime.now(),
-        ),
-      ]);
-    }
-
-    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
-    final dateStr = _expiryDate == null
-        ? 'SKT seçilmedi'
-        : DateFormat('dd.MM.yyyy').format(_expiryDate!);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün'),
-        actions: [
-          TextButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.check_rounded),
-            label: Text(isEdit ? 'Güncelle' : 'Kaydet'),
-          ),
-        ],
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-          children: [
-            // OFF gorsel onizleme + durum
-            if (_previewImageUrl != null || _looking || _lookupInfo != null)
-              _buildPreview(),
-
-            // Urun adi
-            TextFormField(
-              controller: _nameCtrl,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Ürün adı *',
-                prefixIcon: Icon(Icons.shopping_bag_outlined),
-              ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Zorunlu alan' : null,
-            ),
-            const SizedBox(height: 16),
-
-            // Barkod + tara + ara
-            TextFormField(
-              controller: _barcodeCtrl,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Barkod',
-                prefixIcon: const Icon(Icons.qr_code_rounded),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
+      backgroundColor: AppTheme.background,
+      body: CustomScrollView(
+        slivers: [
+          _buildHeader(isEdit),
+          SliverToBoxAdapter(
+            child: Form(
+              key: _formKey,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_looking)
-                      const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    else ...[
-                      IconButton(
-                        icon: const Icon(Icons.search),
-                        tooltip: "Google'da Ara",
-                        onPressed: _searchOnline,
+                    _label('Ürün Adı'),
+                    TextFormField(
+                      controller: _nameCtrl,
+                      textInputAction: TextInputAction.next,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w600),
+                      decoration: const InputDecoration(
+                        hintText: 'Ürün adı',
+                        prefixIcon: Icon(Icons.shopping_bag_outlined),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.qr_code_scanner),
-                        tooltip: 'Barkod Tara',
-                        onPressed: _scanBarcode,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? '' : null,
+                    ),
+                    const SizedBox(height: 18),
+                    _label('Barkod'),
+                    TextFormField(
+                      controller: _barcodeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        hintText: 'Barkod numarası',
+                        prefixIcon: const Icon(Icons.qr_code_rounded),
+                        suffixIcon: _looking
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.search),
+                                    tooltip: "Google'da Ara",
+                                    onPressed: _searchOnline,
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.qr_code_scanner),
+                                    tooltip: 'Tara',
+                                    onPressed: _scanBarcode,
+                                  ),
+                                ],
+                              ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(height: 18),
+                    _label('Kategori / Reyon'),
+                    TextFormField(
+                      controller: _categoryCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'örn. Süt Ürünleri, A1 reyonu',
+                        prefixIcon: Icon(Icons.category_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _label('Son Kullanma Tarihi'),
+                    _buildExpiryCard(),
+                    const SizedBox(height: 18),
+                    _label('Adet'),
+                    _buildQuantitySelector(),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+          ),
+        ],
+      ),
+      // Onemli butonlar ALTTA sabit.
+      bottomNavigationBar: _buildBottomBar(isEdit),
+    );
+  }
 
-            // Kategori
-            TextFormField(
-              controller: _categoryCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Kategori / Reyon',
-                prefixIcon: Icon(Icons.category_outlined),
+  /// Gradyanli buyuk header: geri butonu, baslik, urun gorseli, durum.
+  Widget _buildHeader(bool isEdit) {
+    return SliverAppBar(
+      expandedHeight: 220,
+      pinned: true,
+      backgroundColor: AppTheme.primary,
+      foregroundColor: Colors.white,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded),
+        onPressed: () => Navigator.of(context).maybePop(),
+      ),
+      flexibleSpace: FlexibleSpaceBar(
+        title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+        titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
+        background: Container(
+          decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 30, bottom: 44),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildHeroImage(),
+                    const SizedBox(height: 10),
+                    if (_looking)
+                      const Text('Ürün bilgisi aranıyor...',
+                          style: TextStyle(
+                              color: Colors.white, fontSize: 12.5))
+                    else if (_lookupInfo != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _lookupInfo!.contains('bulundu')
+                                ? Icons.check_circle_rounded
+                                : Icons.info_outline_rounded,
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(_lookupInfo!,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12.5)),
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // SKT secimi - takvim + kamera + hassas
-            _buildExpirySection(dateStr),
-            const SizedBox(height: 16),
-
-            // Adet
-            _buildQuantitySelector(),
-            const SizedBox(height: 28),
-
-            FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.save_rounded),
-              label: Text(isEdit ? 'Güncelle' : 'Kaydet',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildPreview() {
+  Widget _buildHeroImage() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.card(),
-      child: Row(
-        children: [
-          // Gorsel
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: _previewImageUrl != null
-                ? Image.network(
-                    _previewImageUrl!,
-                    width: 64,
-                    height: 64,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _imgPlaceholder(),
-                    loadingBuilder: (c, w, p) =>
-                        p == null ? w : _imgPlaceholder(),
-                  )
-                : _imgPlaceholder(),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Row(
-              children: [
-                if (_looking)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                if (_looking) const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _looking
-                        ? 'Ürün bilgisi aranıyor...'
-                        : (_lookupInfo ?? ''),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: _lookupInfo == 'İnternetten bulundu' ||
-                              _lookupInfo == 'Kayıtlardan bulundu'
-                          ? AppTheme.statusSafe
-                          : AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _imgPlaceholder() {
-    return Container(
-      width: 64,
-      height: 64,
+      width: 92,
+      height: 92,
       decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
       ),
-      child: const Icon(Icons.inventory_2_outlined,
-          color: AppTheme.textTertiary, size: 28),
+      clipBehavior: Clip.antiAlias,
+      child: _previewImageUrl != null
+          ? Image.network(
+              _previewImageUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _heroPlaceholder(),
+              loadingBuilder: (c, w, p) => p == null ? w : _heroPlaceholder(),
+            )
+          : _heroPlaceholder(),
     );
   }
 
-  Widget _buildExpirySection(String dateStr) {
+  Widget _heroPlaceholder() => const Icon(Icons.inventory_2_rounded,
+      color: Colors.white, size: 40);
+
+  Widget _label(String t) => Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
+        child: Text(t,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.textSecondary)),
+      );
+
+  Widget _buildExpiryCard() {
     final hasDate = _expiryDate != null;
+    final dateStr = hasDate
+        ? DateFormat('dd MMMM yyyy', 'tr').format(_expiryDate!)
+        : 'Seçilmedi';
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: AppTheme.card(
-          accentColor: hasDate ? AppTheme.primary : null),
+      decoration: AppTheme.card(accentColor: hasDate ? AppTheme.primary : null),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.event_rounded,
-                  color: hasDate ? AppTheme.primary : AppTheme.textSecondary,
-                  size: 20),
-              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: (hasDate ? AppTheme.primary : AppTheme.textTertiary)
+                      .withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.event_rounded,
+                    color: hasDate ? AppTheme.primary : AppTheme.textTertiary),
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text('Son Kullanma: $dateStr',
+                child: Text(dateStr,
                     style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                         color: hasDate
                             ? AppTheme.textPrimary
                             : AppTheme.textSecondary)),
@@ -548,31 +546,18 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _pickDate,
-                  icon: const Icon(Icons.calendar_month_rounded, size: 18),
-                  label: const Text('Takvim'),
-                ),
+                child: _miniBtn(Icons.calendar_month_rounded, 'Takvim',
+                    _pickDate, false),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _scanDateFromPhoto,
-                  icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                  label: const Text('Foto'),
-                ),
+                child: _miniBtn(Icons.camera_alt_rounded, 'Foto',
+                    _scanDateFromPhoto, false),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton.icon(
-                  onPressed: _preciseDate,
-                  icon: const Icon(Icons.center_focus_strong_rounded,
-                      size: 18),
-                  label: const Text('Hassas'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.primary.withOpacity(0.85),
-                  ),
-                ),
+                child: _miniBtn(Icons.center_focus_strong_rounded, 'Hassas',
+                    _preciseDate, true),
               ),
             ],
           ),
@@ -581,9 +566,37 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
   }
 
+  Widget _miniBtn(
+      IconData icon, String label, VoidCallback onTap, bool filled) {
+    final child = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20, color: filled ? Colors.white : AppTheme.primary),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: filled ? Colors.white : AppTheme.primary)),
+      ],
+    );
+    return Material(
+      color: filled ? AppTheme.primary : AppTheme.primary.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Widget _buildQuantitySelector() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
         color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
@@ -591,24 +604,88 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('Adet', style: TextStyle(fontSize: 15)),
+          const Text('Adet',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           Row(
             children: [
               IconButton(
                 icon: const Icon(Icons.remove_circle_outline),
+                color: AppTheme.primary,
                 onPressed:
                     _quantity > 1 ? () => setState(() => _quantity--) : null,
               ),
-              Text('$_quantity',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600)),
+              SizedBox(
+                width: 32,
+                child: Text('$_quantity',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700)),
+              ),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline),
+                color: AppTheme.primary,
                 onPressed: () => setState(() => _quantity++),
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(bool isEdit) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: OutlinedButton(
+                  onPressed:
+                      _saving ? null : () => Navigator.of(context).maybePop(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('İptal'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 3,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: Text(isEdit ? 'Güncelle' : 'Kaydet',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
