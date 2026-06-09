@@ -87,8 +87,9 @@ class NotificationService {
   }
 
   /// Ürün id + eşik günden benzersiz bildirim id üretir.
+  /// Carpan 1000: esik (en fazla ~365) ile cakismaz, urun id'leri ayrik kalir.
   int _notificationId(int productId, int threshold) {
-    return productId * 100 + threshold;
+    return productId * 1000 + threshold;
   }
 
   String _formatDate(DateTime d) {

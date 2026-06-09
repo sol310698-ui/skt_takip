@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/export_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
@@ -302,17 +303,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _openAddSheet() async {
-    // Arama kutusunda bir deger varsa (barkod arandi, sonuc yok),
-    // onu barkod olarak forma tasi.
+    // Arama kutusundaki degeri tasi: barkod formatindaysa barkod alanina,
+    // degilse urun adi alanina koy (ad yazip ekle deyince barkod kirlenmez).
     final searchText = _searchCtrl.text.trim();
-    final prefillBarcode = searchText.isNotEmpty ? searchText : null;
-
-    // Eger barkod dizininde ad varsa onu da getir.
+    String? prefillBarcode;
     String? prefillName;
-    if (prefillBarcode != null) {
-      prefillName = await ref
-          .read(barcodeDirectoryRepositoryProvider)
-          .findProductName(prefillBarcode);
+
+    if (searchText.isNotEmpty) {
+      if (ScanResult.looksLikeBarcode(searchText)) {
+        prefillBarcode = searchText;
+        // Barkod dizininde ad varsa onu da getir.
+        prefillName = await ref
+            .read(barcodeDirectoryRepositoryProvider)
+            .findProductName(prefillBarcode);
+      } else {
+        prefillName = searchText;
+      }
     }
 
     if (!mounted) return;
@@ -413,7 +419,14 @@ class _BarcodeSearchPage extends StatefulWidget {
 class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
   final MobileScannerController _ctrl = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: const [BarcodeFormat.ean13],
+    formats: const [
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+    ],
   );
   bool _handled = false;
 

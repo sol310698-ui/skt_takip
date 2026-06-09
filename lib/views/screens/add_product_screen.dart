@@ -9,6 +9,7 @@ import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
+import '../../core/utils/scan_parser.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
@@ -200,8 +201,11 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     await NotificationService.instance
         .scheduleForProduct(product.copyWith(id: savedId));
 
-    // Barkod + ad varsa, barkod dizinine de yaz (Barkod Liste'de gorunsun).
-    if (product.barcode != null && product.name.isNotEmpty) {
+    // Barkod + ad varsa VE barkod gecerli formattaysa dizine de yaz.
+    // (Elle girilmis harfli/gecersiz degerler dizini kirletmesin.)
+    if (product.barcode != null &&
+        product.name.isNotEmpty &&
+        ScanResult.looksLikeBarcode(product.barcode!)) {
       await ref.read(barcodeDirectoryRepositoryProvider).importAll([
         BarcodeEntry(
           barcode: product.barcode!,
@@ -389,7 +393,14 @@ class BarcodeScanPage extends StatefulWidget {
 class _BarcodeScanPageState extends State<BarcodeScanPage> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: const [BarcodeFormat.ean13],
+    formats: const [
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+    ],
   );
   bool _handled = false;
 

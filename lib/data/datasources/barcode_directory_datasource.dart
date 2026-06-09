@@ -23,14 +23,17 @@ class BarcodeDirectoryDataSource {
     return rows.first['product_name'] as String;
   }
 
-  /// Toplu import - varsa uzerine yazar (UPSERT).
+  /// Toplu import - varsa uzerine yazar (UPSERT, barkod UNIQUE uzerinden).
+  /// id map'ten cikarilir: REPLACE eski satiri silip yeni autoincrement id
+  /// verecegi icin id'yi elle gondermek tutarsizlik yaratir.
   Future<int> importAll(List<BarcodeEntry> entries) async {
     final db = await _dbService.database;
     final batch = db.batch();
     for (final e in entries) {
+      final map = e.toMap()..remove('id');
       batch.insert(
         AppConstants.barcodeTable,
-        e.toMap(),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }

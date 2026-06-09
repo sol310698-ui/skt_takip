@@ -1,19 +1,35 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
+import '../../viewmodels/providers.dart';
 
-/// Mesai detay sayfasi - foto, konum, sure.
-class ShiftDetailScreen extends StatelessWidget {
+/// Mesai detay sayfasi - foto, konum, sure, not duzenleme.
+class ShiftDetailScreen extends ConsumerStatefulWidget {
   final ShiftEntry shift;
   const ShiftDetailScreen({super.key, required this.shift});
 
+  @override
+  ConsumerState<ShiftDetailScreen> createState() => _ShiftDetailScreenState();
+}
+
+class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
+  late ShiftEntry shift;
+
+  @override
+  void initState() {
+    super.initState();
+    shift = widget.shift;
+  }
+
   Future<void> _openMap(double lat, double lng) async {
-    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+    final uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query=$lat,$lng');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -25,13 +41,54 @@ class ShiftDetailScreen extends StatelessWidget {
     ));
   }
 
+  /// Not ekle / duzenle.
+  Future<void> _editNote() async {
+    final ctrl = TextEditingController(text: shift.note ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Not'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 4,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Mesai ile ilgili not...',
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Kaydet')),
+        ],
+      ),
+    );
+    if (result == null) return;
+
+    final updated = shift.copyWith(note: result.isEmpty ? null : result);
+    await ref.read(shiftListProvider.notifier).updateShift(updated);
+    if (mounted) setState(() => shift = updated);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tf = DateFormat('HH:mm');
     final dateStr = DateFormat('dd.MM.yyyy').format(shift.clockIn);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mesai Detayı')),
+      appBar: AppBar(
+        title: const Text('Mesai Detayı'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_note_rounded),
+            tooltip: 'Not Ekle / Düzenle',
+            onPressed: _editNote,
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -94,15 +151,28 @@ class ShiftDetailScreen extends StatelessWidget {
             ),
           ],
 
-          if (shift.note != null && shift.note!.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _sectionTitle('Not'),
-            Container(
+          const SizedBox(height: 16),
+          _sectionTitle('Not'),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _editNote,
+            child: Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: AppTheme.card(),
-              child: Text(shift.note!),
+              child: (shift.note != null && shift.note!.isNotEmpty)
+                  ? Text(shift.note!)
+                  : const Row(
+                      children: [
+                        Icon(Icons.add_rounded,
+                            size: 18, color: AppTheme.textTertiary),
+                        SizedBox(width: 8),
+                        Text('Not eklemek için dokunun',
+                            style: TextStyle(color: AppTheme.textTertiary)),
+                      ],
+                    ),
             ),
-          ],
+          ),
         ],
       ),
     );

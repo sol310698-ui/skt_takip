@@ -11,6 +11,8 @@ enum ShelfResultType {
   matchSame,  // eslesti, fiyat ayni
   priceDiff,  // eslesti, fiyat farkli
   mismatch,   // barkod uyusmuyor
+  noPrice,    // eslesti ama etikette fiyat okunamadi (duz barkod / fiyatsiz QR)
+  newProduct, // etiket fazinda yeni bir urun barkodu okundu
 }
 
 /// Reyon kontrolde her tarama sonrasi acilan kayan pencere.
@@ -53,6 +55,12 @@ class ShelfResultSheet extends StatelessWidget {
       case ShelfResultType.mismatch:
         return _Style(AppTheme.statusExpired, Icons.error_rounded,
             'Barkod Uyuşmuyor!');
+      case ShelfResultType.noPrice:
+        return _Style(AppTheme.statusWarning, Icons.help_outline_rounded,
+            'Eşleşti — Fiyat Okunamadı');
+      case ShelfResultType.newProduct:
+        return _Style(AppTheme.primary, Icons.swap_horiz_rounded,
+            'Yeni Ürün?');
     }
   }
 
@@ -121,6 +129,10 @@ class ShelfResultSheet extends StatelessWidget {
             _mismatchBody()
           else if (type == ShelfResultType.priceDiff)
             _priceDiffBody()
+          else if (type == ShelfResultType.noPrice)
+            _noPriceBody()
+          else if (type == ShelfResultType.newProduct)
+            _newProductBody()
           else if (price != null &&
               (type == ShelfResultType.matchFirst ||
                   type == ShelfResultType.matchSame))
@@ -131,13 +143,33 @@ class ShelfResultSheet extends StatelessWidget {
           const SizedBox(height: 18),
           _barcodeBar(),
           const SizedBox(height: 14),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: FilledButton.styleFrom(backgroundColor: s.color),
-            child: Text(
-              isProduct ? 'Etiketleri Taramaya Başla' : 'Devam Et',
+          if (type == ShelfResultType.newProduct)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Etiket Olarak Değerlendir'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    style: FilledButton.styleFrom(backgroundColor: s.color),
+                    child: const Text('Yeni Ürün Yap'),
+                  ),
+                ),
+              ],
+            )
+          else
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: FilledButton.styleFrom(backgroundColor: s.color),
+              child: Text(
+                isProduct ? 'Etiketleri Taramaya Başla' : 'Devam Et',
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -164,6 +196,54 @@ class ShelfResultSheet extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _noPriceBody() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.statusWarning.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.price_check_rounded,
+              color: AppTheme.statusWarning, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Barkod eşleşti ama bu etikette fiyat bilgisi yok. '
+              'Fiyat karşılaştırması yapılamadı.',
+              style: TextStyle(
+                  color: AppTheme.statusWarning, fontSize: 13.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _newProductBody() {
+    return Column(
+      children: [
+        _infoRow('Önceki Ürün', productBarcode ?? '-', AppTheme.textTertiary),
+        const SizedBox(height: 8),
+        _infoRow('Okunan Barkod', barcode, AppTheme.primary),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Text(
+            'Bu bir ürün barkodu gibi görünüyor. Yeni bir ürünü kontrol '
+            'etmeye geçmek istiyor musunuz?',
+            style: TextStyle(color: AppTheme.primary, fontSize: 13),
+          ),
+        ),
+      ],
     );
   }
 

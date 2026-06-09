@@ -59,13 +59,20 @@ class DateUtils {
   /// Birden fazla OCR metnini (coklu preprocessing) birlestirip en iyi tarihi secer.
   /// Coklu versiyondan ayni tarih cikarsa guveni artar (oylama).
   static DateTime? parseFromMultiple(List<String> texts) {
+    return bestCandidateFromMultiple(texts)?.date;
+  }
+
+  /// Coklu metinden adaylari grupla, oylama bonusu uygula, siralayip dondur.
+  /// Hem en iyi adayi secmek (scanner) hem tum listeyi gostermek (precise)
+  /// icin TEK kaynak. Boylece skor mantigi tek yerde yasar (DRY).
+  static List<DateCandidate> rankedCandidatesFromMultiple(List<String> texts) {
     final allCandidates = <DateCandidate>[];
     for (final t in texts) {
       allCandidates.addAll(_collectCandidates(t));
     }
-    if (allCandidates.isEmpty) return null;
+    if (allCandidates.isEmpty) return const [];
 
-    // Ayni tarihleri grupla, tekrar sayisini skora ekle (oylama).
+    // Ayni tarihleri grupla, tekrar sayisini skora ekle (oylama bonusu).
     final Map<String, DateCandidate> grouped = {};
     for (final c in allCandidates) {
       final key = '${c.date.year}-${c.date.month}-${c.date.day}';
@@ -80,7 +87,13 @@ class DateUtils {
 
     final list = grouped.values.toList()
       ..sort((a, b) => b.score.compareTo(a.score));
-    return list.first.date;
+    return list;
+  }
+
+  /// Coklu metinden en guvenli tek adayi (skoruyla) dondurur.
+  static DateCandidate? bestCandidateFromMultiple(List<String> texts) {
+    final list = rankedCandidatesFromMultiple(texts);
+    return list.isEmpty ? null : list.first;
   }
 
   /// Metinden tum tarih adaylarini skorlariyla toplar.
@@ -135,6 +148,9 @@ class DateUtils {
   }
 
   /// Harfe benzeyen rakamlari duzeltir (noktali/lazer baski hatalari).
+  /// DIKKAT: Yalnizca tarih regex'i ile YAKALANMIS gun/ay/yil gruplarina
+  /// uygulanir (_buildFull/_buildMonthYear icinde). Serbest metne
+  /// uygulanmaz; aksi halde gercek harfleri bozardi.
   static String _fixOcrDigits(String s) {
     return s
         .replaceAll(RegExp(r'[Oo]'), '0')
@@ -206,7 +222,10 @@ class DateUtils {
     if (day == null || month == null || year == null) return null;
     if (year < 100) year += 2000;
 
-    // Gun/ay karismasi: biri 12'den buyukse o gundur.
+    // Gun/ay karismasi: biri 12'den buyukse o gundur (kesin sinyal).
+    // Aksi halde Turkiye standardi olan GUN.AY.YIL (dd.MM.yyyy) varsayilir.
+    // Not: Saf MM.dd formatindaki etiketler (ABD) bu varsayimla yanlis
+    // yorumlanabilir; TR pazari icin dogru kabul edilmistir.
     if (month > 12 && day <= 12) {
       final t = day;
       day = month;

@@ -1,5 +1,17 @@
 import 'date_utils.dart';
 
+/// Taranan icerigin turu.
+enum ScanKind {
+  /// Yildizli yapisal etiket QR'i: *barkod*fiyat*SKT*basim
+  labelQr,
+
+  /// Duz urun barkodu (sadece rakam, EAN-13/EAN-8 vb.)
+  plainBarcode,
+
+  /// Tanimsiz serbest metin (barkod sayilamaz).
+  freeText,
+}
+
 /// Taranan barkod/QR icerigini cozen yardimci.
 /// QR formati: *8690504190554*29.95*22.10.2025*22.10.2025 08:37:36
 /// (yildizlar ayrac, sirayla: barkod, fiyat, SKT, uretim/etiket tarihi-saati)
@@ -9,6 +21,7 @@ class ScanResult {
   final double? price;
   final DateTime? expiryDate;
   final DateTime? labelDateTime;
+  final ScanKind kind;
 
   const ScanResult({
     required this.raw,
@@ -16,9 +29,26 @@ class ScanResult {
     this.price,
     this.expiryDate,
     this.labelDateTime,
+    this.kind = ScanKind.freeText,
   });
 
   bool get isStructured => price != null || expiryDate != null;
+
+  /// Yapisal etiket QR'i mi (fiyat/SKT tasiyabilen).
+  bool get isLabel => kind == ScanKind.labelQr;
+
+  /// Urun barkodu olarak kullanilabilir mi (duz barkod veya etiket icindeki barkod).
+  bool get hasUsableBarcode =>
+      barcode != null &&
+      barcode!.isNotEmpty &&
+      kind != ScanKind.freeText;
+
+  /// Verilen serbest metnin gecerli bir barkod olup olmadigini soyler.
+  /// 8-14 hane arasi salt rakam barkod kabul edilir (EAN-8/EAN-13/ITF-14).
+  static bool looksLikeBarcode(String s) {
+    final t = s.trim();
+    return RegExp(r'^\d{8,14}$').hasMatch(t);
+  }
 }
 
 class ScanParser {
@@ -51,11 +81,21 @@ class ScanParser {
         price: price,
         expiryDate: expiry,
         labelDateTime: labelDt,
+        kind: ScanKind.labelQr,
       );
     }
 
-    // Duz barkod (sadece rakam).
-    return ScanResult(raw: trimmed, barcode: trimmed);
+    // Duz barkod (sadece rakam) mu, yoksa serbest metin mi?
+    if (ScanResult.looksLikeBarcode(trimmed)) {
+      return ScanResult(
+        raw: trimmed,
+        barcode: trimmed,
+        kind: ScanKind.plainBarcode,
+      );
+    }
+
+    // Tanimsiz icerik - barkod olarak kullanilmamali.
+    return ScanResult(raw: trimmed, barcode: null, kind: ScanKind.freeText);
   }
 
   static double? _parsePrice(String s) {

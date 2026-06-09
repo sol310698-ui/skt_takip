@@ -80,11 +80,18 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
         final barcodeCell = row[0]?.value?.toString().trim() ?? '';
         final nameCell = row[1]?.value?.toString().trim() ?? '';
 
-        // Baslik satirini atla.
-        if (i == 0 &&
-            (barcodeCell.toLowerCase().contains('barkod') ||
-                barcodeCell.toLowerCase().contains('barcode'))) {
-          continue;
+        // Baslik satirini atla: bilinen anahtar kelimeler VEYA ilk satirda
+        // barkod hucresi sayisal degilse (ornegin "Stok Kodu", "Urun No").
+        if (i == 0) {
+          final lower = barcodeCell.toLowerCase();
+          final looksHeader = lower.contains('barkod') ||
+              lower.contains('barcode') ||
+              lower.contains('kod') ||
+              lower.contains('stok') ||
+              lower.contains('ürün') ||
+              lower.contains('urun') ||
+              !RegExp(r'\d').hasMatch(barcodeCell); // hic rakam yoksa baslik
+          if (looksHeader) continue;
         }
 
         if (barcodeCell.isEmpty || nameCell.isEmpty) {

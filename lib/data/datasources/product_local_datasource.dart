@@ -33,12 +33,16 @@ class ProductLocalDataSource {
     return rows.map(Product.fromMap).toList();
   }
 
+  /// Barkoda gore EN SON eklenen aktif urunu dondurur.
+  /// Ayni barkodla birden fazla aktif parti olabilir (farkli SKT);
+  /// duzenleme/on-doldurma icin en guncel olani secilir.
   Future<Product?> getByBarcode(String barcode) async {
     final db = await _dbService.database;
     final rows = await db.query(
       AppConstants.productTable,
       where: "barcode = ? AND disposal_status = 'active'",
       whereArgs: [barcode],
+      orderBy: 'created_at DESC',
       limit: 1,
     );
     if (rows.isEmpty) return null;

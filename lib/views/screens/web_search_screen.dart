@@ -26,6 +26,7 @@ class _WebSearchScreenState extends State<WebSearchScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (p) => setState(() => _progress = p),
+          onPageFinished: (_) => setState(() => _progress = 100),
         ),
       )
       ..loadRequest(Uri.parse(url));

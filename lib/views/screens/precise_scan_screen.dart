@@ -60,25 +60,8 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
         } catch (_) {}
       }
 
-      // Tum metinlerden adaylari topla (oylama ile)
-      final allCandidates = <du.DateCandidate>[];
-      for (final t in texts) {
-        allCandidates.addAll(du.DateUtils.parseAllCandidates(t));
-      }
-
-      // Ayni tarihleri grupla, oylama bonusu ver
-      final Map<String, du.DateCandidate> grouped = {};
-      for (final c in allCandidates) {
-        final key = '${c.date.year}-${c.date.month}-${c.date.day}';
-        if (grouped.containsKey(key)) {
-          grouped[key] = grouped[key]!
-              .copyWith(score: grouped[key]!.score + c.score + 20);
-        } else {
-          grouped[key] = c;
-        }
-      }
-      final list = grouped.values.toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
+      // Tum metinlerden adaylari topla + oylama (merkezi mantik).
+      final list = du.DateUtils.rankedCandidatesFromMultiple(texts);
 
       setState(() {
         _candidates = list;

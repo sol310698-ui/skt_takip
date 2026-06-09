@@ -57,6 +57,14 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   Future<void> _clockIn() async {
     setState(() => _busy = true);
     try {
+      // Guard: zaten acik bir vardiya varsa ikinci giris olusturma
+      // (hizli cift dokunus / state gecikmesi korumasi).
+      final alreadyOpen =
+          await ref.read(shiftRepositoryProvider).getOpenShift();
+      if (alreadyOpen != null) {
+        ref.invalidate(openShiftProvider);
+        return;
+      }
       final photo = await _takePhoto();
       final pos = await _getLocation();
       final entry = ShiftEntry(

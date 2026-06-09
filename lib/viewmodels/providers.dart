@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/services/database_service.dart';
+import '../core/services/notification_service.dart';
 import '../data/datasources/barcode_directory_datasource.dart';
 import '../data/datasources/product_local_datasource.dart';
 import '../data/datasources/shift_local_datasource.dart';
@@ -103,6 +104,11 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
 
   @override
   Future<List<Product>> build() async {
+    // Acilista 90 gunden eski imha/iade kayitlarini temizle (DB sismesini onler).
+    // Hata olursa listelemeyi engellemesin.
+    try {
+      await _repo.purgeOldDisposals();
+    } catch (_) {}
     return _repo.getProducts();
   }
 
@@ -124,6 +130,7 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
 
   Future<void> remove(int id) async {
     await _repo.deleteProduct(id);
+    await NotificationService.instance.cancelForProduct(id);
     await refresh();
   }
 
@@ -137,6 +144,8 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
       disposalNote: note,
     );
     await _repo.updateProduct(updated);
+    // Artik rafta degil: planlanmis SKT bildirimlerini iptal et.
+    await NotificationService.instance.cancelForProduct(id);
     await refresh();
   }
 }

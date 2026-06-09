@@ -117,7 +117,24 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     final labelCode = _normalize(parsed.barcode ?? raw);
     final price = parsed.price;
 
-    // Barkod uyusmuyor
+    // Etiket fazinda DUZ bir urun barkodu (yildizsiz) okundu ve mevcut
+    // urunden farkliysa: kullanici buyuk olasilikla yeni bir urune geciyor.
+    if (parsed.kind == ScanKind.plainBarcode &&
+        labelCode != _productBarcode) {
+      final goNew = await _showSheet(ShelfResultSheet(
+        type: ShelfResultType.newProduct,
+        barcode: labelCode,
+        productBarcode: _productBarcode,
+        productName: _productName,
+      ));
+      if (goNew == true) {
+        // Yeni urune gec: faz product gibi davranip bu kodu urun yap.
+        await _handleProduct(raw);
+      }
+      return;
+    }
+
+    // Barkod uyusmuyor (etiket QR'i ama baska urune ait)
     if (labelCode != _productBarcode) {
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.mismatch,
@@ -128,10 +145,11 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       return;
     }
 
-    // Eslesti - fiyat yok
+    // Eslesti ama etikette fiyat YOK (duz barkod veya fiyatsiz QR).
+    // Sessizce "fiyat ayni" deme; acikca fiyat okunamadi bildir.
     if (price == null) {
       await _showSheet(ShelfResultSheet(
-        type: ShelfResultType.matchSame,
+        type: ShelfResultType.noPrice,
         barcode: labelCode,
         productName: _productName,
       ));
@@ -179,9 +197,10 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     ));
   }
 
-  Future<void> _showSheet(Widget sheet) async {
-    if (!mounted) return;
-    await showModalBottomSheet(
+  /// Sheet'i gosterir; newProduct gibi karar gerektiren tiplerde bool doner.
+  Future<bool?> _showSheet(Widget sheet) async {
+    if (!mounted) return null;
+    return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

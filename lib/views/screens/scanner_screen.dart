@@ -32,9 +32,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
   DateTime _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
   static const _throttleMs = 600;
 
-  DateTime? _pendingDate;
-  int _pendingCount = 0;
-
   @override
   void initState() {
     super.initState();
@@ -49,6 +46,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
+    // ScalableOCR kendi kamera kaynagini, agactan kaldirilinca birakir.
+    // _ready=false yaparak widget'in kesin sokuldugunden emin ol.
+    _ready = false;
     super.dispose();
   }
 
@@ -71,27 +71,21 @@ class _ScannerScreenState extends State<ScannerScreen> {
       _recentTexts.removeAt(0);
     }
 
-    // Once tek karede guclu bir aday var mi bak (hizli yakalama).
+    // 1) Tek karede cok guclu bir aday varsa hemen kabul et.
     final single = du.DateUtils.parseAllCandidates(value);
     if (single.isNotEmpty && single.first.score >= 80) {
-      // Yuksek guvenli tek okuma - hemen kabul (cift dogrulamaya gerek yok).
       _accept(single.first.date);
       return;
     }
 
-    // Coklu kareden oylama (tek kare zayifsa birikimle karar ver).
-    final voted = du.DateUtils.parseFromMultiple(_recentTexts);
-    if (voted == null) return;
-
-    // Oylanan tarih son 2 karede tutarli mi?
-    if (_pendingDate != null && _pendingDate!.isAtSameMomentAs(voted)) {
-      _pendingCount++;
-    } else {
-      _pendingDate = voted;
-      _pendingCount = 1;
-    }
-    if (_pendingCount >= 2) {
-      _accept(voted);
+    // 2) Coklu kareden oylama: biriken tum karelerdeki adaylari skorla,
+    // oylama bonusu uygulayip en guvenli adayi sec. Yeterince yuksek
+    // (>=100) skora ulasinca kabul et. Bu, ardisik kararsiz okumalarda
+    // erken/yanlis kabulu onler.
+    final best = du.DateUtils.bestCandidateFromMultiple(_recentTexts);
+    if (best == null) return;
+    if (best.score >= 100) {
+      _accept(best.date);
     }
   }
 
@@ -120,8 +114,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() {
       _detected = null;
       _done = false;
-      _pendingDate = null;
-      _pendingCount = 0;
       _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
       _recentTexts.clear(); // eski kare metinlerini temizle
       _ready = false; // kamerayi kaldir (gri kalmayi onler)
