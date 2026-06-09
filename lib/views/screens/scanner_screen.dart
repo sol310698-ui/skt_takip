@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:intl/intl.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
+import 'precise_scan_screen.dart';
 
 /// Canli SKT tarama. Karasizlik cozumu:
 /// - Acilista once kamera iznini al + kisa isitma gecikmesi (kasma fix)
@@ -24,8 +24,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   // Her sifirlamada degisir -> ScalableOCR tamamen yeniden kurulur (stale fix)
   int _scanSession = 0;
 
-  bool _ready = false; // izin + isitma tamam mi
-  bool _denied = false;
+  bool _ready = false;
 
   DateTime? _detected;
   bool _done = false;
@@ -42,16 +41,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
     _prepare();
   }
 
-  /// Kamera iznini al, kisa bekle (donanim hazirlansin), sonra OCR'i kur.
-  /// Bu adim, mobile_scanner'in yaptigi "isitma"yi taklit eder.
+  /// Kamera hazirlanmasi icin kisa gecikme, sonra OCR baslatilir.
   Future<void> _prepare() async {
-    final status = await Permission.camera.request();
-    if (!mounted) return;
-    if (!status.isGranted) {
-      setState(() => _denied = true);
-      return;
-    }
-    // Kamera donanimi hazirlanmasi icin kisa gecikme (kasma onler).
     await Future.delayed(const Duration(milliseconds: 400));
     if (mounted) setState(() => _ready = true);
   }
@@ -90,6 +81,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _confirm() => Navigator.of(context).pop(_detected);
   void _manual() => Navigator.of(context).pop(DateTime(1900));
 
+  /// Hassas (foto-cek + on isleme) moda gec. Sonuc gelirse onu dondur.
+  Future<void> _openPrecise() async {
+    final result = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(builder: (_) => const PreciseScanScreen()),
+    );
+    if (result != null && mounted) {
+      Navigator.of(context).pop(result);
+    }
+  }
+
   void _retry() {
     setState(() {
       _detected = null;
@@ -113,11 +114,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Izin reddedildiyse uyari
-          if (_denied)
-            _buildDenied()
           // Hazir degilse yukleniyor
-          else if (!_ready)
+          if (!_ready)
             const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -146,47 +144,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 getScannedText: _onScannedText,
               ),
             ),
-          if (_ready && !_denied) _buildHint(),
+          if (_ready) _buildHint(),
           if (_done) _buildResultSheet(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDenied() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.no_photography_rounded,
-                color: Colors.white54, size: 56),
-            const SizedBox(height: 16),
-            const Text('Kamera izni gerekli',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            const Text(
-              'SKT taramak için kamera iznine ihtiyaç var. Ayarlardan izin verebilirsiniz.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white60, fontSize: 14),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () => openAppSettings(),
-              child: const Text('Ayarları Aç'),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: _manual,
-              child: const Text('Elle Gir',
-                  style: TextStyle(color: Colors.white70)),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -217,6 +177,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
           const SizedBox(height: 10),
+          // Zor etiket icin hassas (foto-cek) moda gec
+          FilledButton.icon(
+            onPressed: _openPrecise,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white.withOpacity(0.15),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            ),
+            icon: const Icon(Icons.center_focus_strong_rounded,
+                color: Colors.white, size: 18),
+            label: const Text('Zor okunuyor? Hassas Tara',
+                style: TextStyle(color: Colors.white)),
+          ),
+          const SizedBox(height: 6),
           TextButton.icon(
             onPressed: _manual,
             icon: const Icon(Icons.keyboard_rounded,

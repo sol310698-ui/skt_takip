@@ -1,6 +1,6 @@
 import '../constants/app_constants.dart';
 
-/// Tarih hesaplama ve OCR metninden tarih ayiklama yardimcilari.
+/// Tarih hesaplama ve OCR metninden AKILLI tarih ayiklama.
 class DateUtils {
   DateUtils._();
 
@@ -19,90 +19,159 @@ class DateUtils {
     return ExpiryStatus.safe;
   }
 
-  /// OCR metninden SON KULLANMA tarihini akilli sekilde ayiklar.
-  /// - Anahtar kelime tanir (SKT/STT/SON = son kullanma, UT/URETIM = uretim)
-  /// - Esnek ayrac: nokta, slash, tire, bosluk, iki nokta, ayracsiz
-  /// - Harf->rakam duzeltir (O->0, I->1, S->5, B->8, Z->2)
-  /// - 2 haneli yili 2000'e tamamlar
-  /// - Iki tarih varsa son kullanmayi (uretim degil) secer
+  // Son kullanma anahtar kelimeleri (genis liste)
+  static final RegExp _expiryKw = RegExp(
+    r'(S\.?K\.?T|S\.?T\.?T|SON\s*T[UÜ]K|SON\s*KUL|T\.?E\.?T\.?[Tİ]?|TUK|TÜK|EXP|BBE|USE\s*BY|LAST|TET[Tİ])',
+    caseSensitive: false,
+  );
+
+  // Uretim anahtar kelimeleri (bunlari ATLA)
+  static final RegExp _productionKw = RegExp(
+    r'(Ü\.?T|U\.?T|ÜRT|URT|ÜRET|URET|IMAL|İMAL|PROD|MFG|ÜRETİM|URETIM|PRODUCTION)',
+    caseSensitive: false,
+  );
+
+  /// ANA FONKSIYON: OCR metninden son kullanma tarihini akilli secer.
+  /// Tum tarih adaylarini bulur, guven skoru verir, en iyisini dondurur.
   static DateTime? parseFromOcr(String text) {
-    final lines = text.split(RegExp(r'[\r\n]+'));
+    final candidates = _collectCandidates(text);
+    if (candidates.isEmpty) return null;
 
-    // 1) Once "son kullanma" anahtar kelimesi olan satiri ara.
-    final expiryKeywords = RegExp(
-      r'(S\.?K\.?T|S\.?T\.?T|SON\s*T|T\.?E\.?T\.?T?|TUK|TÜK|EXP|BBE|USE\s*BY|LAST)',
-      caseSensitive: false,
-    );
-    final productionKeywords = RegExp(
-      r'(Ü\.?T|U\.?T|ÜRT|URT|ÜRET|URET|IMAL|İMAL|PROD|MFG|ÜRETİM|URETIM)',
-      caseSensitive: false,
-    );
+    // En yuksek skorlu adayi sec.
+    candidates.sort((a, b) => b.score.compareTo(a.score));
+    return candidates.first.date;
+  }
 
-    // Once son kullanma satirlarini dene
-    for (final line in lines) {
-      if (expiryKeywords.hasMatch(line)) {
-        final d = _extractDate(line);
-        if (d != null) return d;
+  /// Tum tarih adaylarini skorlariyla dondurur (UX'te aday secimi icin).
+  static List<DateCandidate> parseAllCandidates(String text) {
+    final candidates = _collectCandidates(text);
+    candidates.sort((a, b) => b.score.compareTo(a.score));
+    // Ayni tarihleri tekille
+    final seen = <String>{};
+    final unique = <DateCandidate>[];
+    for (final c in candidates) {
+      final key = '${c.date.year}-${c.date.month}-${c.date.day}';
+      if (seen.add(key)) unique.add(c);
+    }
+    return unique;
+  }
+
+  /// Birden fazla OCR metnini (coklu preprocessing) birlestirip en iyi tarihi secer.
+  /// Coklu versiyondan ayni tarih cikarsa guveni artar (oylama).
+  static DateTime? parseFromMultiple(List<String> texts) {
+    final allCandidates = <DateCandidate>[];
+    for (final t in texts) {
+      allCandidates.addAll(_collectCandidates(t));
+    }
+    if (allCandidates.isEmpty) return null;
+
+    // Ayni tarihleri grupla, tekrar sayisini skora ekle (oylama).
+    final Map<String, DateCandidate> grouped = {};
+    for (final c in allCandidates) {
+      final key = '${c.date.year}-${c.date.month}-${c.date.day}';
+      if (grouped.containsKey(key)) {
+        grouped[key] = grouped[key]!.copyWith(
+          score: grouped[key]!.score + c.score + 20, // tekrar bonusu
+        );
+      } else {
+        grouped[key] = c;
       }
     }
 
-    // 2) Anahtar kelime eslesmediyse: uretim OLMAYAN satirlardaki tarihleri topla
-    final candidates = <DateTime>[];
-    for (final line in lines) {
-      if (productionKeywords.hasMatch(line)) continue; // uretimi atla
-      final d = _extractDate(line);
-      if (d != null) candidates.add(d);
-    }
-    if (candidates.isNotEmpty) {
-      // En ileri (gec) tarih son kullanmadir.
-      candidates.sort((a, b) => b.compareTo(a));
-      return candidates.first;
-    }
-
-    // 3) Hicbiri olmazsa tum metinde en gec tarihi bul
-    final all = _extractAllDates(text);
-    if (all.isNotEmpty) {
-      all.sort((a, b) => b.compareTo(a));
-      return all.first;
-    }
-
-    return null;
+    final list = grouped.values.toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+    return list.first.date;
   }
 
-  /// Harfe benzeyen rakamlari duzeltir (noktali matris baski hatalari).
+  /// Metinden tum tarih adaylarini skorlariyla toplar.
+  static List<DateCandidate> _collectCandidates(String text) {
+    final candidates = <DateCandidate>[];
+    final lines = text.split(RegExp(r'[\r\n]+'));
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final isProduction = _productionKw.hasMatch(line);
+      final isExpiry = _expiryKw.hasMatch(line);
+
+      // Bu satirdaki tum tarihleri bul
+      final dates = _extractDatesFromLine(line);
+      for (final d in dates) {
+        int score = _baseScore(d);
+
+        // Anahtar kelime bonusu/cezasi
+        if (isExpiry) score += 50;       // son kullanma satiri
+        if (isProduction) score -= 40;   // uretim satiri (istemiyoruz)
+
+        candidates.add(DateCandidate(date: d, score: score, sourceLine: line));
+      }
+    }
+
+    return candidates;
+  }
+
+  /// Bir tarihin temel guven skoru (anahtar kelimeden bagimsiz).
+  static int _baseScore(DateTime d) {
+    int score = 0;
+    final days = daysUntil(d);
+
+    // Gelecekteki tarih = muhtemelen SKT (en guclu sinyal)
+    if (days >= 0) {
+      score += 30;
+      // Makul SKT araligi: bugun + 1 gun ... bugun + 3 yil
+      if (days <= 365 * 3) score += 20;
+    } else {
+      // Gecmis tarih: hafif gecmis olabilir (yeni dolmus urun)
+      if (days >= -90) {
+        score += 5; // son 3 ayda dolmus, olabilir
+      } else {
+        score -= 20; // cok eski, muhtemelen uretim tarihi
+      }
+    }
+
+    // Cok ileri tarih (10 yildan fazla) supheli
+    if (days > 365 * 10) score -= 30;
+
+    return score;
+  }
+
+  /// Harfe benzeyen rakamlari duzeltir (noktali/lazer baski hatalari).
   static String _fixOcrDigits(String s) {
     return s
         .replaceAll(RegExp(r'[Oo]'), '0')
-        .replaceAll(RegExp(r'[Iil|]'), '1')
+        .replaceAll(RegExp(r'[Il|]'), '1')
         .replaceAll(RegExp(r'[Ss]'), '5')
         .replaceAll(RegExp(r'[Bb]'), '8')
-        .replaceAll(RegExp(r'[Zz]'), '2');
+        .replaceAll(RegExp(r'[Zz]'), '2')
+        .replaceAll(RegExp(r'[gqG]'), '9');
   }
 
-  /// Bir satirdan tek tarih ayiklar.
-  static DateTime? _extractDate(String line) {
-    final dates = _extractAllDates(line);
-    return dates.isEmpty ? null : dates.first;
-  }
-
-  /// Bir metinden tum gecerli tarihleri ayiklar.
-  /// Desteklenen ayraclar: . / - : bosluk ve ayracsiz (6/8 hane).
-  static List<DateTime> _extractAllDates(String text) {
+  /// Bir satirdan tum gecerli tarihleri ayiklar.
+  static List<DateTime> _extractDatesFromLine(String line) {
     final results = <DateTime>[];
 
-    // Ayracli format: gun[ayrac]ay[ayrac]yil
-    // Ayraclar: . / - : ve bosluk (bir veya daha fazla)
-    final sep = RegExp(
+    // 1) Tam tarih: gun[ayrac]ay[ayrac]yil
+    // Ayraclar: . / - : bosluk
+    final full = RegExp(
       r'(\d{1,2})\s*[.\-/: ]\s*(\d{1,2})\s*[.\-/: ]\s*(\d{2,4})',
     );
-    for (final m in sep.allMatches(text)) {
-      final d = _build(m.group(1), m.group(2), m.group(3));
+    for (final m in full.allMatches(line)) {
+      final d = _buildFull(m.group(1), m.group(2), m.group(3));
       if (d != null) results.add(d);
     }
 
-    // Ayracsiz bitisik: ddMMyy (6 hane) veya ddMMyyyy (8 hane)
+    // 2) Ay-yil: ay[ayrac]yil (gun yok) - orn 02.2027, 07/26
+    // Sadece tam tarih bulunamadiysa dene (cakismayi onle)
+    if (results.isEmpty) {
+      final monthYear = RegExp(r'(\d{1,2})\s*[.\-/]\s*(\d{4}|\d{2})');
+      for (final m in monthYear.allMatches(line)) {
+        final d = _buildMonthYear(m.group(1), m.group(2));
+        if (d != null) results.add(d);
+      }
+    }
+
+    // 3) Ayracsiz bitisik: ddMMyy (6) veya ddMMyyyy (8)
     final compact = RegExp(r'(?<!\d)(\d{6}|\d{8})(?!\d)');
-    for (final m in compact.allMatches(text)) {
+    for (final m in compact.allMatches(line)) {
       final raw = m.group(1)!;
       String dd, mm, yy;
       if (raw.length == 6) {
@@ -114,33 +183,43 @@ class DateUtils {
         mm = raw.substring(2, 4);
         yy = raw.substring(4, 8);
       }
-      final d = _build(dd, mm, yy);
+      final d = _buildFull(dd, mm, yy);
       if (d != null) results.add(d);
     }
 
     return results;
   }
 
-  /// gun/ay/yil parcalarini gecerli DateTime'a cevirir.
-  static DateTime? _build(String? dStr, String? mStr, String? yStr) {
+  /// gun/ay/yil -> DateTime
+  static DateTime? _buildFull(String? dStr, String? mStr, String? yStr) {
     if (dStr == null || mStr == null || yStr == null) return null;
-
     int? day = int.tryParse(_fixOcrDigits(dStr));
     int? month = int.tryParse(_fixOcrDigits(mStr));
     int? year = int.tryParse(_fixOcrDigits(yStr));
     if (day == null || month == null || year == null) return null;
-
-    // 2 haneli yili tamamla
     if (year < 100) year += 2000;
 
-    // Gun/ay karismasi: biri 12'den buyukse o kesin gun.
+    // Gun/ay karismasi: biri 12'den buyukse o gundur.
     if (month > 12 && day <= 12) {
       final t = day;
       day = month;
       month = t;
     }
-
     return _safeDate(year, month, day);
+  }
+
+  /// ay/yil -> ayin son gunu (SKT genelde ay sonu kabul edilir)
+  static DateTime? _buildMonthYear(String? mStr, String? yStr) {
+    if (mStr == null || yStr == null) return null;
+    int? month = int.tryParse(_fixOcrDigits(mStr));
+    int? year = int.tryParse(_fixOcrDigits(yStr));
+    if (month == null || year == null) return null;
+    if (year < 100) year += 2000;
+    if (month < 1 || month > 12) return null;
+    if (year < 2020 || year > 2100) return null;
+    // Ayin son gunu
+    final lastDay = DateTime(year, month + 1, 0).day;
+    return _safeDate(year, month, lastDay);
   }
 
   static DateTime? _safeDate(int year, int month, int day) {
@@ -150,5 +229,33 @@ class DateUtils {
     final dt = DateTime(year, month, day);
     if (dt.year != year || dt.month != month || dt.day != day) return null;
     return dt;
+  }
+}
+
+/// Tarih adayi + guven skoru.
+class DateCandidate {
+  final DateTime date;
+  final int score;
+  final String sourceLine;
+
+  const DateCandidate({
+    required this.date,
+    required this.score,
+    this.sourceLine = '',
+  });
+
+  DateCandidate copyWith({DateTime? date, int? score, String? sourceLine}) {
+    return DateCandidate(
+      date: date ?? this.date,
+      score: score ?? this.score,
+      sourceLine: sourceLine ?? this.sourceLine,
+    );
+  }
+
+  /// Guven seviyesi (UX icin): yuksek/orta/dusuk
+  String get confidenceLabel {
+    if (score >= 80) return 'yuksek';
+    if (score >= 40) return 'orta';
+    return 'dusuk';
   }
 }

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
@@ -76,16 +77,31 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     final picker = ImagePicker();
     final recognizer =
         TextRecognizer(script: TextRecognitionScript.latin);
+    List<String> variants = [];
+    String? originalPath;
     try {
       final photo = await picker.pickImage(
         source: ImageSource.camera,
         imageQuality: 100,
       );
       if (photo == null) return;
+      originalPath = photo.path;
 
-      final input = InputImage.fromFilePath(photo.path);
-      final result = await recognizer.processImage(input);
-      final date = du.DateUtils.parseFromOcr(result.text);
+      // Coklu on isleme: normal + gri/kontrast + invert
+      variants = await ImagePreprocessService.instance
+          .generateVariants(photo.path);
+
+      final texts = <String>[];
+      for (final path in variants) {
+        try {
+          final input = InputImage.fromFilePath(path);
+          final result = await recognizer.processImage(input);
+          if (result.text.isNotEmpty) texts.add(result.text);
+        } catch (_) {}
+      }
+
+      // Coklu metinden oylama ile en iyi tarih
+      final date = du.DateUtils.parseFromMultiple(texts);
 
       if (!mounted) return;
       if (date != null) {
@@ -112,6 +128,10 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
       }
     } finally {
       recognizer.close();
+      if (originalPath != null) {
+        await ImagePreprocessService.instance
+            .cleanup(variants, originalPath);
+      }
     }
   }
 

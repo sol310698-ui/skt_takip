@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import 'barcode_list_screen.dart';
@@ -16,6 +17,22 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+
+  /// Ilk acilista tum izinleri tek seferde iste.
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.camera,
+      Permission.location,
+      Permission.notification,
+      Permission.photos,
+    ].request();
+  }
 
   @override
   Widget build(BuildContext context) {
