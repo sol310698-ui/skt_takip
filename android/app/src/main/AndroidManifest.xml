@@ -24,11 +24,10 @@
 
     <application
         android:label="SKT Takip"
-        android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@drawable/ic_launcher">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.skt_takip.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"
