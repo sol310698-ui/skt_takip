@@ -149,21 +149,28 @@ class DateUtils {
   static List<DateTime> _extractDatesFromLine(String line) {
     final results = <DateTime>[];
 
+    // ON TEMIZLIK: saat ve lot/parti kisimlarini cikar (tarih sanilmasin).
+    // Saat: SS:DD veya SS:DD:SS  ->  13.05.2027 00:45 icindeki "00:45" silinir
+    String clean = line.replaceAll(RegExp(r'\b\d{1,2}:\d{2}(:\d{2})?\b'), ' ');
+    // Lot/parti: "L:262033" gibi - L/LOT/PARTI sonrasi uzun sayilar
+    clean = clean.replaceAll(
+        RegExp(r'\b(L|LOT|PARTI|SERI|BATCH)\s*[:.]?\s*\d+', caseSensitive: false),
+        ' ');
+
     // 1) Tam tarih: gun[ayrac]ay[ayrac]yil
-    // Ayraclar: . / - : bosluk
+    // Ayraclar: . / - bosluk  (DIKKAT: ":" cikarildi, o saat ayraci)
     final full = RegExp(
-      r'(\d{1,2})\s*[.\-/: ]\s*(\d{1,2})\s*[.\-/: ]\s*(\d{2,4})',
+      r'(\d{1,2})\s*[.\-/ ]\s*(\d{1,2})\s*[.\-/ ]\s*(\d{2,4})',
     );
-    for (final m in full.allMatches(line)) {
+    for (final m in full.allMatches(clean)) {
       final d = _buildFull(m.group(1), m.group(2), m.group(3));
       if (d != null) results.add(d);
     }
 
     // 2) Ay-yil: ay[ayrac]yil (gun yok) - orn 02.2027, 07/26
-    // Sadece tam tarih bulunamadiysa dene (cakismayi onle)
     if (results.isEmpty) {
       final monthYear = RegExp(r'(\d{1,2})\s*[.\-/]\s*(\d{4}|\d{2})');
-      for (final m in monthYear.allMatches(line)) {
+      for (final m in monthYear.allMatches(clean)) {
         final d = _buildMonthYear(m.group(1), m.group(2));
         if (d != null) results.add(d);
       }
@@ -171,7 +178,7 @@ class DateUtils {
 
     // 3) Ayracsiz bitisik: ddMMyy (6) veya ddMMyyyy (8)
     final compact = RegExp(r'(?<!\d)(\d{6}|\d{8})(?!\d)');
-    for (final m in compact.allMatches(line)) {
+    for (final m in compact.allMatches(clean)) {
       final raw = m.group(1)!;
       String dd, mm, yy;
       if (raw.length == 6) {
