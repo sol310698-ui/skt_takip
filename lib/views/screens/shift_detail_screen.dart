@@ -27,14 +27,8 @@ class ShiftDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final df = DateFormat('dd MMMM yyyy', 'tr');
     final tf = DateFormat('HH:mm');
-    String dateStr;
-    try {
-      dateStr = df.format(shift.clockIn);
-    } catch (_) {
-      dateStr = DateFormat('dd.MM.yyyy').format(shift.clockIn);
-    }
+    final dateStr = DateFormat('dd.MM.yyyy').format(shift.clockIn);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mesai Detayı')),
