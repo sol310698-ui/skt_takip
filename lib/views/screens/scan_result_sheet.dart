@@ -21,6 +21,7 @@ class ScanResultSheet extends ConsumerStatefulWidget {
 class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
   String? _knownName;
   bool _fromWeb = false;
+  BarcodeLookupStatus? _webStatus;
   bool _loading = true;
 
   @override
@@ -31,23 +32,40 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
 
   Future<void> _lookup() async {
     final bc = widget.result.barcode;
-    if (bc == null) {
-      setState(() => _loading = false);
+    if (bc == null || bc.trim().isEmpty) {
+      if (mounted) setState(() => _loading = false);
       return;
     }
-    // Kademeli arama: 1) yerel dizin 2) aktif urunler 3) Open Food Facts.
-    String? name = await ref
-        .read(barcodeDirectoryRepositoryProvider)
-        .findProductName(bc);
-    name ??= (await ref.read(productRepositoryProvider).findByBarcode(bc))?.name;
 
+    String? name;
     bool fromWeb = false;
+
+    // 1) Yerel barkod dizini.
+    try {
+      name = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .findProductName(bc);
+    } catch (_) {}
+
+    // 2) Aktif/gecmis urunler.
     if (name == null) {
-      // Yerelde yok -> internetten en olasi sonucu cek (timeout'lu, hata yutan).
-      final webName = await BarcodeLookupService.instance.lookupName(bc);
-      if (webName != null) {
-        name = webName;
-        fromWeb = true;
+      try {
+        name = (await ref.read(productRepositoryProvider).findByBarcode(bc))
+            ?.name;
+      } catch (_) {}
+    }
+
+    // 3) Open Food Facts (internet). Bu adim cokerse diğerleri etkilenmesin.
+    if (name == null) {
+      try {
+        final r = await BarcodeLookupService.instance.lookupDetailed(bc);
+        _webStatus = r.status;
+        if (r.found && r.name != null && r.name!.trim().isNotEmpty) {
+          name = r.name;
+          fromWeb = true;
+        }
+      } catch (_) {
+        _webStatus = BarcodeLookupStatus.error;
       }
     }
 
@@ -60,16 +78,34 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
     }
   }
 
+  /// Internet aramasi sonucunu kullaniciya aciklayan kisa metin.
+  String? get _webStatusMessage {
+    if (_knownName != null) return null; // bulundu, mesaja gerek yok
+    switch (_webStatus) {
+      case BarcodeLookupStatus.notFound:
+        return 'Bu barkod internette de bulunamadı.';
+      case BarcodeLookupStatus.timeout:
+        return 'İnternet yanıt vermedi (zaman aşımı). Bağlantını kontrol et.';
+      case BarcodeLookupStatus.httpError:
+      case BarcodeLookupStatus.error:
+        return 'İnternetten sorgulanırken hata oluştu.';
+      case BarcodeLookupStatus.invalid:
+        return 'Geçersiz barkod.';
+      case BarcodeLookupStatus.found:
+      case null:
+        return null;
+    }
+  }
+
   void _addProduct() {
     Navigator.of(context).pop();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ProductFormSheet(
-        prefillBarcode: widget.result.barcode,
-        prefillName: _knownName,
-        scannedExpiry: widget.result.expiryDate,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProductFormScreen(
+          prefillBarcode: widget.result.barcode,
+          prefillName: _knownName,
+          scannedExpiry: widget.result.expiryDate,
+        ),
       ),
     );
   }
@@ -178,12 +214,13 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
                 label: 'Etiket Tarihi',
                 value: DateFormat('dd.MM.yyyy HH:mm')
                     .format(r.labelDateTime!)),
-          if (!r.isStructured && _knownName == null && !_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
+          if (_knownName == null && !_loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'Bu barkod için kayıtlı bilgi yok. Webde arayabilir veya ürün ekleyebilirsiniz.',
-                style: TextStyle(
+                _webStatusMessage ??
+                    'Bu barkod için kayıtlı bilgi yok. Webde arayabilir veya ürün ekleyebilirsiniz.',
+                style: const TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13),
               ),
             ),

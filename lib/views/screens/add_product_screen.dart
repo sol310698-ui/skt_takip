@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -5,8 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
@@ -14,16 +16,20 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
+import 'precise_scan_screen.dart';
 import 'web_search_screen.dart';
-/// Kayan pencere (bottom sheet) icinde calisan urun formu.
-/// Yeni ekleme ve duzenleme icin kullanilir.
-class ProductFormSheet extends ConsumerStatefulWidget {
+
+/// Tam ekran urun formu (ekleme + duzenleme). Akilli ozellikler:
+/// - Barkod yazilinca/tarayinca canli isim+detay cekme (dizin -> urunler -> OFF)
+/// - OFF'tan kategori, marka, gorsel onizleme
+/// - SKT icin OCR / hassas tarama / takvim kisayollari
+class ProductFormScreen extends ConsumerStatefulWidget {
   final Product? existing;
   final DateTime? scannedExpiry;
   final String? prefillBarcode;
   final String? prefillName;
 
-  const ProductFormSheet({
+  const ProductFormScreen({
     super.key,
     this.existing,
     this.scannedExpiry,
@@ -32,10 +38,10 @@ class ProductFormSheet extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<ProductFormSheet> createState() => _ProductFormSheetState();
+  ConsumerState<ProductFormScreen> createState() => _ProductFormScreenState();
 }
 
-class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
+class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _barcodeCtrl;
@@ -43,25 +49,136 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
   late int _quantity;
   DateTime? _expiryDate;
 
+  // Akilli arama durumu
+  Timer? _debounce;
+  bool _looking = false;
+  String? _lookupInfo;      // kullaniciya gosterilen kisa durum metni
+  String? _previewImageUrl; // OFF urun gorseli
+  String _lastLookedUp = ''; // ayni barkodu tekrar sorgulamamak icin
+
   @override
   void initState() {
     super.initState();
     final e = widget.existing;
     _nameCtrl =
         TextEditingController(text: e?.name ?? widget.prefillName ?? '');
-    _barcodeCtrl = TextEditingController(
-        text: e?.barcode ?? widget.prefillBarcode ?? '');
+    _barcodeCtrl =
+        TextEditingController(text: e?.barcode ?? widget.prefillBarcode ?? '');
     _categoryCtrl = TextEditingController(text: e?.category ?? '');
     _quantity = e?.quantity ?? 1;
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;
+
+    // Barkod onceden geldi ve isim bossa, acilista bir kez akilli arama yap.
+    final initialBarcode = _barcodeCtrl.text.trim();
+    if (initialBarcode.isNotEmpty && _nameCtrl.text.trim().isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _smartLookup(initialBarcode);
+      });
+    }
+
+    // Barkod alani elle degisince debounce'lu arama.
+    _barcodeCtrl.addListener(_onBarcodeChanged);
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _barcodeCtrl.removeListener(_onBarcodeChanged);
     _nameCtrl.dispose();
     _barcodeCtrl.dispose();
     _categoryCtrl.dispose();
     super.dispose();
+  }
+
+  void _onBarcodeChanged() {
+    final code = _barcodeCtrl.text.trim();
+    _debounce?.cancel();
+    if (!ScanResult.looksLikeBarcode(code)) return;
+    if (code == _lastLookedUp) return;
+    // Kullanici yazmayi bitirince ara.
+    _debounce = Timer(const Duration(milliseconds: 700), () {
+      _smartLookup(code);
+    });
+  }
+
+  /// Kademeli akilli arama: dizin -> aktif urunler -> Open Food Facts.
+  /// Isim bos VEYA kullanici henuz girmemisse doldurur; kategori/gorsel ekler.
+  Future<void> _smartLookup(String rawCode) async {
+    final code = rawCode.trim();
+    if (!ScanResult.looksLikeBarcode(code)) return;
+    _lastLookedUp = code;
+
+    setState(() {
+      _looking = true;
+      _lookupInfo = null;
+    });
+
+    String? name;
+    String? category;
+
+    // 1) Yerel dizin
+    try {
+      name = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .findProductName(code);
+    } catch (_) {}
+
+    // 2) Aktif/gecmis urunler
+    if (name == null) {
+      try {
+        final p =
+            await ref.read(productRepositoryProvider).findByBarcode(code);
+        if (p != null) {
+          name = p.name;
+          category = p.category;
+        }
+      } catch (_) {}
+    }
+
+    String? info;
+    String? imageUrl;
+
+    // 3) Open Food Facts
+    if (name == null) {
+      try {
+        final r = await BarcodeLookupService.instance.lookupDetailed(code);
+        if (r.found) {
+          name = r.name;
+          category = r.category;
+          imageUrl = r.imageUrl;
+          info = 'İnternetten bulundu';
+        } else {
+          switch (r.status) {
+            case BarcodeLookupStatus.notFound:
+              info = 'İnternette de bulunamadı';
+              break;
+            case BarcodeLookupStatus.timeout:
+              info = 'İnternet yanıt vermedi';
+              break;
+            default:
+              info = 'İnternetten alınamadı';
+          }
+        }
+      } catch (_) {
+        info = 'İnternetten alınamadı';
+      }
+    } else {
+      info = 'Kayıtlardan bulundu';
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _looking = false;
+      _lookupInfo = info;
+      _previewImageUrl = imageUrl;
+      // Isim alani bossa doldur (kullanicinin yazdigini ezme).
+      if (name != null && _nameCtrl.text.trim().isEmpty) {
+        _nameCtrl.text = name;
+      }
+      if (category != null && _categoryCtrl.text.trim().isEmpty) {
+        _categoryCtrl.text = category;
+      }
+    });
   }
 
   Future<void> _pickDate() async {
@@ -78,8 +195,7 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
   /// Fotograf cekerek SKT oku (ML Kit + akilli parser).
   Future<void> _scanDateFromPhoto() async {
     final picker = ImagePicker();
-    final recognizer =
-        TextRecognizer(script: TextRecognitionScript.latin);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     List<String> variants = [];
     String? originalPath;
     try {
@@ -90,9 +206,8 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
       if (photo == null) return;
       originalPath = photo.path;
 
-      // Coklu on isleme: normal + gri/kontrast + invert
-      variants = await ImagePreprocessService.instance
-          .generateVariants(photo.path);
+      variants =
+          await ImagePreprocessService.instance.generateVariants(photo.path);
 
       final texts = <String>[];
       for (final path in variants) {
@@ -103,7 +218,6 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
         } catch (_) {}
       }
 
-      // Coklu metinden oylama ile en iyi tarih
       final date = du.DateUtils.parseFromMultiple(texts);
 
       if (!mounted) return;
@@ -111,8 +225,8 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
         setState(() => _expiryDate = date);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
+            content:
+                Text('Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
             backgroundColor: AppTheme.statusSafe,
           ),
         );
@@ -132,14 +246,32 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     } finally {
       recognizer.close();
       if (originalPath != null) {
-        await ImagePreprocessService.instance
-            .cleanup(variants, originalPath);
+        await ImagePreprocessService.instance.cleanup(variants, originalPath);
       }
     }
   }
 
-  /// Barkodu (yoksa urun adini) uygulama ici tarayicida Google'da aratir.
-  void _searchBarcodeOnline() {
+  /// Hassas (foto-cek + on isleme + aday listesi) SKT tarama.
+  Future<void> _preciseDate() async {
+    final result = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(builder: (_) => const PreciseScanScreen()),
+    );
+    if (result != null && result.year != 1900 && mounted) {
+      setState(() => _expiryDate = result);
+    }
+  }
+
+  Future<void> _scanBarcode() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
+    );
+    if (code != null && mounted) {
+      _barcodeCtrl.text = code;
+      _smartLookup(code);
+    }
+  }
+
+  void _searchOnline() {
     final barcode = _barcodeCtrl.text.trim();
     final name = _nameCtrl.text.trim();
     final query = barcode.isNotEmpty ? barcode : name;
@@ -152,50 +284,6 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => WebSearchScreen(query: query)),
     );
-  }
-
-  Future<void> _scanBarcode() async {
-    final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
-    );
-    if (code != null && mounted) {
-      _barcodeCtrl.text = code;
-
-      // 1) Once aktif urunlerde ara.
-      final existing =
-          await ref.read(productRepositoryProvider).findByBarcode(code);
-      if (existing != null && mounted) {
-        setState(() {
-          _nameCtrl.text = existing.name;
-          _categoryCtrl.text = existing.category ?? '';
-        });
-        return;
-      }
-
-      // 2) Aktif urunde bulamazsa barkod dizinine bak.
-      final dirName = await ref
-          .read(barcodeDirectoryRepositoryProvider)
-          .findProductName(code);
-      if (dirName != null && mounted) {
-        setState(() => _nameCtrl.text = dirName);
-        return;
-      }
-
-      // 3) Yerelde hic yoksa ve ad alani bossa internetten cek (OFF).
-      if (_nameCtrl.text.trim().isEmpty) {
-        final webName =
-            await BarcodeLookupService.instance.lookupName(code);
-        if (webName != null && mounted) {
-          setState(() => _nameCtrl.text = webName);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Ürün adı internetten getirildi'),
-              duration: Duration(milliseconds: 1200),
-            ),
-          );
-        }
-      }
-    }
   }
 
   Future<void> _save() async {
@@ -236,7 +324,6 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
         .scheduleForProduct(product.copyWith(id: savedId));
 
     // Barkod + ad varsa VE barkod gecerli formattaysa dizine de yaz.
-    // (Elle girilmis harfli/gecersiz degerler dizini kirletmesin.)
     if (product.barcode != null &&
         product.name.isNotEmpty &&
         ScanResult.looksLikeBarcode(product.barcode!)) {
@@ -249,7 +336,7 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
       ]);
     }
 
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -259,139 +346,237 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
         ? 'SKT seçilmedi'
         : DateFormat('dd.MM.yyyy').format(_expiryDate!);
 
-    // Klavye acilinca form yukari kayar (viewInsets).
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün'),
+        actions: [
+          TextButton.icon(
+            onPressed: _save,
+            icon: const Icon(Icons.check_rounded),
+            label: Text(isEdit ? 'Güncelle' : 'Kaydet'),
+          ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          children: [
+            // OFF gorsel onizleme + durum
+            if (_previewImageUrl != null || _looking || _lookupInfo != null)
+              _buildPreview(),
 
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 150),
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Tutamac
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.textSecondary.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Text(
-                  isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameCtrl,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Ürün adı *'),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Zorunlu alan'
-                      : null,
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _barcodeCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Barkod',
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Internette ara (barkod doluyken aktif)
-                        IconButton(
-                          icon: const Icon(Icons.search),
-                          tooltip: "Google'da Ara",
-                          onPressed: _searchBarcodeOnline,
-                        ),
-                        // Barkod tara
-                        IconButton(
-                          icon: const Icon(Icons.qr_code_scanner),
-                          tooltip: 'Barkod Tara',
-                          onPressed: _scanBarcode,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _categoryCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Kategori / Reyon'),
-                ),
-                const SizedBox(height: 14),
-                Row(
+            // Urun adi
+            TextFormField(
+              controller: _nameCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Ürün adı *',
+                prefixIcon: Icon(Icons.shopping_bag_outlined),
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Zorunlu alan' : null,
+            ),
+            const SizedBox(height: 16),
+
+            // Barkod + tara + ara
+            TextFormField(
+              controller: _barcodeCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Barkod',
+                prefixIcon: const Icon(Icons.qr_code_rounded),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Takvimden manuel secim
-                    Expanded(
-                      child: InkWell(
-                        onTap: _pickDate,
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 18),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceAlt,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.event,
-                                  color: AppTheme.primary),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text('Son kullanma: $dateStr',
-                                    style: const TextStyle(fontSize: 15),
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                            ],
-                          ),
+                    if (_looking)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
+                      )
+                    else ...[
+                      IconButton(
+                        icon: const Icon(Icons.search),
+                        tooltip: "Google'da Ara",
+                        onPressed: _searchOnline,
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    // Fotograf cekerek tarih oku
-                    Material(
-                      color: AppTheme.primary.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: _scanDateFromPhoto,
-                        child: const Padding(
-                          padding: EdgeInsets.all(18),
-                          child: Icon(Icons.camera_alt_rounded,
-                              color: AppTheme.primary, size: 24),
-                        ),
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_scanner),
+                        tooltip: 'Barkod Tara',
+                        onPressed: _scanBarcode,
                       ),
-                    ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 14),
-                _buildQuantitySelector(),
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: _save,
-                  child: Text(isEdit ? 'Güncelle' : 'Kaydet'),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Kategori
+            TextFormField(
+              controller: _categoryCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Kategori / Reyon',
+                prefixIcon: Icon(Icons.category_outlined),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // SKT secimi - takvim + kamera + hassas
+            _buildExpirySection(dateStr),
+            const SizedBox(height: 16),
+
+            // Adet
+            _buildQuantitySelector(),
+            const SizedBox(height: 28),
+
+            FilledButton.icon(
+              onPressed: _save,
+              icon: const Icon(Icons.save_rounded),
+              label: Text(isEdit ? 'Güncelle' : 'Kaydet',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPreview() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(),
+      child: Row(
+        children: [
+          // Gorsel
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _previewImageUrl != null
+                ? Image.network(
+                    _previewImageUrl!,
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _imgPlaceholder(),
+                    loadingBuilder: (c, w, p) =>
+                        p == null ? w : _imgPlaceholder(),
+                  )
+                : _imgPlaceholder(),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Row(
+              children: [
+                if (_looking)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                if (_looking) const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _looking
+                        ? 'Ürün bilgisi aranıyor...'
+                        : (_lookupInfo ?? ''),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _lookupInfo == 'İnternetten bulundu' ||
+                              _lookupInfo == 'Kayıtlardan bulundu'
+                          ? AppTheme.statusSafe
+                          : AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _imgPlaceholder() {
+    return Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.inventory_2_outlined,
+          color: AppTheme.textTertiary, size: 28),
+    );
+  }
+
+  Widget _buildExpirySection(String dateStr) {
+    final hasDate = _expiryDate != null;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.card(
+          accentColor: hasDate ? AppTheme.primary : null),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.event_rounded,
+                  color: hasDate ? AppTheme.primary : AppTheme.textSecondary,
+                  size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text('Son Kullanma: $dateStr',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: hasDate
+                            ? AppTheme.textPrimary
+                            : AppTheme.textSecondary)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                  label: const Text('Takvim'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _scanDateFromPhoto,
+                  icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                  label: const Text('Foto'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _preciseDate,
+                  icon: const Icon(Icons.center_focus_strong_rounded,
+                      size: 18),
+                  label: const Text('Hassas'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primary.withOpacity(0.85),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -429,7 +614,6 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
   }
 }
 
-/// Barkod tarama sayfasi. Tek seferlik algilama (coklu pop engellenir).
 class BarcodeScanPage extends StatefulWidget {
   const BarcodeScanPage({super.key});
 

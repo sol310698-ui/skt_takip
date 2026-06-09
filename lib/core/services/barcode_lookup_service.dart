@@ -28,12 +28,24 @@ class BarcodeLookupService {
   /// Barkoddan urun adini cozer. Bulunamazsa / hata olursa null doner
   /// (cagiran taraf bir sonraki adima -Google'da Ara- gecebilir).
   Future<String?> lookupName(String barcode) async {
-    final code = barcode.trim();
-    if (code.isEmpty) return null;
+    final r = await lookupDetailed(barcode);
+    return r.name;
+  }
 
-    // Yanit boyutunu kucult: sadece ad/marka alanlari.
+  /// Tanilama icin: adi + ne olduğunu (bulundu / bulunamadi / hata) doner.
+  Future<BarcodeLookupResult> lookupDetailed(String barcode) async {
+    // Sadece rakamlari al (kamera bazen bosluk/gizli karakter ekler).
+    final code = barcode.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (code.isEmpty) {
+      return const BarcodeLookupResult(
+          name: null, status: BarcodeLookupStatus.invalid);
+    }
+
+    // Yanit boyutunu kucult: ad/marka/kategori/gorsel/miktar alanlari.
     final uri = Uri.parse(
-      '$_base/api/v2/product/$code.json?fields=product_name,product_name_tr,brands',
+      '$_base/api/v2/product/$code.json'
+      '?fields=product_name,product_name_tr,brands,categories,'
+      'categories_tags_tr,quantity,image_front_small_url,image_small_url',
     );
 
     try {
@@ -42,46 +54,102 @@ class BarcodeLookupService {
         headers: const {'User-Agent': _userAgent},
       ).timeout(_timeout);
 
-      if (res.statusCode != 200) return null;
+      if (res.statusCode != 200) {
+        return BarcodeLookupResult(
+            name: null, status: BarcodeLookupStatus.httpError);
+      }
 
       final Map<String, dynamic> data = json.decode(res.body);
 
       // status == 1 -> urun bulundu. (0 -> bulunamadi)
-      final status = data['status'];
-      if (status != 1) return null;
+      if (data['status'] != 1) {
+        return const BarcodeLookupResult(
+            name: null, status: BarcodeLookupStatus.notFound);
+      }
 
       final product = data['product'];
-      if (product is! Map) return null;
+      if (product is! Map) {
+        return const BarcodeLookupResult(
+            name: null, status: BarcodeLookupStatus.notFound);
+      }
 
-      // Once Turkce ad, sonra genel ad; bos ise markayla destekle.
       final nameTr = (product['product_name_tr'] as String?)?.trim();
       final name = (product['product_name'] as String?)?.trim();
-      final brand = (product['brands'] as String?)?.trim();
+      final brandRaw = (product['brands'] as String?)?.trim();
+      final firstBrand = (brandRaw != null && brandRaw.isNotEmpty)
+          ? brandRaw.split(',').first.trim()
+          : null;
 
-      final chosen = (nameTr != null && nameTr.isNotEmpty)
-          ? nameTr
-          : (name != null && name.isNotEmpty)
-              ? name
-              : null;
+      String? chosen;
+      if (nameTr != null && nameTr.isNotEmpty) {
+        chosen = nameTr;
+      } else if (name != null && name.isNotEmpty) {
+        chosen = name;
+      }
 
-      if (chosen == null) return null;
+      if (chosen == null) {
+        return const BarcodeLookupResult(
+            name: null, status: BarcodeLookupStatus.notFound);
+      }
 
-      // Marka varsa ve adda gecmiyorsa basina ekle (daha taninabilir).
-      if (brand != null &&
-          brand.isNotEmpty &&
-          !chosen.toLowerCase().contains(brand.toLowerCase())) {
-        // brands virgulle birden cok olabilir; ilkini al.
-        final firstBrand = brand.split(',').first.trim();
-        if (firstBrand.isNotEmpty) {
-          return '$firstBrand $chosen';
+      // Marka adda gecmiyorsa basina ekle (daha taninabilir).
+      String displayName = chosen;
+      if (firstBrand != null &&
+          firstBrand.isNotEmpty &&
+          !chosen.toLowerCase().contains(firstBrand.toLowerCase())) {
+        displayName = '$firstBrand $chosen';
+      }
+
+      // Kategori: once TR etiketleri, yoksa genel kategori metni.
+      String? category;
+      final catTags = product['categories_tags_tr'];
+      if (catTags is List && catTags.isNotEmpty) {
+        category = catTags.last.toString().trim();
+      } else {
+        final catStr = (product['categories'] as String?)?.trim();
+        if (catStr != null && catStr.isNotEmpty) {
+          category = catStr.split(',').last.trim();
         }
       }
-      return chosen;
+
+      final imageUrl = (product['image_front_small_url'] as String?) ??
+          (product['image_small_url'] as String?);
+
+      return BarcodeLookupResult(
+        name: displayName,
+        brand: firstBrand,
+        category: category,
+        quantity: (product['quantity'] as String?)?.trim(),
+        imageUrl: imageUrl,
+        status: BarcodeLookupStatus.found,
+      );
     } on TimeoutException {
-      return null;
+      return const BarcodeLookupResult(
+          name: null, status: BarcodeLookupStatus.timeout);
     } catch (_) {
-      // Ag hatasi, JSON hatasi vb. - sessizce null don.
-      return null;
+      return const BarcodeLookupResult(
+          name: null, status: BarcodeLookupStatus.error);
     }
   }
+}
+
+enum BarcodeLookupStatus { found, notFound, timeout, httpError, error, invalid }
+
+class BarcodeLookupResult {
+  final String? name;
+  final String? brand;
+  final String? category;
+  final String? quantity;
+  final String? imageUrl;
+  final BarcodeLookupStatus status;
+  const BarcodeLookupResult({
+    required this.name,
+    this.brand,
+    this.category,
+    this.quantity,
+    this.imageUrl,
+    required this.status,
+  });
+
+  bool get found => status == BarcodeLookupStatus.found;
 }

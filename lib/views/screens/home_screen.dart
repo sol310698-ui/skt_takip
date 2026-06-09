@@ -311,34 +311,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     if (searchText.isNotEmpty) {
       if (ScanResult.looksLikeBarcode(searchText)) {
+        // Barkod: ad aramasini form ekrani (akilli) kendisi yapacak.
         prefillBarcode = searchText;
-        // Barkod dizininde ad varsa onu da getir.
-        prefillName = await ref
-            .read(barcodeDirectoryRepositoryProvider)
-            .findProductName(prefillBarcode);
       } else {
         prefillName = searchText;
       }
     }
 
     if (!mounted) return;
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ProductFormSheet(
-        prefillBarcode: prefillBarcode,
-        prefillName: prefillName,
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProductFormScreen(
+          prefillBarcode: prefillBarcode,
+          prefillName: prefillName,
+        ),
       ),
     );
   }
 
   Future<void> _openEditSheet(Product product) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ProductFormSheet(existing: product),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProductFormScreen(existing: product),
+      ),
     );
   }
 
@@ -357,11 +352,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
     if (result == null || !mounted) return;
     final scanned = result.year == 1900 ? null : result;
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ProductFormSheet(scannedExpiry: scanned),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProductFormScreen(scannedExpiry: scanned),
+      ),
     );
   }
 
