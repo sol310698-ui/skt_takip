@@ -24,7 +24,8 @@
 
     <application
         android:label="SKT Takip"
-        android:icon="@drawable/ic_launcher">
+        android:icon="@drawable/ic_launcher"
+        android:extractNativeLibs="true">
 
         <activity
             android:name="com.example.skt_takip.MainActivity"
