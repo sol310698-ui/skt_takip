@@ -9,6 +9,66 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
 import 'precise_scan_screen.dart';
 
+/// Canli OCR islem hizi profilleri.
+/// throttleMs dusuk + boxDivider buyuk = daha hizli/tepkisel ama daha cok
+/// CPU/pil. Kullanici sag ustteki ayardan secer.
+enum _ScanSpeed {
+  fast,
+  normal,
+  battery;
+
+  /// Iki isleme arasi minimum sure (ms). Dusuk = daha sik = daha hizli.
+  int get throttleMs {
+    switch (this) {
+      case _ScanSpeed.fast:    return 250;
+      case _ScanSpeed.normal:  return 450;
+      case _ScanSpeed.battery: return 700;
+    }
+  }
+
+  /// Oylama icin tutulan kare sayisi. Az = daha az is.
+  int get maxRecentTexts {
+    switch (this) {
+      case _ScanSpeed.fast:    return 3;
+      case _ScanSpeed.normal:  return 4;
+      case _ScanSpeed.battery: return 5;
+    }
+  }
+
+  /// Tarama kutusu yuksekligi boleni. Buyuk = dar serit = az piksel = hizli.
+  double get boxDivider {
+    switch (this) {
+      case _ScanSpeed.fast:    return 4.0;
+      case _ScanSpeed.normal:  return 3.0;
+      case _ScanSpeed.battery: return 3.0;
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case _ScanSpeed.fast:    return 'Hızlı';
+      case _ScanSpeed.normal:  return 'Normal';
+      case _ScanSpeed.battery: return 'Pil Dostu';
+    }
+  }
+
+  String get hint {
+    switch (this) {
+      case _ScanSpeed.fast:    return 'En tepkisel · daha çok pil';
+      case _ScanSpeed.normal:  return 'Dengeli (önerilen)';
+      case _ScanSpeed.battery: return 'Yavaş · pil tasarrufu';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _ScanSpeed.fast:    return Icons.bolt_rounded;
+      case _ScanSpeed.normal:  return Icons.speed_rounded;
+      case _ScanSpeed.battery: return Icons.battery_saver_rounded;
+    }
+  }
+}
+
 /// Canli SKT tarama. Karasizlik cozumu:
 /// - Acilista once kamera iznini al + kisa isitma gecikmesi (kasma fix)
 /// - Her yeni taramada ValueKey degistir (eski veri/state sifirlanir)
@@ -31,7 +91,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
   bool _done = false;
 
   DateTime _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _throttleMs = 600;
+
+  // Islem hizi - kullanici sag ustteki ayardan secer.
+  // throttle dusuk = daha sik isleme = daha hizli ama daha cok CPU/pil.
+  _ScanSpeed _speed = _ScanSpeed.normal;
+  int get _throttleMs => _speed.throttleMs;
 
   @override
   void initState() {
@@ -55,7 +119,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   // Son karelerin metinlerini biriktir (coklu kare oylamasi icin)
   final List<String> _recentTexts = [];
-  static const _maxRecentTexts = 4;
+  int get _maxRecentTexts => _speed.maxRecentTexts;
 
   void _onScannedText(String value) {
     if (_done) return;
@@ -99,6 +163,28 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   void _confirm() => Navigator.of(context).pop(_detected);
   void _manual() => Navigator.of(context).pop(DateTime(1900));
+
+  /// Islem hizini degistir ve OCR'i yeni ayarla temiz yeniden kur.
+  Future<void> _changeSpeed(_ScanSpeed s) async {
+    if (s == _speed) return;
+    setState(() {
+      _speed = s;
+      _recentTexts.clear();
+      _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
+      _ready = false;       // kamerayi kaldir
+      _scanSession++;       // ScalableOCR'i yeni boxHeight ile yeniden kur
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem hızı: ${s.label}'),
+          duration: const Duration(milliseconds: 900),
+        ),
+      );
+    }
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (mounted) setState(() => _ready = true);
+  }
 
   /// Detayli (foto-cek + on isleme) moda gec. Sonuc gelirse onu dondur.
   Future<void> _openPrecise() async {
@@ -146,6 +232,54 @@ class _ScannerScreenState extends State<ScannerScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text('SKT Tara'),
+        actions: [
+          PopupMenuButton<_ScanSpeed>(
+            icon: const Icon(Icons.tune_rounded),
+            tooltip: 'İşlem Hızı',
+            color: AppTheme.surfaceHigh,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14)),
+            onSelected: _changeSpeed,
+            itemBuilder: (_) => _ScanSpeed.values.map((s) {
+              final selected = s == _speed;
+              return PopupMenuItem<_ScanSpeed>(
+                value: s,
+                child: Row(
+                  children: [
+                    Icon(s.icon,
+                        size: 18,
+                        color: selected
+                            ? AppTheme.primary
+                            : AppTheme.textSecondary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s.label,
+                              style: TextStyle(
+                                  fontWeight: selected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                  color: selected
+                                      ? AppTheme.primary
+                                      : AppTheme.textPrimary)),
+                          Text(s.hint,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.textTertiary)),
+                        ],
+                      ),
+                    ),
+                    if (selected)
+                      const Icon(Icons.check_rounded,
+                          size: 16, color: AppTheme.primary),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
       extendBodyBehindAppBar: true,
       body: Stack(
@@ -177,7 +311,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 boxBottomOff: 2.5,
                 boxRightOff: 5,
                 boxTopOff: 2.5,
-                boxHeight: MediaQuery.of(context).size.height / 3,
+                boxHeight: MediaQuery.of(context).size.height /
+                    _speed.boxDivider,
                 getScannedText: _onScannedText,
               ),
             ),
