@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/image_preprocess_service.dart';
+import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
@@ -13,6 +14,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
+import 'web_search_screen.dart';
 /// Kayan pencere (bottom sheet) icinde calisan urun formu.
 /// Yeni ekleme ve duzenleme icin kullanilir.
 class ProductFormSheet extends ConsumerStatefulWidget {
@@ -136,6 +138,22 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
     }
   }
 
+  /// Barkodu (yoksa urun adini) uygulama ici tarayicida Google'da aratir.
+  void _searchBarcodeOnline() {
+    final barcode = _barcodeCtrl.text.trim();
+    final name = _nameCtrl.text.trim();
+    final query = barcode.isNotEmpty ? barcode : name;
+    if (query.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce barkod veya ürün adı girin')),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => WebSearchScreen(query: query)),
+    );
+  }
+
   Future<void> _scanBarcode() async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
@@ -160,6 +178,22 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
           .findProductName(code);
       if (dirName != null && mounted) {
         setState(() => _nameCtrl.text = dirName);
+        return;
+      }
+
+      // 3) Yerelde hic yoksa ve ad alani bossa internetten cek (OFF).
+      if (_nameCtrl.text.trim().isEmpty) {
+        final webName =
+            await BarcodeLookupService.instance.lookupName(code);
+        if (webName != null && mounted) {
+          setState(() => _nameCtrl.text = webName);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ürün adı internetten getirildi'),
+              duration: Duration(milliseconds: 1200),
+            ),
+          );
+        }
       }
     }
   }
@@ -275,9 +309,22 @@ class _ProductFormSheetState extends ConsumerState<ProductFormSheet> {
                   controller: _barcodeCtrl,
                   decoration: InputDecoration(
                     labelText: 'Barkod',
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.qr_code_scanner),
-                      onPressed: _scanBarcode,
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Internette ara (barkod doluyken aktif)
+                        IconButton(
+                          icon: const Icon(Icons.search),
+                          tooltip: "Google'da Ara",
+                          onPressed: _searchBarcodeOnline,
+                        ),
+                        // Barkod tara
+                        IconButton(
+                          icon: const Icon(Icons.qr_code_scanner),
+                          tooltip: 'Barkod Tara',
+                          onPressed: _scanBarcode,
+                        ),
+                      ],
                     ),
                   ),
                 ),

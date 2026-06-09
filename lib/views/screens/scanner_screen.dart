@@ -307,9 +307,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   ..style = PaintingStyle.stroke
                   ..strokeWidth = 4.0
                   ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
-                boxLeftOff: 5,
+                boxLeftOff: 2,
                 boxBottomOff: 2.5,
-                boxRightOff: 5,
+                boxRightOff: 2,
                 boxTopOff: 2.5,
                 boxHeight: MediaQuery.of(context).size.height /
                     _speed.boxDivider,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
@@ -19,6 +20,7 @@ class ScanResultSheet extends ConsumerStatefulWidget {
 
 class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
   String? _knownName;
+  bool _fromWeb = false;
   bool _loading = true;
 
   @override
@@ -33,14 +35,26 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
       setState(() => _loading = false);
       return;
     }
-    // Once barkod dizini, sonra aktif urunler.
+    // Kademeli arama: 1) yerel dizin 2) aktif urunler 3) Open Food Facts.
     String? name = await ref
         .read(barcodeDirectoryRepositoryProvider)
         .findProductName(bc);
     name ??= (await ref.read(productRepositoryProvider).findByBarcode(bc))?.name;
+
+    bool fromWeb = false;
+    if (name == null) {
+      // Yerelde yok -> internetten en olasi sonucu cek (timeout'lu, hata yutan).
+      final webName = await BarcodeLookupService.instance.lookupName(bc);
+      if (webName != null) {
+        name = webName;
+        fromWeb = true;
+      }
+    }
+
     if (mounted) {
       setState(() {
         _knownName = name;
+        _fromWeb = fromWeb;
         _loading = false;
       });
     }
@@ -123,6 +137,23 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
                               fontFamily: 'monospace',
                               fontSize: 13,
                               color: AppTheme.textSecondary)),
+                    if (_fromWeb && !_loading)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.public_rounded,
+                                size: 12, color: AppTheme.accent),
+                            const SizedBox(width: 4),
+                            Text('İnternetten bulundu',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppTheme.accent,
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
