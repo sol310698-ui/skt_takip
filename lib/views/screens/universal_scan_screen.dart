@@ -18,6 +18,7 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
     with SingleTickerProviderStateMixin {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
+    autoStart: false,
     formats: const [
       BarcodeFormat.ean13,
       BarcodeFormat.ean8,
@@ -43,6 +44,9 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
   Future<void> _requestCameraPermission() async {
     final status = await Permission.camera.request();
     if (!mounted) return;
+    if (status.isGranted || status.isLimited) {
+      await _controller.start();
+    }
     if (status.isPermanentlyDenied) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

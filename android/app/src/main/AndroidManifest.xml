@@ -3,6 +3,9 @@
     <!-- Internet (webview arama + ML Kit model indirme) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Titreşim -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Kamera (OCR + barkod tarama) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

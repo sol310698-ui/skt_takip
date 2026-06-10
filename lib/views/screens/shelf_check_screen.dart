@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/feedback_service.dart';
 import '../../core/services/shelf_session_service.dart';
 import 'barcode_entry_screen.dart';
 import '../../core/theme/app_theme.dart';
@@ -47,6 +48,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.stop());
     }
     ShelfSessionService.instance.start();
+    FeedbackService.instance.init();
   }
 
   @override
@@ -117,6 +119,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       } catch (_) {}
     }
 
+    FeedbackService.instance.play(ScanFeedback.product);
     setState(() {
       _productBarcode = code;
       _productName = name;
@@ -193,6 +196,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Barkod uyusmuyor (etiket QR'i ama baska urune ait)
     if (labelCode != _productBarcode) {
+      FeedbackService.instance.play(ScanFeedback.mismatch);
       ShelfSessionService.instance.record(mismatched: true);
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.mismatch,
@@ -205,6 +209,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Eslesti ama etikette fiyat YOK.
     if (price == null) {
+      FeedbackService.instance.play(ScanFeedback.noPrice);
       ShelfSessionService.instance.record(noPrice: true);
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.noPrice,
@@ -216,6 +221,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Ilk fiyat -> referans
     if (_refPrice == null) {
+      FeedbackService.instance.play(ScanFeedback.matchFirst);
       ShelfSessionService.instance.record(matched: true);
       setState(() => _refPrice = price);
       await _showSheet(ShelfResultSheet(
@@ -231,6 +237,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Fiyat farkli
     if ((price - _refPrice!).abs() > 0.001) {
+      FeedbackService.instance.play(ScanFeedback.priceDiff);
       ShelfSessionService.instance.record(priceDiff: true);
       final old = _refPrice;
       setState(() => _refPrice = price);
@@ -247,6 +254,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     }
 
     // Fiyat ayni
+    FeedbackService.instance.play(ScanFeedback.matchSame);
     ShelfSessionService.instance.record(matched: true);
     await _showSheet(ShelfResultSheet(
       type: ShelfResultType.matchSame,

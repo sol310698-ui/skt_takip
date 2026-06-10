@@ -30,6 +30,7 @@ enum _Mode { idle, record, query }
 class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
+    autoStart: false,
   );
 
   _Mode _mode = _Mode.idle;
@@ -53,6 +54,10 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
   Future<void> _requestCameraPermission() async {
     final status = await Permission.camera.request();
     if (!mounted) return;
+    // İzin verildi ve ekran zaten aktif moddaysa kamerayı başlat.
+    if ((status.isGranted || status.isLimited) && _mode != _Mode.idle) {
+      await _controller.start();
+    }
     if (status.isPermanentlyDenied) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

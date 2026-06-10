@@ -25,6 +25,7 @@ class LabelInspectScreen extends ConsumerStatefulWidget {
 class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
+    autoStart: false,
   );
 
   bool _scanning = true;
@@ -44,6 +45,9 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   Future<void> _requestCameraPermission() async {
     final status = await Permission.camera.request();
     if (!mounted) return;
+    if (status.isGranted || status.isLimited) {
+      await _controller.start();
+    }
     if (status.isPermanentlyDenied) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
