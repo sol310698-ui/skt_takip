@@ -9,7 +9,6 @@ import '../../core/services/shelf_session_service.dart';
 import 'barcode_entry_screen.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
-import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/google_search_button.dart';
 import 'shelf_result_sheet.dart';
@@ -42,14 +41,13 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
   double? _refPrice;
 
   @override
-@override
   void initState() {
     super.initState();
     if (!widget.isActive) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.stop());
     }
-  }
     ShelfSessionService.instance.start();
+  }
 
   @override
   void didUpdateWidget(ShelfCheckScreen old) {
@@ -171,28 +169,6 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
   }
 
   /// Reyon kontrolde okunan urunu barkod dizinine hizlica kaydeder.
-  Future<void> _quickSaveToDirectory(String code, String name) async {
-    if (!ScanResult.looksLikeBarcode(code)) return;
-    try {
-      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
-        BarcodeEntry(
-          barcode: code,
-          productName: name,
-          importedAt: DateTime.now(),
-        ),
-      ]);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('"$name" listeye kaydedildi'),
-            backgroundColor: AppTheme.statusSafe,
-            duration: const Duration(milliseconds: 1200),
-          ),
-        );
-      }
-    } catch (_) {}
-  }
-
   Future<void> _handleLabel(String raw) async {
     final parsed = ScanParser.parse(raw);
     final labelCode = _normalize(parsed.barcode ?? raw);

@@ -115,7 +115,18 @@ class DatabaseService {
   }
 
   Future<void> _createShelfSessionTable(Database db) async {
-    await db.execute('''\n      CREATE TABLE IF NOT EXISTS ${AppConstants.shelfSessionTable} (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        started_at INTEGER NOT NULL,\n        ended_at INTEGER,\n        scanned_count INTEGER NOT NULL DEFAULT 0,\n        match_count INTEGER NOT NULL DEFAULT 0,\n        mismatch_count INTEGER NOT NULL DEFAULT 0,\n        price_diff_count INTEGER NOT NULL DEFAULT 0,\n        no_price_count INTEGER NOT NULL DEFAULT 0\n      )\n    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.shelfSessionTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        scanned_count INTEGER NOT NULL DEFAULT 0,
+        match_count INTEGER NOT NULL DEFAULT 0,
+        mismatch_count INTEGER NOT NULL DEFAULT 0,
+        price_diff_count INTEGER NOT NULL DEFAULT 0,
+        no_price_count INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   Future<void> close() async {

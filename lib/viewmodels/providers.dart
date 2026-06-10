@@ -91,7 +91,8 @@ final openShiftProvider = FutureProvider<ShiftEntry?>((ref) {
 
 // ─── UI State Providers ───────────────────────────────────────────────────────
 
-final searchQueryProvider = StateProvider<String>((ref) => '');\n
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
 /// Stat kartına tıklanınca aktif durum filtresi (null = hepsi).
 final statusFilterProvider = StateProvider<ExpiryStatus?>((ref) => null);
 

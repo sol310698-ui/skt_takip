@@ -70,7 +70,8 @@ class ProductCard extends StatelessWidget {
                 children: [
                   _dayCounter(status, days),
                   const SizedBox(width: 14),
-                  child: Column(
+                  Expanded(
+                    child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
