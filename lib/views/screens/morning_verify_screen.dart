@@ -9,6 +9,8 @@ import '../../core/services/morning_label_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
+import 'web_search_screen.dart';
+import 'morning_history_screen.dart';
 
 /// Sabah Etiket Kaydi Dogrulamasi.
 /// Akis:
@@ -29,7 +31,7 @@ enum _Mode { idle, record, query }
 
 class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
   final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
+    detectionSpeed: DetectionSpeed.normal,
     autoStart: false,
   );
 
@@ -211,6 +213,16 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
             _mode == _Mode.query ? AppTheme.accent : AppTheme.primary,
         foregroundColor:
             _mode == _Mode.query ? Colors.black : Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: 'Kayıt Geçmişi',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                  builder: (_) => const MorningHistoryScreen()),
+            ),
+          ),
+        ],
       ),
       body: _mode == _Mode.idle ? _buildIdle() : _buildActive(),
       // Sag altta Sorgula / Kayda Don
@@ -346,31 +358,64 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
             itemCount: _today.length,
             itemBuilder: (_, i) {
               final m = _today[i];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                decoration: AppTheme.card(),
-                child: Row(
-                  children: [
-                    const Icon(Icons.label_rounded,
-                        color: AppTheme.primary, size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(m.barcode,
+              return GestureDetector(
+                // Karta tıklayınca barkodu internette ara
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => WebSearchScreen(query: m.barcode),
+                  ),
+                ),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  decoration: AppTheme.card(),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.label_rounded,
+                          color: AppTheme.primary, size: 18),
+                      const SizedBox(width: 10),
+                      // Barkod + fiyat
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(m.barcode,
+                                style: const TextStyle(
+                                    fontFamily: 'monospace', fontSize: 13)),
+                            if (m.price != null)
+                              Text('${m.price!.toStringAsFixed(2)} ₺',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.statusSafe,
+                                      fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      // Saat
+                      Text(fmtTime.format(m.scannedAt),
                           style: const TextStyle(
-                              fontFamily: 'monospace', fontSize: 13)),
-                    ),
-                    if (m.price != null)
-                      Text('${m.price!.toStringAsFixed(2)} ₺',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.statusSafe)),
-                    const SizedBox(width: 10),
-                    Text(fmtTime.format(m.scannedAt),
-                        style: const TextStyle(
-                            fontSize: 11, color: AppTheme.textTertiary)),
-                  ],
+                              fontSize: 11, color: AppTheme.textTertiary)),
+                      const SizedBox(width: 8),
+                      // Yeniden Tara butonu
+                      Tooltip(
+                        message: 'Tekrar Kaydet',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => _rescanItem(m),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.qr_code_scanner_rounded,
+                                size: 16, color: AppTheme.primary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },
@@ -378,6 +423,31 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
         ),
       ],
     );
+  }
+
+  /// Listeden bir etiketi tekrar kaydeder (aynı barkod tekrar eklenebilir).
+  Future<void> _rescanItem(MorningLabel m) async {
+    if (_processing) return;
+    setState(() => _processing = true);
+    await MorningLabelService.instance.add(MorningLabel(
+      barcode: m.barcode,
+      price: m.price,
+      labelExpiry: m.labelExpiry,
+      labelPrint: m.labelPrint,
+      scannedAt: DateTime.now(),
+      a4Photo: _a4Photo,
+    ));
+    await _loadToday();
+    if (mounted) {
+      setState(() => _processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Tekrar kaydedildi: ${m.barcode}'),
+          backgroundColor: AppTheme.primary,
+          duration: const Duration(milliseconds: 800),
+        ),
+      );
+    }
   }
 
   /// Sorgu sonucu paneli.

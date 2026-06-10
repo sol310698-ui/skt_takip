@@ -104,6 +104,51 @@ class MorningLabelService {
     return rows.map(MorningLabel.fromMap).toList();
   }
 
+
+  /// Son 30 günün tüm kayıtlarını döndürür, en yeni önce.
+  Future<List<MorningLabel>> getLast30Days() async {
+    final db = await DatabaseService.instance.database;
+    final cutoff = DateTime.now()
+        .subtract(const Duration(days: 30))
+        .millisecondsSinceEpoch;
+    final rows = await db.query(
+      AppConstants.morningLabelTable,
+      where: 'scanned_at >= ?',
+      whereArgs: [cutoff],
+      orderBy: 'scanned_at DESC',
+    );
+    return rows.map(MorningLabel.fromMap).toList();
+  }
+
+
+  /// Tek kaydı id ile siler.
+  Future<void> deleteById(int id) async {
+    final db = await DatabaseService.instance.database;
+    await db.delete(
+      AppConstants.morningLabelTable,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Belirli bir günün tüm kayıtlarını siler.
+  Future<void> deleteDay(DateTime day) async {
+    final db = await DatabaseService.instance.database;
+    final start = DateTime(day.year, day.month, day.day).millisecondsSinceEpoch;
+    final end   = DateTime(day.year, day.month, day.day, 23, 59, 59, 999).millisecondsSinceEpoch;
+    await db.delete(
+      AppConstants.morningLabelTable,
+      where: 'scanned_at >= ? AND scanned_at <= ?',
+      whereArgs: [start, end],
+    );
+  }
+
+  /// Son 30 günün tüm kayıtlarını siler.
+  Future<void> deleteAll() async {
+    final db = await DatabaseService.instance.database;
+    await db.delete(AppConstants.morningLabelTable);
+  }
+
   /// 30 gunden eski kayitlari temizler.
   Future<void> purgeOld() async {
     final db = await DatabaseService.instance.database;
