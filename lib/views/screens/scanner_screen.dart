@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -37,10 +40,11 @@ enum _ScanSpeed {
 
   /// Tarama kutusu yuksekligi boleni. Buyuk = dar serit = az piksel = hizli.
   double get boxDivider {
+    // Kucuk bolen = buyuk kutu. Tarih metnini rahat odaklamak icin genis.
     switch (this) {
-      case _ScanSpeed.fast:    return 4.0;
-      case _ScanSpeed.normal:  return 3.0;
-      case _ScanSpeed.battery: return 3.0;
+      case _ScanSpeed.fast:    return 2.8;
+      case _ScanSpeed.normal:  return 2.4;
+      case _ScanSpeed.battery: return 2.4;
     }
   }
 
@@ -89,6 +93,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   DateTime? _detected;
   bool _done = false;
+
+  // Tarih okundugunda kamera bolgesinin yakalanmis goruntusu (kanit).
+  final GlobalKey _captureKey = GlobalKey();
+  Uint8List? _capturedFrame;
 
   DateTime _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -155,10 +163,29 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _accept(DateTime date) {
+    // Once o anki kamera karesini yakala (kanit goruntusu), sonra sonucu goster.
+    _captureFrame();
     setState(() {
       _detected = date;
       _done = true;
     });
+  }
+
+  /// RepaintBoundary'den o anki kamera bolgesinin PNG goruntusunu alir.
+  Future<void> _captureFrame() async {
+    try {
+      final boundary = _captureKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final image = await boundary.toImage(pixelRatio: 1.5);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null && mounted) {
+        setState(() => _capturedFrame = byteData.buffer.asUint8List());
+      }
+    } catch (_) {
+      // Yakalama basarisiz olursa sessizce gec; pencere foto'suz acilir.
+    }
   }
 
   void _confirm() => Navigator.of(context).pop(_detected);
@@ -215,6 +242,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() {
       _detected = null;
       _done = false;
+      _capturedFrame = null; // yakalanan kareyi temizle
       _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
       _recentTexts.clear(); // eski kare metinlerini temizle
       _ready = false; // kamerayi kaldir (gri kalmayi onler)
@@ -301,19 +329,22 @@ class _ScannerScreenState extends State<ScannerScreen> {
           // Hazir: OCR kamerasi
           else
             Center(
-              child: ScalableOCR(
-                key: ValueKey('ocr_$_scanSession'),
-                paintboxCustom: Paint()
-                  ..style = PaintingStyle.stroke
-                  ..strokeWidth = 4.0
-                  ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
-                boxLeftOff: 2,
-                boxBottomOff: 2.5,
-                boxRightOff: 2,
-                boxTopOff: 2.5,
-                boxHeight: MediaQuery.of(context).size.height /
-                    _speed.boxDivider,
-                getScannedText: _onScannedText,
+              child: RepaintBoundary(
+                key: _captureKey,
+                child: ScalableOCR(
+                  key: ValueKey('ocr_$_scanSession'),
+                  paintboxCustom: Paint()
+                    ..style = PaintingStyle.stroke
+                    ..strokeWidth = 4.0
+                    ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
+                  boxLeftOff: 1,
+                  boxBottomOff: 2,
+                  boxRightOff: 1,
+                  boxTopOff: 2,
+                  boxHeight: MediaQuery.of(context).size.height /
+                      _speed.boxDivider,
+                  getScannedText: _onScannedText,
+                ),
               ),
             ),
           if (_ready) _buildHint(),
@@ -437,9 +468,31 @@ class _ScannerScreenState extends State<ScannerScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.check_circle_rounded,
-                color: AppTheme.statusSafe, size: 52),
-            const SizedBox(height: 12),
+            // Yakalanan kamera karesi - kullanici tarihi gozle dogrulasin.
+            if (_capturedFrame != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+                child: Image.memory(
+                  _capturedFrame!,
+                  width: double.infinity,
+                  height: 130,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text('Okunan görüntü — tarihi doğrulayın',
+                  style: TextStyle(
+                      color: AppTheme.textTertiary, fontSize: 12)),
+              const SizedBox(height: 14),
+            ],
+            Icon(
+              _capturedFrame != null
+                  ? Icons.fact_check_rounded
+                  : Icons.check_circle_rounded,
+              color: AppTheme.statusSafe,
+              size: _capturedFrame != null ? 36 : 52,
+            ),
+            const SizedBox(height: 8),
             const Text('Tarih Bulundu',
                 style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 14)),
@@ -449,7 +502,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     fontSize: 36,
                     fontWeight: FontWeight.w900,
                     color: AppTheme.statusSafe)),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
