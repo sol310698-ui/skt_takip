@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
@@ -36,6 +37,25 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+    _requestCameraPermission();
+  }
+
+  Future<void> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (status.isPermanentlyDenied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Kamera izni gerekli. Lutfen uygulama ayarlarindan izin verin.'),
+          action: SnackBarAction(
+            label: 'Ayarlar',
+            onPressed: openAppSettings,
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   @override

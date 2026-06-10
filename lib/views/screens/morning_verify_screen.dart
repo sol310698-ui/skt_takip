@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/morning_label_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -43,9 +44,28 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
   @override
   void initState() {
     super.initState();
+    _requestCameraPermission();
     _loadToday();
     // 30 gunden eski kayitlari arka planda temizle.
     MorningLabelService.instance.purgeOld();
+  }
+
+  Future<void> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (status.isPermanentlyDenied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Kamera izni gerekli. Lutfen uygulama ayarlarindan izin verin.'),
+          action: SnackBarAction(
+            label: 'Ayarlar',
+            onPressed: openAppSettings,
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   @override

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -33,6 +34,30 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   ScanResult? _parsed;
   String? _localName; // dizin/urunlerden
   BarcodeLookupResult? _off;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestCameraPermission();
+  }
+
+  Future<void> _requestCameraPermission() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (status.isPermanentlyDenied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Kamera izni gerekli. Lutfen uygulama ayarlarindan izin verin.'),
+          action: SnackBarAction(
+            label: 'Ayarlar',
+            onPressed: openAppSettings,
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
 
   @override
   void dispose() {
