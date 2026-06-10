@@ -25,6 +25,20 @@ class BarcodeLookupService {
   // Asiri bekleme olmasin: kullanici hemen geri bildirim gormeli.
   static const Duration _timeout = Duration(seconds: 6);
 
+  /// "el:fitness-bars" → "Fitness Bars" (on eki kaldir, tire→bosluk, basharfle).
+  static String _cleanCategory(String raw) {
+    // "xx:" on ekini kaldir.
+    final noPrefix = raw.contains(':') ? raw.split(':').last : raw;
+    // Tire ve alt cizgiyi bosluga cevir, kelimeler basharfle.
+    return noPrefix
+        .replaceAll(RegExp(r'[-_]'), ' ')
+        .trim()
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1).toLowerCase())
+        .join(' ');
+  }
+
   /// Barkoddan urun adini cozer. Bulunamazsa / hata olursa null doner
   /// (cagiran taraf bir sonraki adima -Google'da Ara- gecebilir).
   Future<String?> lookupName(String barcode) async {
@@ -104,11 +118,11 @@ class BarcodeLookupService {
       String? category;
       final catTags = product['categories_tags_tr'];
       if (catTags is List && catTags.isNotEmpty) {
-        category = catTags.last.toString().trim();
+        category = _cleanCategory(catTags.last.toString());
       } else {
         final catStr = (product['categories'] as String?)?.trim();
         if (catStr != null && catStr.isNotEmpty) {
-          category = catStr.split(',').last.trim();
+          category = _cleanCategory(catStr.split(',').last.trim());
         }
       }
 

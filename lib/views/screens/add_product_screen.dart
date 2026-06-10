@@ -18,6 +18,7 @@ import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import 'precise_scan_screen.dart';
 import 'image_zoom_screen.dart';
+import '../widgets/ui_kit.dart';
 import 'web_search_screen.dart';
 
 /// Tam ekran urun formu (ekleme + duzenleme).
@@ -147,6 +148,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       } else if (name != null) {
         info = 'Kayıtlardan bulundu';
       } else {
+        // Internet araması başarısız; bir sonraki girişte tekrar deneyebilsin.
+        _lastLookedUp = '';
         switch (r.status) {
           case BarcodeLookupStatus.notFound:
             info = 'Bilgi bulunamadı';
@@ -159,7 +162,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         }
       }
     } catch (_) {
-      if (name != null) info = 'Kayıtlardan bulundu';
+      if (name != null) {
+        info = 'Kayıtlardan bulundu';
+      } else {
+        _lastLookedUp = ''; // hata durumunda tekrar denemeye izin ver
+      }
     }
 
     if (!mounted) return;
@@ -245,10 +252,80 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
     );
-    if (code != null && mounted) {
-      _barcodeCtrl.text = code;
-      _smartLookup(code);
+    if (code == null || !mounted) return;
+    _barcodeCtrl.text = code;
+
+    // Mevcut aktif partileri kontrol et.
+    final parties = await ref
+        .read(productRepositoryProvider)
+        .getAllActiveByBarcode(code);
+
+    if (parties.isNotEmpty && mounted) {
+      final addNew = await _showPartyDialog(parties);
+      if (addNew == false) {
+        // Ilk (en eski SKT) partiyi duzenle.
+        Navigator.of(context).pop();
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ProductFormScreen(existing: parties.first),
+        ));
+        return;
+      }
     }
+    _smartLookup(code);
+  }
+
+  Future<bool?> _showPartyDialog(List<Product> parties) {
+    final fmt = (DateTime d) =>
+        '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mevcut Parti Var'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Bu barkoddan ${parties.length} aktif parti:',
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 13)),
+            const SizedBox(height: 10),
+            ...parties.map((p) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: p.status.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${fmt(p.expiryDate)} — ${p.quantity} adet',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                )),
+            const SizedBox(height: 12),
+            const Text('Ne yapmak istersiniz?',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Mevcut partiyi düzenle'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yeni parti ekle'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _searchOnline() {
@@ -342,6 +419,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Arama durumu / resim — header kucukken buradan gorunur.
+                    _buildInlinePreview(),
                     _label('Ürün Adı'),
                     TextFormField(
                       controller: _nameCtrl,
@@ -362,32 +441,35 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         hintText: 'Barkod numarası',
-                        prefixIcon: const Icon(Icons.qr_code_rounded),
-                        suffixIcon: _looking
+                        // Arama suruyorsa prefix spinner; bitmisse ikon.
+                        // Suffix butonlari HEP aktif (kilitlenme olmaz).
+                        prefixIcon: _looking
                             ? const Padding(
                                 padding: EdgeInsets.all(12),
                                 child: SizedBox(
-                                  width: 18,
-                                  height: 18,
+                                  width: 20,
+                                  height: 20,
                                   child: CircularProgressIndicator(
-                                      strokeWidth: 2),
+                                      strokeWidth: 2,
+                                      color: AppTheme.primary),
                                 ),
                               )
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.search),
-                                    tooltip: "Google'da Ara",
-                                    onPressed: _searchOnline,
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.qr_code_scanner),
-                                    tooltip: 'Tara',
-                                    onPressed: _scanBarcode,
-                                  ),
-                                ],
-                              ),
+                            : const Icon(Icons.qr_code_rounded),
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.search),
+                              tooltip: "Google'da Ara",
+                              onPressed: _searchOnline,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.qr_code_scanner),
+                              tooltip: 'Tara',
+                              onPressed: _scanBarcode,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -418,65 +500,141 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
   }
 
-  /// Gradyanli buyuk header: geri butonu, baslik, urun gorseli, durum.
+  /// Header: gorsel varsa gradyanli SliverAppBar, yoksa sade AppBar yuksekligi.
   Widget _buildHeader(bool isEdit) {
     final hasImage = _previewImageUrl != null;
     return SliverAppBar(
-      // Gorsel varsa buyuk, yoksa kompakt header (gri bosluk olmaz).
-      expandedHeight: hasImage ? 240 : 130,
+      expandedHeight: hasImage ? 240 : kToolbarHeight,
       pinned: true,
-      stretch: true,
+      stretch: hasImage,
       backgroundColor: AppTheme.primary,
       foregroundColor: Colors.white,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => Navigator.of(context).maybePop(),
       ),
-      flexibleSpace: FlexibleSpaceBar(
-        title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
-            style: const TextStyle(fontWeight: FontWeight.w700)),
-        titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
-        stretchModes: const [StretchMode.zoomBackground],
-        background: Container(
-          decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
-          child: SafeArea(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.only(
-                    top: hasImage ? 28 : 8, bottom: 44),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (hasImage) _buildHeroImage(),
-                    if (hasImage) const SizedBox(height: 10),
-                    if (_looking)
-                      const Text('Ürün bilgisi aranıyor...',
-                          style:
-                              TextStyle(color: Colors.white, fontSize: 12.5))
-                    else if (_lookupInfo != null)
-                      Row(
+      title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      // Gorsel yokken FlexibleSpaceBar gosterme (gri bosluk olmaz).
+      flexibleSpace: hasImage
+          ? FlexibleSpaceBar(
+              titlePadding: EdgeInsets.zero,
+              stretchModes: const [StretchMode.zoomBackground],
+              background: Container(
+                decoration: const BoxDecoration(
+                    gradient: AppTheme.bannerGradient),
+                child: SafeArea(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 28, bottom: 44),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            _lookupInfo!.contains('bulundu')
-                                ? Icons.check_circle_rounded
-                                : Icons.info_outline_rounded,
-                            color: Colors.white,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(_lookupInfo!,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12.5)),
+                          _buildHeroImage(),
+                          const SizedBox(height: 10),
+                          if (_looking)
+                            const Text('Ürün bilgisi aranıyor...',
+                                style: TextStyle(
+                                    color: Colors.white, fontSize: 12.5))
+                          else if (_lookupInfo != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _lookupInfo!.contains('bulundu')
+                                      ? Icons.check_circle_rounded
+                                      : Icons.info_outline_rounded,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 5),
+                                Text(_lookupInfo!,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12.5)),
+                              ],
+                            ),
                         ],
                       ),
-                  ],
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+
+  /// Form icindeki gorsel + durum baneri (header kucukken gorulur).
+  Widget _buildInlinePreview() {
+    if (!_looking && _previewImageUrl == null && _lookupInfo == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(),
+      child: Row(
+        children: [
+          // Gorsel (varsa)
+          if (_previewImageUrl != null)
+            GestureDetector(
+              onTap: () => openImageZoom(context,
+                  networkUrl: _previewImageUrl, heroTag: 'product_img'),
+              child: Hero(
+                tag: 'product_img',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.rSm),
+                  child: CachedImage(
+                    url: _previewImageUrl!,
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    placeholder: () => Container(
+                      width: 60,
+                      height: 60,
+                      color: AppTheme.surfaceAlt,
+                      child: const Icon(Icons.inventory_2_rounded,
+                          color: AppTheme.textTertiary, size: 28),
+                    ),
+                  ),
                 ),
               ),
             ),
+          if (_previewImageUrl != null) const SizedBox(width: 14),
+          // Durum
+          Expanded(
+            child: Row(
+              children: [
+                if (_looking) ...[
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: AppTheme.primary),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Text(
+                    _looking
+                        ? 'Ürün bilgisi aranıyor...'
+                        : (_lookupInfo ?? ''),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _lookupInfo != null &&
+                              _lookupInfo!.contains('bulundu')
+                          ? AppTheme.statusSafe
+                          : AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -499,12 +657,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           ),
           clipBehavior: Clip.antiAlias,
           child: _previewImageUrl != null
-              ? Image.network(
-                  _previewImageUrl!,
+              ? CachedImage(
+                  url: _previewImageUrl!,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _heroPlaceholder(),
-                  loadingBuilder: (c, w, p) =>
-                      p == null ? w : _heroPlaceholder(),
+                  placeholder: _heroPlaceholder,
                 )
               : _heroPlaceholder(),
         ),

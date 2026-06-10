@@ -18,6 +18,13 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
   DisposalStatus _selected = DisposalStatus.disposed;
   final TextEditingController _noteCtrl = TextEditingController();
   bool _saving = false;
+  late int _disposeQty; // kac adet imha/iade edilecek
+
+  @override
+  void initState() {
+    super.initState();
+    _disposeQty = widget.product.quantity; // varsayilan: tamami
+  }
 
   @override
   void dispose() {
@@ -27,11 +34,32 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    await ref.read(productListProvider.notifier).dispose_(
-          widget.product.id!,
-          _selected,
-          _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-        );
+    final notifier = ref.read(productListProvider.notifier);
+    final p = widget.product;
+    final remaining = p.quantity - _disposeQty;
+
+    if (remaining <= 0) {
+      // Tum adetleri imha et (eski davranis).
+      await notifier.dispose_(
+        p.id!,
+        _selected,
+        _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+      );
+    } else {
+      // Kismi imha: mevcut urunun adedini azalt, ayri bir imha kaydi ekle.
+      final reduced = p.copyWith(quantity: remaining);
+      await notifier.updateProduct(reduced);
+      // Imha kaydini ayri bir "disposed" urun olarak ekle.
+      await notifier.add(p.copyWith(
+        id: null,
+        quantity: _disposeQty,
+        disposalStatus: _selected,
+        disposalDate: DateTime.now(),
+        disposalNote:
+            _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+        createdAt: p.createdAt,
+      ));
+    }
     await ref.read(disposalHistoryProvider.notifier).refresh();
     if (mounted) Navigator.of(context).pop();
   }
@@ -95,6 +123,54 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
               ],
             ),
             const SizedBox(height: 14),
+            // Kismi imha: sadece birden fazla adet varsa goster.
+            if (widget.product.quantity > 1) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceAlt,
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('İmha / İade adedi',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14)),
+                          Text('Kısmi imha yapabilirsiniz',
+                              style: TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline),
+                      color: AppTheme.primary,
+                      onPressed: _disposeQty > 1
+                          ? () => setState(() => _disposeQty--)
+                          : null,
+                    ),
+                    Text('$_disposeQty / ${widget.product.quantity}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15)),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline),
+                      color: AppTheme.primary,
+                      onPressed: _disposeQty < widget.product.quantity
+                          ? () => setState(() => _disposeQty++)
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             TextField(
               controller: _noteCtrl,
               decoration: const InputDecoration(

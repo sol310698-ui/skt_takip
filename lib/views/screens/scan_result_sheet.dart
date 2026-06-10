@@ -104,7 +104,9 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
         builder: (_) => ProductFormScreen(
           prefillBarcode: widget.result.barcode,
           prefillName: _knownName,
-          scannedExpiry: widget.result.expiryDate,
+          // scannedExpiry kasitli olarak gonderilmiyor:
+          // QR'daki 3. alan fiyat/bakim tarihi, gercek SKT degil.
+          // Kullanici SKT'yi form ekraninda kendi girecek.
         ),
       ),
     );

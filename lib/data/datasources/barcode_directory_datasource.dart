@@ -9,6 +9,19 @@ class BarcodeDirectoryDataSource {
   final DatabaseService _dbService;
   BarcodeDirectoryDataSource(this._dbService);
 
+  /// Barkod ile tam BarcodeEntry dondurur (id dahil, silme icin gerekli).
+  Future<BarcodeEntry?> findEntryByBarcode(String barcode) async {
+    final db = await _dbService.database;
+    final rows = await db.query(
+      AppConstants.barcodeTable,
+      where: 'barcode = ?',
+      whereArgs: [barcode.trim()],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return BarcodeEntry.fromMap(rows.first);
+  }
+
   /// Barkod ile urun adi sorgula.
   Future<String?> findProductName(String barcode) async {
     final db = await _dbService.database;

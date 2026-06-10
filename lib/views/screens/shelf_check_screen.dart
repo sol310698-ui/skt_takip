@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/shelf_session_service.dart';
+import 'barcode_entry_screen.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../data/models/barcode_entry.dart';
@@ -38,12 +42,14 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
   double? _refPrice;
 
   @override
+@override
   void initState() {
     super.initState();
     if (!widget.isActive) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _controller.stop());
     }
   }
+    ShelfSessionService.instance.start();
 
   @override
   void didUpdateWidget(ShelfCheckScreen old) {
@@ -58,6 +64,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    ShelfSessionService.instance.finish();
     super.dispose();
   }
 
@@ -94,7 +101,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     final parsed = ScanParser.parse(raw);
     final code = _normalize(parsed.barcode ?? raw);
 
-    // Kademeli ad arama: 1) dizin 2) aktif urunler 3) Open Food Facts.
+    // 1+2) Yerel arama aninda; pencereyi bekletme.
     String? name;
     bool inDirectory = false;
     try {
@@ -106,16 +113,9 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     if (name == null) {
       try {
-        name =
-            (await ref.read(productRepositoryProvider).findByBarcode(code))
-                ?.name;
-      } catch (_) {}
-    }
-
-    if (name == null) {
-      try {
-        final r = await BarcodeLookupService.instance.lookupDetailed(code);
-        if (r.found) name = r.name;
+        name = (await ref.read(productRepositoryProvider)
+                .findByBarcode(code))
+            ?.name;
       } catch (_) {}
     }
 
@@ -125,17 +125,49 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       _refPrice = null;
     });
 
+    // Pencere yerel sonucla HEMEN acilir (OFF beklenmez).
+    // Arka planda OFF dener (2s timeout); isim geldiyse snackbar gosterir.
+    if (name == null) {
+      _lookupOffInBackground(code);
+    }
+
     await _showSheet(ShelfResultSheet(
       type: ShelfResultType.product,
       barcode: code,
       productName: name,
-      // Dizinde yoksa ve bir ad bulunduysa hizli kayit sun.
-      onSaveToDb: (!inDirectory && name != null)
-          ? () => _quickSaveToDirectory(code, name!)
+      // Dizinde yoksa BarcodeEntryScreen ile hizli kayit sun.
+      onSaveToDb: !inDirectory
+          ? () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => BarcodeEntryScreen(
+                  prefillBarcode: code,
+                  prefillName: name,
+                ),
+              ))
           : null,
     ));
 
     setState(() => _phase = _Phase.label);
+  }
+
+  /// OFF sorgusu tamamen arka planda; kullaniciya kisa snackbar.
+  /// Reyon hizli akisi engellemez; timeout 2sn.
+  Future<void> _lookupOffInBackground(String code) async {
+    try {
+      final r = await BarcodeLookupService.instance
+          .lookupDetailed(code)
+          .timeout(const Duration(seconds: 2));
+      if (r.found && r.name != null && mounted) {
+        setState(() => _productName = r.name);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ürün: ${r.name}'),
+            duration: const Duration(milliseconds: 1500),
+          ),
+        );
+      }
+    } catch (_) {
+      // Timeout veya hata: sessizce yoksay, reyon akisini bloke etme.
+    }
   }
 
   /// Reyon kontrolde okunan urunu barkod dizinine hizlica kaydeder.
@@ -185,6 +217,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Barkod uyusmuyor (etiket QR'i ama baska urune ait)
     if (labelCode != _productBarcode) {
+      ShelfSessionService.instance.record(mismatched: true);
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.mismatch,
         barcode: labelCode,
@@ -194,9 +227,9 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       return;
     }
 
-    // Eslesti ama etikette fiyat YOK (duz barkod veya fiyatsiz QR).
-    // Sessizce "fiyat ayni" deme; acikca fiyat okunamadi bildir.
+    // Eslesti ama etikette fiyat YOK.
     if (price == null) {
+      ShelfSessionService.instance.record(noPrice: true);
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.noPrice,
         barcode: labelCode,
@@ -207,6 +240,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Ilk fiyat -> referans
     if (_refPrice == null) {
+      ShelfSessionService.instance.record(matched: true);
       setState(() => _refPrice = price);
       await _showSheet(ShelfResultSheet(
         type: ShelfResultType.matchFirst,
@@ -221,6 +255,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
 
     // Fiyat farkli
     if ((price - _refPrice!).abs() > 0.001) {
+      ShelfSessionService.instance.record(priceDiff: true);
       final old = _refPrice;
       setState(() => _refPrice = price);
       await _showSheet(ShelfResultSheet(
@@ -236,6 +271,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     }
 
     // Fiyat ayni
+    ShelfSessionService.instance.record(matched: true);
     await _showSheet(ShelfResultSheet(
       type: ShelfResultType.matchSame,
       barcode: labelCode,
@@ -265,6 +301,97 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       _productName = null;
       _refPrice = null;
     });
+  }
+
+  Future<void> _showSessionSummary(ShelfSession session) async {
+    final dur = session.duration;
+    final mins = dur.inMinutes;
+    final secs = dur.inSeconds % 60;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppTheme.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Row(
+              children: [
+                Icon(Icons.analytics_rounded,
+                    color: AppTheme.accent, size: 22),
+                SizedBox(width: 10),
+                Text('Oturum Özeti',
+                    style: TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _summaryRow(Icons.qr_code_scanner_rounded,
+                'Taranan etiket', '${session.scannedCount}',
+                AppTheme.textPrimary),
+            _summaryRow(Icons.check_circle_rounded,
+                'Eşleşen', '${session.matchCount}',
+                AppTheme.statusSafe),
+            if (session.priceDiffCount > 0)
+              _summaryRow(Icons.price_change_rounded,
+                  'Fiyat farkı', '${session.priceDiffCount}',
+                  AppTheme.statusWarning),
+            if (session.mismatchCount > 0)
+              _summaryRow(Icons.error_rounded,
+                  'Uyuşmayan', '${session.mismatchCount}',
+                  AppTheme.statusExpired),
+            if (session.noPriceCount > 0)
+              _summaryRow(Icons.help_outline_rounded,
+                  'Fiyat okunamadı', '${session.noPriceCount}',
+                  AppTheme.textSecondary),
+            const Divider(height: 24),
+            _summaryRow(Icons.timer_rounded,
+                'Süre', '$mins dk $secs sn',
+                AppTheme.textSecondary),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Tamam'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryRow(
+      IconData icon, String label, String value, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Text(label,
+                  style: const TextStyle(color: AppTheme.textSecondary))),
+          Text(value,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.w700, fontSize: 15)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -469,7 +596,16 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
               ),
               if (_productBarcode != null)
                 FilledButton.icon(
-                  onPressed: _reset,
+                  onPressed: () async {
+                    final finished =
+                        await ShelfSessionService.instance.finish();
+                    if (mounted && finished != null &&
+                        finished.scannedCount > 0) {
+                      await _showSessionSummary(finished);
+                    }
+                    await ShelfSessionService.instance.start();
+                    _reset();
+                  },
                   icon: const Icon(Icons.refresh_rounded, size: 18),
                   label: const Text('Yeni'),
                   style: FilledButton.styleFrom(

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -216,6 +217,55 @@ class StatTile extends StatelessWidget {
                   fontWeight: FontWeight.w600)),
         ],
       ),
+    );
+  }
+}
+
+/// Önbellekli ag gorseli. Image.network'un yerine kullan.
+/// Yükleniyor: küçük spinner. Hata: placeholder ikon.
+class CachedImage extends StatelessWidget {
+  final String url;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final Widget Function()? placeholder;
+
+  const CachedImage({
+    super.key,
+    required this.url,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.placeholder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CachedNetworkImage(
+      imageUrl: url,
+      width: width,
+      height: height,
+      fit: fit,
+      placeholder: (c, _) => placeholder != null
+          ? placeholder!()
+          : Container(
+              color: AppTheme.surfaceAlt,
+              child: const Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppTheme.primary),
+                ),
+              ),
+            ),
+      errorWidget: (c, _, __) => placeholder != null
+          ? placeholder!()
+          : Container(
+              color: AppTheme.surfaceAlt,
+              child: const Icon(Icons.inventory_2_rounded,
+                  color: AppTheme.textTertiary),
+            ),
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/constants/app_constants.dart';
 import '../core/services/database_service.dart';
 import '../core/services/notification_service.dart';
 import '../data/datasources/barcode_directory_datasource.dart';
@@ -90,7 +91,9 @@ final openShiftProvider = FutureProvider<ShiftEntry?>((ref) {
 
 // ─── UI State Providers ───────────────────────────────────────────────────────
 
-final searchQueryProvider = StateProvider<String>((ref) => '');
+final searchQueryProvider = StateProvider<String>((ref) => '');\n
+/// Stat kartına tıklanınca aktif durum filtresi (null = hepsi).
+final statusFilterProvider = StateProvider<ExpiryStatus?>((ref) => null);
 
 // ─── Product List ─────────────────────────────────────────────────────────────
 
@@ -104,12 +107,19 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
 
   @override
   Future<List<Product>> build() async {
-    // Acilista 90 gunden eski imha/iade kayitlarini temizle (DB sismesini onler).
-    // Hata olursa listelemeyi engellemesin.
+    try { await _repo.purgeOldDisposals(); } catch (_) {}
+    final products = await _repo.getProducts();
+    // Eski bildirim sema gocunu arka planda yap (bloke etmez).
+    _migrateNotificationsIfNeeded(products);
+    return products;
+  }
+
+  Future<void> _migrateNotificationsIfNeeded(List<Product> products) async {
+    final ids = products.map((p) => p.id).whereType<int>().toList();
+    if (ids.isEmpty) return;
     try {
-      await _repo.purgeOldDisposals();
+      await NotificationService.instance.migrateOldSchemaIfNeeded(ids);
     } catch (_) {}
-    return _repo.getProducts();
   }
 
   Future<void> refresh() async {
@@ -175,11 +185,24 @@ class DisposalHistoryNotifier extends AsyncNotifier<List<Product>> {
 
 final filteredProductsProvider = Provider<List<Product>>((ref) {
   final query = ref.watch(searchQueryProvider).toLowerCase().trim();
+  final statusFilter = ref.watch(statusFilterProvider);
   final products = ref.watch(productListProvider).valueOrNull ?? [];
-  if (query.isEmpty) return products;
-  return products.where((p) {
-    return p.name.toLowerCase().contains(query) ||
-        (p.barcode?.toLowerCase().contains(query) ?? false);
-  }).toList();
+
+  var filtered = products;
+
+  // Durum filtresi (stat kartindan).
+  if (statusFilter != null) {
+    filtered = filtered.where((p) => p.status == statusFilter).toList();
+  }
+
+  // Metin arama.
+  if (query.isNotEmpty) {
+    filtered = filtered.where((p) {
+      return p.name.toLowerCase().contains(query) ||
+          (p.barcode?.toLowerCase().contains(query) ?? false);
+    }).toList();
+  }
+
+  return filtered;
 });
 

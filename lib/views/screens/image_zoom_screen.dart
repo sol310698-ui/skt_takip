@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 
+import '../widgets/ui_kit.dart';
+
 /// Tam ekran, yakinlastirilabilir gorsel goruntuleyici.
 /// Hem ag (network) hem yerel dosya (file) gorsellerini destekler.
 class ImageZoomScreen extends StatelessWidget {
@@ -24,14 +26,10 @@ class ImageZoomScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget image;
     if (networkUrl != null) {
-      image = Image.network(
-        networkUrl!,
+      image = CachedImage(
+        url: networkUrl!,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => _err(),
-        loadingBuilder: (c, w, p) => p == null
-            ? w
-            : const Center(
-                child: CircularProgressIndicator(color: Colors.white)),
+        placeholder: _err,
       );
     } else if (filePath != null) {
       image = Image.file(

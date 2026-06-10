@@ -30,6 +30,7 @@ class DatabaseService {
     await _createProductsTable(db);
     await _createBarcodeTable(db);
     await _createShiftTable(db);
+    await _createShelfSessionTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -50,6 +51,9 @@ class DatabaseService {
     }
     if (oldVersion < 3) {
       await _createShiftTable(db);
+    }
+    if (oldVersion < 4) {
+      await _createShelfSessionTable(db);
     }
   }
 
@@ -108,6 +112,10 @@ class DatabaseService {
     await db.execute(
       'CREATE INDEX idx_clockin ON ${AppConstants.shiftTable} (clock_in)',
     );
+  }
+
+  Future<void> _createShelfSessionTable(Database db) async {
+    await db.execute('''\n      CREATE TABLE IF NOT EXISTS ${AppConstants.shelfSessionTable} (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        started_at INTEGER NOT NULL,\n        ended_at INTEGER,\n        scanned_count INTEGER NOT NULL DEFAULT 0,\n        match_count INTEGER NOT NULL DEFAULT 0,\n        mismatch_count INTEGER NOT NULL DEFAULT 0,\n        price_diff_count INTEGER NOT NULL DEFAULT 0,\n        no_price_count INTEGER NOT NULL DEFAULT 0\n      )\n    ''');
   }
 
   Future<void> close() async {

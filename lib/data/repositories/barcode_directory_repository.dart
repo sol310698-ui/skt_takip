@@ -8,6 +8,8 @@ class BarcodeDirectoryRepository {
 
   Future<String?> findProductName(String barcode) =>
       _local.findProductName(barcode);
+  Future<BarcodeEntry?> findEntryByBarcode(String barcode) =>
+      _local.findEntryByBarcode(barcode);
   Future<int> importAll(List<BarcodeEntry> entries) =>
       _local.importAll(entries);
   Future<List<BarcodeEntry>> getAll() => _local.getAll();

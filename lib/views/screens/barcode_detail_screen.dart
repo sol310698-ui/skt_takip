@@ -5,6 +5,7 @@ import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
@@ -76,7 +77,6 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
     );
     if (result == null || result.isEmpty) return;
 
-    // UPSERT (ayni barkod -> uzerine yazar).
     await ref.read(barcodeDirectoryRepositoryProvider).importAll([
       BarcodeEntry(
         barcode: _entry.barcode,
@@ -84,14 +84,20 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         importedAt: DateTime.now(),
       ),
     ]);
+
+    // REPLACE eski id'yi degistirdi; guncel id'yi DB'den cek (sil icin gerekli).
+    final fresh = await ref
+        .read(barcodeDirectoryRepositoryProvider)
+        .findEntryByBarcode(_entry.barcode);
+
     if (mounted) {
       setState(() {
-        _entry = BarcodeEntry(
-          id: _entry.id,
-          barcode: _entry.barcode,
-          productName: result,
-          importedAt: DateTime.now(),
-        );
+        _entry = fresh ??
+            BarcodeEntry(
+              barcode: _entry.barcode,
+              productName: result,
+              importedAt: DateTime.now(),
+            );
         _changed = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -208,12 +214,10 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                                   ),
                                 )
                               : (_imageUrl != null
-                                  ? Image.network(
-                                      _imageUrl!,
+                                  ? CachedImage(
+                                      url: _imageUrl!,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => _ph(),
-                                      loadingBuilder: (c, w, p) =>
-                                          p == null ? w : _ph(),
+                                      placeholder: _ph,
                                     )
                                   : _ph()),
                         ),

@@ -8,6 +8,8 @@ class ProductRepository {
 
   Future<List<Product>> getProducts() => _local.getActive();
   Future<List<Product>> getDisposalHistory() => _local.getDisposalHistory();
+  Future<List<Product>> getAllActiveByBarcode(String barcode) =>
+      _local.getAllActiveByBarcode(barcode);
   Future<Product?> findByBarcode(String barcode) => _local.getByBarcode(barcode);
   Future<int> addProduct(Product product) => _local.insert(product);
   Future<int> updateProduct(Product product) => _local.update(product);

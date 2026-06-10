@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/services/backup_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
@@ -54,18 +55,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ref.read(productListProvider.notifier).refresh(),
                 ),
                 data: (products) {
-                  if (filtered.isEmpty && _searchCtrl.text.isEmpty) {
-                    return Column(children: [_buildStats(products), Expanded(child: _buildEmpty())]);
+                  final activeFilter = ref.watch(statusFilterProvider);
+                  if (filtered.isEmpty &&
+                      _searchCtrl.text.isEmpty &&
+                      activeFilter == null) {
+                    return Column(children: [
+                      _buildStats(products),
+                      Expanded(child: _buildEmpty())
+                    ]);
                   }
                   return RefreshIndicator(
                     onRefresh: () =>
                         ref.read(productListProvider.notifier).refresh(),
                     child: ListView.builder(
                       padding: const EdgeInsets.only(top: 4, bottom: 100),
-                      itemCount: filtered.length + 1,
+                      itemCount: _buildSectionedItems(filtered).length + 2,
                       itemBuilder: (context, i) {
                         if (i == 0) return _buildStats(products);
-                        final product = filtered[i - 1];
+                        if (i == 1) return _buildFilterBanner(activeFilter);
+                        final item = _buildSectionedItems(filtered)[i - 2];
+                        if (item is _SectionHeader) {
+                          return _buildGroupHeader(item.label, item.color);
+                        }
+                        final product = item as Product;
                         return ProductCard(
                           product: product,
                           onDelete: () => _confirmDelete(product),
@@ -149,6 +161,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           builder: (_) => const ImportScreen()),
                     ),
                   ),
+                  // DB Yedek / Geri Yukle
+                  _BannerIconBtn(
+                    icon: Icons.cloud_download_outlined,
+                    tooltip: 'Yedek Al / Geri Yükle',
+                    onTap: _openBackupMenu,
+                  ),
                   // Yeni urun
                   _BannerIconBtn(
                     icon: Icons.add,
@@ -207,34 +225,205 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             p.daysUntilExpiry <= AppConstants.warningDays)
         .length;
 
+    final activeFilter = ref.watch(statusFilterProvider);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
       child: Row(
         children: [
           Expanded(
-            child: StatTile(
-                label: 'Doldu',
-                count: expired,
-                color: AppTheme.statusExpired,
-                icon: Icons.dangerous_rounded),
+            child: _filterTile(
+              label: 'Doldu',
+              count: expired,
+              color: AppTheme.statusExpired,
+              icon: Icons.dangerous_rounded,
+              status: ExpiryStatus.expired,
+              active: activeFilter == ExpiryStatus.expired,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: StatTile(
-                label: 'Kritik',
-                count: critical,
-                color: AppTheme.statusCritical,
-                icon: Icons.warning_rounded),
+            child: _filterTile(
+              label: 'Kritik',
+              count: critical,
+              color: AppTheme.statusCritical,
+              icon: Icons.warning_rounded,
+              status: ExpiryStatus.critical,
+              active: activeFilter == ExpiryStatus.critical,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: StatTile(
-                label: 'Yaklaşan',
-                count: warning,
-                color: AppTheme.statusWarning,
-                icon: Icons.schedule_rounded),
+            child: _filterTile(
+              label: 'Yaklaşan',
+              count: warning,
+              color: AppTheme.statusWarning,
+              icon: Icons.schedule_rounded,
+              status: ExpiryStatus.warning,
+              active: activeFilter == ExpiryStatus.warning,
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _filterTile({
+    required String label,
+    required int count,
+    required Color color,
+    required IconData icon,
+    required ExpiryStatus status,
+    required bool active,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        // Zaten aktifse filtre kaldir; degilse uygula.
+        final notifier = ref.read(statusFilterProvider.notifier);
+        notifier.state = active ? null : status;
+        // Filtre degisince arama metnini temizle.
+        if (!active) ref.read(searchQueryProvider.notifier).state = '';
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: active ? color.withOpacity(0.18) : AppTheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          border: Border.all(
+            color: active ? color : color.withOpacity(0.3),
+            width: active ? 1.5 : 1,
+          ),
+          boxShadow: active ? AppTheme.glow(color) : AppTheme.shadowSm,
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(height: 8),
+            Text('$count',
+                style: TextStyle(
+                    color: color,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    height: 1)),
+            const SizedBox(height: 3),
+            Text(label,
+                style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600)),
+            if (active) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(AppTheme.rPill),
+                ),
+                child: Text('Filtreli',
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupHeader(String label, Color color) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 14,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Urunleri durum gruplarina ayirir: [Header, Product, Product, Header, ...]
+  List<dynamic> _buildSectionedItems(List<Product> products) {
+    final sections = <_SectionDef>[
+      _SectionDef('Süresi Doldu', ExpiryStatus.expired,
+          AppTheme.statusExpired),
+      _SectionDef('Kritik (≤3 gün)', ExpiryStatus.critical,
+          AppTheme.statusCritical),
+      _SectionDef('Yaklaşan (≤7 gün)', ExpiryStatus.warning,
+          AppTheme.statusWarning),
+      _SectionDef('Güvenli', ExpiryStatus.safe, AppTheme.statusSafe),
+    ];
+    final result = <dynamic>[];
+    for (final section in sections) {
+      final items =
+          products.where((p) => p.status == section.status).toList();
+      if (items.isEmpty) continue;
+      result.add(_SectionHeader(section.label, section.color));
+      result.addAll(items);
+    }
+    return result;
+  }
+
+  Widget _buildFilterBanner(ExpiryStatus? filter) {
+    if (filter == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: filter.color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(color: filter.color.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.filter_list_rounded,
+                color: filter.color, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${filter.label} filtresi aktif',
+                style: TextStyle(
+                    color: filter.color,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            GestureDetector(
+              onTap: () =>
+                  ref.read(statusFilterProvider.notifier).state = null,
+              child: Icon(Icons.close_rounded,
+                  color: filter.color, size: 18),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -244,6 +433,103 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       icon: Icons.inventory_2_outlined,
       title: 'Henüz ürün yok',
       subtitle: 'SKT taramak için aşağıdaki "SKT Tara" butonunu kullanın',
+    );
+  }
+
+  void _openBackupMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: AppTheme.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text('Veri Yedekleme',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text(
+              'Yedek alarak verilerinizi koruyun.',
+              style: TextStyle(
+                  color: AppTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  await BackupService.instance.exportDb();
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Yedek alınamadı: $e')),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.cloud_upload_rounded),
+              label: const Text('Yedek Al'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () async {
+                Navigator.pop(context);
+                // Dosya secimi — kullaniciya yol soruluyor.
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Geri Yükle'),
+                    content: const Text(
+                      'Mevcut tüm veriler silinip yedeğinizle değiştirilecek. '
+                      'Devam etmek istiyor musunuz?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('İptal'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.statusExpired),
+                        child: const Text('Geri Yükle'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true || !mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Yedek dosyasının yolunu dosya yöneticisinden kopyalayıp '
+                      'BackupService.instance.importDb(yol) ile çağırın.',
+                    ),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.cloud_download_rounded),
+              label: const Text('Yedekten Geri Yükle'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -438,4 +724,17 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
       ),
     );
   }
+}
+
+class _SectionHeader {
+  final String label;
+  final Color color;
+  _SectionHeader(this.label, this.color);
+}
+
+class _SectionDef {
+  final String label;
+  final ExpiryStatus status;
+  final Color color;
+  _SectionDef(this.label, this.status, this.color);
 }

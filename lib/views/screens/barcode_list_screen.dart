@@ -6,6 +6,7 @@ import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
+import 'barcode_entry_screen.dart';
 import 'import_screen.dart';
 import 'universal_scan_screen.dart';
 
@@ -97,12 +98,29 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openScan,
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('Tara'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Manuel ekleme
+          FloatingActionButton.small(
+            heroTag: 'bc_add',
+            onPressed: _openAddEntry,
+            backgroundColor: AppTheme.accent,
+            foregroundColor: Colors.black,
+            child: const Icon(Icons.add_rounded),
+          ),
+          const SizedBox(height: 10),
+          // Tarayarak ekleme
+          FloatingActionButton.extended(
+            heroTag: 'bc_scan',
+            onPressed: _openScan,
+            backgroundColor: AppTheme.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Tara'),
+          ),
+        ],
       ),
     );
   }
@@ -294,5 +312,13 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
       MaterialPageRoute(builder: (_) => const UniversalScanScreen()),
     );
     _load();
+  }
+
+  /// Manuel barkod + ad girisi (BarcodeEntryScreen).
+  Future<void> _openAddEntry() async {
+    final added = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const BarcodeEntryScreen()),
+    );
+    if (added == true) _load();
   }
 }

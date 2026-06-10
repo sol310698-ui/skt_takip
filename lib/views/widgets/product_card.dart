@@ -12,6 +12,7 @@ class ProductCard extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onDispose;
   final VoidCallback? onSearch;
+  final int partyCount; // bu barkoddan kac aktif parti var
 
   const ProductCard({
     super.key,
@@ -20,6 +21,7 @@ class ProductCard extends StatelessWidget {
     this.onDelete,
     this.onDispose,
     this.onSearch,
+    this.partyCount = 1,
   });
 
   @override
@@ -30,21 +32,44 @@ class ProductCard extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Container(
-            decoration: AppTheme.card(accentColor: status.color),
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Sol: gun sayaci rozeti (buyuk, vurgulu)
-                _dayCounter(status, days),
-                const SizedBox(width: 14),
-                // Orta: urun bilgileri
-                Expanded(
+      child: Dismissible(
+        key: ValueKey('product_${product.id}'),
+        confirmDismiss: (dir) async {
+          if (dir == DismissDirection.endToStart) {
+            // Sol kaydir -> imha onayi
+            onDispose?.call();
+          } else {
+            // Sag kaydir -> duzenle
+            onTap?.call();
+          }
+          return false; // Liste ogesi kalsin; aksiyon modal'da halleder.
+        },
+        background: _swipeBg(
+          color: AppTheme.primary,
+          icon: Icons.edit_rounded,
+          label: 'Düzenle',
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 24),
+        ),
+        secondaryBackground: _swipeBg(
+          color: AppTheme.statusExpired,
+          icon: Icons.delete_sweep_rounded,
+          label: 'İmha',
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 24),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onTap,
+            child: Container(
+              decoration: AppTheme.card(accentColor: status.color),
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  _dayCounter(status, days),
+                  const SizedBox(width: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -72,12 +97,17 @@ class ProductCard extends StatelessWidget {
                         ],
                       ),
                       if (product.quantity > 1 ||
-                          product.category != null) ...[
+                          product.category != null ||
+                          partyCount > 1) ...[
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 6,
                           runSpacing: 4,
                           children: [
+                            if (partyCount > 1)
+                              _chip('$partyCount parti',
+                                  Icons.layers_rounded,
+                                  color: AppTheme.accent),
                             if (product.quantity > 1)
                               _chip('${product.quantity} adet',
                                   Icons.inventory_2_rounded),
@@ -94,6 +124,42 @@ class ProductCard extends StatelessWidget {
                 _menu(),
               ],
             ),
+          ),
+        ),
+      ),
+      ), // Dismissible
+    );
+  }
+
+  Widget _swipeBg({
+    required Color color,
+    required IconData icon,
+    required String label,
+    required Alignment alignment,
+    required EdgeInsets padding,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Align(
+        alignment: alignment,
+        child: Padding(
+          padding: padding,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(height: 4),
+              Text(label,
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700)),
+            ],
           ),
         ),
       ),
@@ -147,23 +213,29 @@ class ProductCard extends StatelessWidget {
     );
   }
 
-  Widget _chip(String label, IconData icon) {
+  Widget _chip(String label, IconData icon, {Color? color}) {
+    final c = color ?? AppTheme.textTertiary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
+        color: color != null
+            ? color.withOpacity(0.12)
+            : AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(8),
+        border: color != null
+            ? Border.all(color: color.withOpacity(0.3))
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 11, color: AppTheme.textTertiary),
+          Icon(icon, size: 11, color: c),
           const SizedBox(width: 4),
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 11,
-                  color: AppTheme.textSecondary,
-                  fontWeight: FontWeight.w500)),
+                  color: c,
+                  fontWeight: FontWeight.w600)),
         ],
       ),
     );
