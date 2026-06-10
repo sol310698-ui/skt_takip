@@ -57,9 +57,9 @@ class ImageZoomScreen extends StatelessWidget {
       body: GestureDetector(
         onTap: () => Navigator.of(context).maybePop(),
         child: Center(
-          child: InteractiveViewer(
-            minScale: 1,
-            maxScale: 5,
+          // Buyutme yok: gorsel sayfaya sigdirilir (BoxFit.contain).
+          child: Padding(
+            padding: const EdgeInsets.all(16),
             child: image,
           ),
         ),

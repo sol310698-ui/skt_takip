@@ -4,10 +4,14 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
+import 'label_inspect_screen.dart';
+import 'morning_verify_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
 
 /// Alt navigasyon barli ana kabuk.
+/// "Kontrol" sekmesi sekme DEGISTIRMEZ: kamera otomatik baslamasin diye
+/// bir secim sheet'i acar; secilen ekran tam sayfa (navbar'siz) push edilir.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -16,7 +20,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _index = 0;
+  int _navIndex = 0;
 
   @override
   void initState() {
@@ -24,7 +28,6 @@ class _MainShellState extends State<MainShell> {
     _requestPermissions();
   }
 
-  /// Ilk acilista tum izinleri tek seferde iste.
   Future<void> _requestPermissions() async {
     await [
       Permission.camera,
@@ -34,17 +37,144 @@ class _MainShellState extends State<MainShell> {
     ].request();
   }
 
+  /// Nav index -> IndexedStack index (2=Kontrol sheet, stack'te yok).
+  int get _stackIndex => _navIndex < 2 ? _navIndex : _navIndex - 1;
+
+  void _onDestination(int i) {
+    if (i == 2) {
+      // Kontrol: sekme degistirme, secim sheet'i ac.
+      _openControlSheet();
+      return;
+    }
+    setState(() => _navIndex = i);
+  }
+
+  void _openControlSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppTheme.textTertiary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text('Kontrol Araçları',
+                style:
+                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            _sheetOption(
+              icon: Icons.price_check_rounded,
+              color: AppTheme.primary,
+              title: 'Reyon Kontrol',
+              subtitle: 'Ürün + etiket eşleştirme, fiyat farkı kontrolü',
+              onTap: () => _push(const ShelfCheckScreen()),
+            ),
+            const SizedBox(height: 10),
+            _sheetOption(
+              icon: Icons.document_scanner_rounded,
+              color: AppTheme.accent,
+              title: 'Etiket İnceleme',
+              subtitle:
+                  'Etiketi okut: fiyat, tarihler, ürün bilgisi, web arama',
+              onTap: () => _push(const LabelInspectScreen()),
+            ),
+            const SizedBox(height: 10),
+            _sheetOption(
+              icon: Icons.wb_sunny_rounded,
+              color: AppTheme.amber,
+              title: 'Sabah Etiket Kaydı',
+              subtitle:
+                  'Teslim alınan etiketleri kaydet, sonra sorgula (30 gün)',
+              onTap: () => _push(const MorningVerifyScreen()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _push(Widget screen) {
+    Navigator.of(context).pop(); // sheet'i kapat
+    // Push: navbar gorunmez (MainShell disinda tam sayfa).
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+  }
+
+  Widget _sheetOption({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: AppTheme.surfaceAlt,
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textTertiary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
-        index: _index,
+        index: _stackIndex,
         children: [
           const HomeScreen(),
-          // Barkod liste sekmeye her donuste yenilensin.
-          BarcodeListScreen(isActive: _index == 1),
-          // Reyon kontrol sadece secili oldugunda kamerayi calistirir.
-          ShelfCheckScreen(isActive: _index == 2),
+          BarcodeListScreen(isActive: _navIndex == 1),
           const ShiftScreen(),
         ],
       ),
@@ -60,8 +190,8 @@ class _MainShellState extends State<MainShell> {
           ],
         ),
         child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: (i) => setState(() => _index = i),
+          selectedIndex: _navIndex,
+          onDestinationSelected: _onDestination,
           backgroundColor: AppTheme.surface,
           indicatorColor: AppTheme.primary.withOpacity(0.25),
           height: 68,
@@ -83,12 +213,12 @@ class _MainShellState extends State<MainShell> {
               icon: Icon(Icons.price_check_outlined),
               selectedIcon:
                   Icon(Icons.price_check_rounded, color: AppTheme.primaryLight),
-              label: 'Reyon Kontrol',
+              label: 'Kontrol',
             ),
             NavigationDestination(
               icon: Icon(Icons.access_time_outlined),
-              selectedIcon:
-                  Icon(Icons.access_time_filled_rounded, color: AppTheme.primaryLight),
+              selectedIcon: Icon(Icons.access_time_filled_rounded,
+                  color: AppTheme.primaryLight),
               label: 'Mesai',
             ),
           ],

@@ -31,6 +31,7 @@ class DatabaseService {
     await _createBarcodeTable(db);
     await _createShiftTable(db);
     await _createShelfSessionTable(db);
+    await _createMorningLabelTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -54,6 +55,9 @@ class DatabaseService {
     }
     if (oldVersion < 4) {
       await _createShelfSessionTable(db);
+    }
+    if (oldVersion < 5) {
+      await _createMorningLabelTable(db);
     }
   }
 
@@ -127,6 +131,22 @@ class DatabaseService {
         no_price_count INTEGER NOT NULL DEFAULT 0
       )
     ''');
+  }
+
+  Future<void> _createMorningLabelTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.morningLabelTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL,
+        price REAL,
+        label_expiry INTEGER,
+        label_print INTEGER,
+        scanned_at INTEGER NOT NULL,
+        a4_photo TEXT
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_morning_barcode ON ${AppConstants.morningLabelTable}(barcode)');
   }
 
   Future<void> close() async {

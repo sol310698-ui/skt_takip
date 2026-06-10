@@ -453,6 +453,10 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // Geri (standalone activity)
+                _circleBtn(Icons.arrow_back_rounded,
+                    () => Navigator.of(context).maybePop()),
+                const SizedBox(width: 6),
                 _circleBtn(Icons.flash_on_rounded,
                     () => _controller.toggleTorch()),
                 if (_productBarcode != null) ...[

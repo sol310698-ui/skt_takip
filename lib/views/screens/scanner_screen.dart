@@ -40,11 +40,10 @@ enum _ScanSpeed {
 
   /// Tarama kutusu yuksekligi boleni. Buyuk = dar serit = az piksel = hizli.
   double get boxDivider {
-    // Kucuk bolen = buyuk kutu. Tarih metnini rahat odaklamak icin genis.
     switch (this) {
-      case _ScanSpeed.fast:    return 2.8;
-      case _ScanSpeed.normal:  return 2.4;
-      case _ScanSpeed.battery: return 2.4;
+      case _ScanSpeed.fast:    return 3.5;
+      case _ScanSpeed.normal:  return 3.0;
+      case _ScanSpeed.battery: return 3.0;
     }
   }
 
@@ -333,14 +332,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 key: _captureKey,
                 child: ScalableOCR(
                   key: ValueKey('ocr_$_scanSession'),
+                  // Kutu cizimi YOK: kullanici cerceve gormez,
+                  // kameradaki metin serbestce taranir.
                   paintboxCustom: Paint()
                     ..style = PaintingStyle.stroke
-                    ..strokeWidth = 4.0
-                    ..color = _done ? AppTheme.statusSafe : AppTheme.primary,
+                    ..strokeWidth = 0
+                    ..color = Colors.transparent,
                   boxLeftOff: 1,
-                  boxBottomOff: 2,
+                  boxBottomOff: 1.5,
                   boxRightOff: 1,
-                  boxTopOff: 2,
+                  boxTopOff: 1.5,
                   boxHeight: MediaQuery.of(context).size.height /
                       _speed.boxDivider,
                   getScannedText: _onScannedText,

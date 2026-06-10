@@ -566,72 +566,46 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
   }
 
-  /// Form icindeki gorsel + durum baneri (header kucukken gorulur).
+  /// Form icindeki arama durumu baneri (gorsel YOK; gorsel ustteki header'da).
   Widget _buildInlinePreview() {
-    if (!_looking && _previewImageUrl == null && _lookupInfo == null) {
+    if (!_looking && _lookupInfo == null) {
       return const SizedBox.shrink();
     }
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: AppTheme.card(),
       child: Row(
         children: [
-          // Gorsel (varsa)
-          if (_previewImageUrl != null)
-            GestureDetector(
-              onTap: () => openImageZoom(context,
-                  networkUrl: _previewImageUrl, heroTag: 'product_img'),
-              child: Hero(
-                tag: 'product_img',
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppTheme.rSm),
-                  child: CachedImage(
-                    url: _previewImageUrl!,
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                    placeholder: () => Container(
-                      width: 60,
-                      height: 60,
-                      color: AppTheme.surfaceAlt,
-                      child: const Icon(Icons.inventory_2_rounded,
-                          color: AppTheme.textTertiary, size: 28),
-                    ),
-                  ),
-                ),
-              ),
+          if (_looking)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: AppTheme.primary),
+            )
+          else
+            Icon(
+              _lookupInfo != null && _lookupInfo!.contains('bulundu')
+                  ? Icons.check_circle_rounded
+                  : Icons.info_outline_rounded,
+              size: 16,
+              color: _lookupInfo != null && _lookupInfo!.contains('bulundu')
+                  ? AppTheme.statusSafe
+                  : AppTheme.textSecondary,
             ),
-          if (_previewImageUrl != null) const SizedBox(width: 14),
-          // Durum
+          const SizedBox(width: 10),
           Expanded(
-            child: Row(
-              children: [
-                if (_looking) ...[
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: AppTheme.primary),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Text(
-                    _looking
-                        ? 'Ürün bilgisi aranıyor...'
-                        : (_lookupInfo ?? ''),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: _lookupInfo != null &&
-                              _lookupInfo!.contains('bulundu')
-                          ? AppTheme.statusSafe
-                          : AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+            child: Text(
+              _looking ? 'Ürün bilgisi aranıyor...' : (_lookupInfo ?? ''),
+              style: TextStyle(
+                fontSize: 13,
+                color: _lookupInfo != null &&
+                        _lookupInfo!.contains('bulundu')
+                    ? AppTheme.statusSafe
+                    : AppTheme.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
