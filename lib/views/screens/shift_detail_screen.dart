@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
 import '../../viewmodels/providers.dart';
+import 'image_zoom_screen.dart';
 
 /// Mesai detay sayfasi - foto, konum, sure, not duzenleme.
 class ShiftDetailScreen extends ConsumerStatefulWidget {
@@ -36,9 +37,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
   }
 
   void _openPhoto(BuildContext context, String path) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => _PhotoView(path: path),
-    ));
+    openImageZoom(context, filePath: path, title: 'Mesai Fotoğrafı');
   }
 
   /// Not ekle / duzenle.
@@ -310,25 +309,3 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
       );
 }
 
-/// Tam ekran foto goruntuleyici.
-class _PhotoView extends StatelessWidget {
-  final String path;
-  const _PhotoView({required this.path});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          maxScale: 4,
-          child: Image.file(File(path)),
-        ),
-      ),
-    );
-  }
-}

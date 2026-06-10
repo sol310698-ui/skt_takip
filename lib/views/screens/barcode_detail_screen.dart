@@ -5,6 +5,7 @@ import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
 /// Barkod liste oge detay sayfasi.
@@ -148,8 +149,9 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
 
   Widget _buildHeader() {
     return SliverAppBar(
-      expandedHeight: 260,
+      expandedHeight: 320,
       pinned: true,
+      stretch: true,
       backgroundColor: AppTheme.primary,
       foregroundColor: Colors.white,
       leading: IconButton(
@@ -157,46 +159,67 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         onPressed: () => Navigator.of(context).pop(_changed),
       ),
       flexibleSpace: FlexibleSpaceBar(
+        stretchModes: const [StretchMode.zoomBackground],
         background: Container(
           decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
           child: SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Buyuk gorsel (OFF)
-                    Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                            color: Colors.white.withOpacity(0.4), width: 2),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: _loadingWeb
-                          ? const Center(
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white),
+                    // Buyuk gorsel (OFF) - dokununca zoom.
+                    GestureDetector(
+                      onTap: _imageUrl == null
+                          ? null
+                          : () => openImageZoom(context,
+                              networkUrl: _imageUrl,
+                              heroTag: 'bc_img',
+                              title: _entry.productName),
+                      child: Hero(
+                        tag: 'bc_img',
+                        child: Container(
+                          width: 160,
+                          height: 160,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.4),
+                                width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.25),
+                                blurRadius: 24,
+                                offset: const Offset(0, 12),
                               ),
-                            )
-                          : (_imageUrl != null
-                              ? Image.network(
-                                  _imageUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => _ph(),
-                                  loadingBuilder: (c, w, p) =>
-                                      p == null ? w : _ph(),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: _loadingWeb
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 26,
+                                    height: 26,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white),
+                                  ),
                                 )
-                              : _ph()),
+                              : (_imageUrl != null
+                                  ? Image.network(
+                                      _imageUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => _ph(),
+                                      loadingBuilder: (c, w, p) =>
+                                          p == null ? w : _ph(),
+                                    )
+                                  : _ph()),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Text(
                       _entry.productName,
                       textAlign: TextAlign.center,
@@ -204,7 +227,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 19,
+                          fontSize: 20,
                           fontWeight: FontWeight.w800),
                     ),
                   ],
@@ -232,15 +255,6 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             label: 'Barkod',
             value: _entry.barcode,
             monospace: true,
-            trailing: IconButton(
-              icon: const Icon(Icons.search, color: AppTheme.accent),
-              tooltip: "Google'da Ara",
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => WebSearchScreen(query: _entry.barcode),
-                ),
-              ),
-            ),
           ),
           if (_category != null && _category!.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -346,23 +360,11 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _delete,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.statusExpired,
-                    side: const BorderSide(color: AppTheme.statusExpired),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  label: const Text('Sil'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
+              SizedBox(
+                width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: _edit,
                   style: FilledButton.styleFrom(
@@ -371,6 +373,38 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                   icon: const Icon(Icons.edit_rounded),
                   label: const Text('Düzenle',
                       style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => WebSearchScreen(query: _entry.barcode),
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.accent,
+                    side: BorderSide(color: AppTheme.accent.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                  ),
+                  icon: const Icon(Icons.search_rounded),
+                  label: const Text("İnternette Ara"),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _delete,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.statusExpired,
+                    side: const BorderSide(color: AppTheme.statusExpired),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('Sil'),
                 ),
               ),
             ],

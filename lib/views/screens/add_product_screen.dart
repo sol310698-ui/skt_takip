@@ -17,6 +17,7 @@ import '../../data/models/barcode_entry.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import 'precise_scan_screen.dart';
+import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
 /// Tam ekran urun formu (ekleme + duzenleme).
@@ -419,9 +420,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   /// Gradyanli buyuk header: geri butonu, baslik, urun gorseli, durum.
   Widget _buildHeader(bool isEdit) {
+    final hasImage = _previewImageUrl != null;
     return SliverAppBar(
-      expandedHeight: 220,
+      // Gorsel varsa buyuk, yoksa kompakt header (gri bosluk olmaz).
+      expandedHeight: hasImage ? 240 : 130,
       pinned: true,
+      stretch: true,
       backgroundColor: AppTheme.primary,
       foregroundColor: Colors.white,
       leading: IconButton(
@@ -432,21 +436,24 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
             style: const TextStyle(fontWeight: FontWeight.w700)),
         titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
+        stretchModes: const [StretchMode.zoomBackground],
         background: Container(
           decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
           child: SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.only(top: 30, bottom: 44),
+                padding: EdgeInsets.only(
+                    top: hasImage ? 28 : 8, bottom: 44),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildHeroImage(),
-                    const SizedBox(height: 10),
+                    if (hasImage) _buildHeroImage(),
+                    if (hasImage) const SizedBox(height: 10),
                     if (_looking)
                       const Text('Ürün bilgisi aranıyor...',
-                          style: TextStyle(
-                              color: Colors.white, fontSize: 12.5))
+                          style:
+                              TextStyle(color: Colors.white, fontSize: 12.5))
                     else if (_lookupInfo != null)
                       Row(
                         mainAxisSize: MainAxisSize.min,
@@ -475,23 +482,33 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Widget _buildHeroImage() {
-    return Container(
-      width: 92,
-      height: 92,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+    return GestureDetector(
+      onTap: _previewImageUrl == null
+          ? null
+          : () => openImageZoom(context,
+              networkUrl: _previewImageUrl, heroTag: 'product_img'),
+      child: Hero(
+        tag: 'product_img',
+        child: Container(
+          width: 92,
+          height: 92,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: _previewImageUrl != null
+              ? Image.network(
+                  _previewImageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _heroPlaceholder(),
+                  loadingBuilder: (c, w, p) =>
+                      p == null ? w : _heroPlaceholder(),
+                )
+              : _heroPlaceholder(),
+        ),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: _previewImageUrl != null
-          ? Image.network(
-              _previewImageUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _heroPlaceholder(),
-              loadingBuilder: (c, w, p) => p == null ? w : _heroPlaceholder(),
-            )
-          : _heroPlaceholder(),
     );
   }
 
