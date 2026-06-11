@@ -6,6 +6,7 @@ import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'label_inspect_screen.dart';
 import 'morning_verify_screen.dart';
+import 'price_change_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
 
@@ -102,6 +103,15 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'Teslim alınan etiketleri kaydet, sonra sorgula (30 gün)',
               onTap: () => _push(const MorningVerifyScreen()),
+            ),
+            const SizedBox(height: 10),
+            _sheetOption(
+              icon: Icons.receipt_long_rounded,
+              color: AppTheme.coral,
+              title: 'Fiyat Değişim',
+              subtitle:
+                  'A4 listeyi tara, etiketleri değiştir (fotolu), kalanı raporla',
+              onTap: () => _push(const PriceChangeScreen()),
             ),
           ],
         ),

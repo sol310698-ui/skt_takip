@@ -6,12 +6,13 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 5; // v5: morning_labels tablosu
+  static const int dbVersion = 6; // v6: price_change_items tablosu
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';
   static const String shelfSessionTable = 'shelf_sessions';
   static const String morningLabelTable = 'morning_labels';
+  static const String priceChangeTable = 'price_change_items';
 
   static const List<int> defaultNotifyThresholds = [30, 15, 7, 3, 1];
   static const int warningDays = 7;

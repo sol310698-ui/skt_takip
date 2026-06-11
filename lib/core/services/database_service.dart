@@ -32,6 +32,7 @@ class DatabaseService {
     await _createShiftTable(db);
     await _createShelfSessionTable(db);
     await _createMorningLabelTable(db);
+    await _createPriceChangeTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -58,6 +59,9 @@ class DatabaseService {
     }
     if (oldVersion < 5) {
       await _createMorningLabelTable(db);
+    }
+    if (oldVersion < 6) {
+      await _createPriceChangeTable(db);
     }
   }
 
@@ -147,6 +151,28 @@ class DatabaseService {
     ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_morning_barcode ON ${AppConstants.morningLabelTable}(barcode)');
+  }
+
+  Future<void> _createPriceChangeTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.priceChangeTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id TEXT NOT NULL,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        new_price REAL,
+        old_price REAL,
+        aisle TEXT,
+        created_at INTEGER NOT NULL,
+        changed INTEGER NOT NULL DEFAULT 0,
+        changed_at INTEGER,
+        photo_path TEXT
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pricechange_barcode ON ${AppConstants.priceChangeTable}(barcode)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pricechange_batch ON ${AppConstants.priceChangeTable}(batch_id)');
   }
 
   Future<void> close() async {
