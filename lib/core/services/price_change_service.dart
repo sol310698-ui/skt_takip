@@ -1,25 +1,87 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path_provider/path_provider.dart';
+
 import '../constants/app_constants.dart';
 import 'database_service.dart';
 
-/// Fiyat degisim listesi kalemi (imzali A4 sayfasindan OCR ile cikarilan satir).
+/// ════════════════════════════════════════════════════════════════════
+///  Fiyat Degisim — Oturum tabanli model + servis
+/// ════════════════════════════════════════════════════════════════════
+
+/// Bir fiyat degisim oturumu (genelde bir gun / bir imzali is).
+class PriceChangeSession {
+  final int? id;
+  final DateTime createdAt;
+  final DateTime? completedAt;
+  final String status; // 'active' | 'completed'
+  final int a4Count;
+  final List<String> a4Photos; // cekilen A4 fotograflarinin kalici yollari
+
+  const PriceChangeSession({
+    this.id,
+    required this.createdAt,
+    this.completedAt,
+    this.status = 'active',
+    this.a4Count = 0,
+    this.a4Photos = const [],
+  });
+
+  bool get isCompleted => status == 'completed';
+
+  factory PriceChangeSession.fromMap(Map<String, Object?> m) {
+    List<String> photos = [];
+    final raw = m['a4_photos'] as String?;
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        photos = (jsonDecode(raw) as List).cast<String>();
+      } catch (_) {}
+    }
+    return PriceChangeSession(
+      id: m['id'] as int?,
+      createdAt:
+          DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      completedAt: m['completed_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(m['completed_at'] as int)
+          : null,
+      status: (m['status'] as String?) ?? 'active',
+      a4Count: (m['a4_count'] as int?) ?? 0,
+      a4Photos: photos,
+    );
+  }
+}
+
+/// Oturum + kalem istatistikleri (kart gosterimi icin).
+class SessionSummary {
+  final PriceChangeSession session;
+  final int total;
+  final int changed;
+  const SessionSummary(
+      {required this.session, required this.total, required this.changed});
+  int get pending => total - changed;
+  double get progress => total == 0 ? 0 : changed / total;
+}
+
+/// Fiyat degisim listesi kalemi.
 class PriceChangeItem {
   final int? id;
-  final String batchId;       // ayni A4 yuklemesini gruplar (tarih-zaman damgasi)
+  final String batchId; // kaynak: 'gemini' | 'mlkit' | 'manual'
+  final int sessionId;
   final String barcode;
   final String? productName;
-  final double? newPrice;     // Fiyati
-  final double? oldPrice;     // Eski Fiyati
-  final String? aisle;        // Reyonu
+  final double? newPrice;
+  final double? oldPrice;
+  final String? aisle;
   final DateTime createdAt;
-
-  // Reyon uygulama durumu
-  final bool changed;         // etiket degistirildi mi
+  final bool changed;
   final DateTime? changedAt;
-  final String? photoPath;    // degisim kaniti fotografi
+  final String? photoPath; // degisim kaniti (kalici yol)
 
   const PriceChangeItem({
     this.id,
     required this.batchId,
+    this.sessionId = 0,
     required this.barcode,
     this.productName,
     this.newPrice,
@@ -32,18 +94,25 @@ class PriceChangeItem {
   });
 
   PriceChangeItem copyWith({
+    int? id,
+    int? sessionId,
+    String? productName,
+    double? newPrice,
+    double? oldPrice,
+    String? aisle,
     bool? changed,
     DateTime? changedAt,
     String? photoPath,
   }) =>
       PriceChangeItem(
-        id: id,
+        id: id ?? this.id,
         batchId: batchId,
+        sessionId: sessionId ?? this.sessionId,
         barcode: barcode,
-        productName: productName,
-        newPrice: newPrice,
-        oldPrice: oldPrice,
-        aisle: aisle,
+        productName: productName ?? this.productName,
+        newPrice: newPrice ?? this.newPrice,
+        oldPrice: oldPrice ?? this.oldPrice,
+        aisle: aisle ?? this.aisle,
         createdAt: createdAt,
         changed: changed ?? this.changed,
         changedAt: changedAt ?? this.changedAt,
@@ -53,6 +122,7 @@ class PriceChangeItem {
   Map<String, Object?> toMap() => {
         'id': id,
         'batch_id': batchId,
+        'session_id': sessionId,
         'barcode': barcode,
         'product_name': productName,
         'new_price': newPrice,
@@ -66,7 +136,8 @@ class PriceChangeItem {
 
   factory PriceChangeItem.fromMap(Map<String, Object?> m) => PriceChangeItem(
         id: m['id'] as int?,
-        batchId: m['batch_id'] as String,
+        batchId: (m['batch_id'] as String?) ?? '',
+        sessionId: (m['session_id'] as int?) ?? 0,
         barcode: m['barcode'] as String,
         productName: m['product_name'] as String?,
         newPrice: (m['new_price'] as num?)?.toDouble(),
@@ -82,16 +153,12 @@ class PriceChangeItem {
       );
 }
 
-/// A4 OCR metnini satirlara ayirip fiyat degisim kalemlerine cevirir.
+/// ML Kit fallback parser (Gemini yoksa).
 class PriceChangeParser {
-  /// 8-13 haneli barkod (anchor). Satir basinda ya da metin icinde.
-  static final RegExp _barcode = RegExp(r'\b(\d{8,13})\b');
-  /// Fiyat: 44,95 / 199,9 / 1199 / 76.95 gibi.
+  static final RegExp _barcode = RegExp(r'\b(\d{12,13})\b');
   static final RegExp _price = RegExp(r'\d{1,4}(?:[.,]\d{1,2})?');
 
-  /// OCR ham metnini parse eder. Her satirda bir barkod arar; bulursa
-  /// satirin kalanindan ad, fiyatlar ve reyonu cikarmaya calisir.
-  static List<PriceChangeItem> parse(String ocrText, String batchId) {
+  static List<PriceChangeItem> parse(String ocrText, int sessionId) {
     final now = DateTime.now();
     final items = <PriceChangeItem>[];
     final seen = <String>{};
@@ -99,35 +166,30 @@ class PriceChangeParser {
     final lines = ocrText.split(RegExp(r'[\r\n]+'));
     for (final rawLine in lines) {
       final line = rawLine.trim();
-      if (line.length < 8) continue;
+      if (line.length < 12) continue;
 
       final bcMatch = _barcode.firstMatch(line);
       if (bcMatch == null) continue;
       final barcode = bcMatch.group(1)!;
-      // 8-13 hane disindakileri (stok kodu vb.) ele.
-      if (barcode.length < 12) continue; // gercek barkodlar 12-13 hane
       if (seen.contains(barcode)) continue;
       seen.add(barcode);
 
-      // Barkoddan sonraki kisim: ad + kodlar + fiyatlar + reyon.
       final after = line.substring(bcMatch.end).trim();
 
-      // Reyonu: "ANPA - ATISTIRMALIK" gibi son buyuk-harf bloku.
       String? aisle;
       final aisleMatch =
-          RegExp(r'([A-ZÇĞİÖŞÜ]{2,}\s*-\s*[A-ZÇĞİÖŞÜ ]{3,})$').firstMatch(after);
-      if (aisleMatch != null) {
-        aisle = aisleMatch.group(1)?.trim();
-      }
+          RegExp(r'([A-ZÇĞİÖŞÜ]{2,}\s*-\s*[A-ZÇĞİÖŞÜ ]{3,})$')
+              .firstMatch(after);
+      if (aisleMatch != null) aisle = aisleMatch.group(1)?.trim();
 
-      // Fiyatlar: reyon oncesi tum sayilar. Son iki fiyat = yeni, eski.
       final beforeAisle = aisleMatch != null
           ? after.substring(0, aisleMatch.start)
           : after;
       final prices = _price
           .allMatches(beforeAisle)
           .map((m) => m.group(0)!)
-          .where((s) => s.contains(',') || s.contains('.') || s.length >= 3)
+          .where(
+              (s) => s.contains(',') || s.contains('.') || s.length >= 3)
           .toList();
 
       double? newPrice;
@@ -139,18 +201,18 @@ class PriceChangeParser {
         newPrice = _toDouble(prices[0]);
       }
 
-      // Urun adi: barkoddan sonraki ilk harf blogu (fiyat/koddan once).
       String? name;
-      final nameMatch =
-          RegExp(r'^([A-Za-zÇĞİÖŞÜçğıöşü0-9\.\-\(\) ]{3,}?)(?=\s+\d|\*|$)')
-              .firstMatch(after);
+      final nameMatch = RegExp(
+              r'^([A-Za-zÇĞİÖŞÜçğıöşü0-9\.\-\(\) ]{3,}?)(?=\s+\d|\*|$)')
+          .firstMatch(after);
       if (nameMatch != null) {
         name = nameMatch.group(1)?.replaceAll(RegExp(r'\*+'), '').trim();
         if (name != null && name.length < 3) name = null;
       }
 
       items.add(PriceChangeItem(
-        batchId: batchId,
+        batchId: 'mlkit',
+        sessionId: sessionId,
         barcode: barcode,
         productName: name,
         newPrice: newPrice,
@@ -168,85 +230,194 @@ class PriceChangeParser {
   }
 }
 
-/// Fiyat degisim listesi servisi: kaydet, sorgula, isaretle, rapor.
+/// ════════════════════════════════════════════════════════════════════
+///  Servis
+/// ════════════════════════════════════════════════════════════════════
 class PriceChangeService {
   PriceChangeService._();
   static final PriceChangeService instance = PriceChangeService._();
 
-  /// Bugune ait kalemleri ekler (BIRDEN FAZLA A4 birikir).
-  /// Ayni barkod bugun zaten varsa tekrar eklemez (cift okuma korumasi).
-  /// Donen: eklenen yeni kalem sayisi.
-  Future<int> addToToday(List<PriceChangeItem> items) async {
-    final db = await DatabaseService.instance.database;
-    final existing = await getActiveBatch();
-    final existingCodes = existing.map((e) => e.barcode).toSet();
+  // ── Kalici fotograf deposu ──────────────────────────────────────────
+  /// Gecici (kamera) fotografi uygulamanin kalici klasorune kopyalar.
+  /// Kanitlar boylece sistem temizliginde kaybolmaz.
+  Future<String> persistPhoto(String tempPath, String prefix) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/price_proofs');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final name = '${prefix}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final dst = File('${dir.path}/$name');
+    await File(tempPath).copy(dst.path);
+    return dst.path;
+  }
 
+  // ── Oturumlar ──────────────────────────────────────────────────────
+  Future<int> createSession() async {
+    final db = await DatabaseService.instance.database;
+    return db.insert(AppConstants.priceChangeSessionTable, {
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+      'status': 'active',
+      'a4_count': 0,
+      'a4_photos': '[]',
+    });
+  }
+
+  Future<List<SessionSummary>> getSessions() async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(
+      AppConstants.priceChangeSessionTable,
+      orderBy: 'created_at DESC',
+      limit: 30,
+    );
+    final result = <SessionSummary>[];
+    for (final r in rows) {
+      final s = PriceChangeSession.fromMap(r);
+      final counts = await _counts(s.id!);
+      result.add(
+          SessionSummary(session: s, total: counts.$1, changed: counts.$2));
+    }
+    return result;
+  }
+
+  Future<PriceChangeSession?> getSession(int id) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.priceChangeSessionTable,
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    return PriceChangeSession.fromMap(rows.first);
+  }
+
+  Future<(int, int)> _counts(int sessionId) async {
+    final db = await DatabaseService.instance.database;
+    final total = (await db.rawQuery(
+            'SELECT COUNT(*) c FROM ${AppConstants.priceChangeTable} WHERE session_id = ?',
+            [sessionId]))
+        .first['c'] as int;
+    final changed = (await db.rawQuery(
+            'SELECT COUNT(*) c FROM ${AppConstants.priceChangeTable} WHERE session_id = ? AND changed = 1',
+            [sessionId]))
+        .first['c'] as int;
+    return (total, changed);
+  }
+
+  /// Oturuma A4 ekle: fotografi kalici yap, sayaci artir, kalemleri yaz.
+  /// Ayni barkod oturumda varsa atlanir. Donen: eklenen kalem sayisi.
+  Future<int> addA4ToSession({
+    required int sessionId,
+    required String tempPhotoPath,
+    required List<PriceChangeItem> items,
+  }) async {
+    final db = await DatabaseService.instance.database;
+
+    final permanent = await persistPhoto(tempPhotoPath, 'a4_s$sessionId');
+
+    final session = await getSession(sessionId);
+    if (session != null) {
+      final photos = [...session.a4Photos, permanent];
+      await db.update(
+        AppConstants.priceChangeSessionTable,
+        {'a4_count': session.a4Count + 1, 'a4_photos': jsonEncode(photos)},
+        where: 'id = ?',
+        whereArgs: [sessionId],
+      );
+    }
+
+    final existing = await getItems(sessionId);
+    final codes = existing.map((e) => e.barcode).toSet();
     final batch = db.batch();
     int added = 0;
     for (final item in items) {
-      if (existingCodes.contains(item.barcode)) continue; // zaten var
-      existingCodes.add(item.barcode);
+      if (codes.contains(item.barcode)) continue;
+      codes.add(item.barcode);
       batch.insert(AppConstants.priceChangeTable,
-          item.toMap()..remove('id'));
+          item.copyWith(sessionId: sessionId).toMap()..remove('id'));
       added++;
     }
     await batch.commit(noResult: true);
     return added;
   }
 
-  /// Bugun (00:00 sonrasi) eklenen TUM kalemleri dondurur — coklu A4 birlikte.
-  Future<List<PriceChangeItem>> getActiveBatch() async {
+  /// Oturuma kalem ekle — FOTOGRAFSIZ (Excel ice aktarma vb. icin).
+  /// A4 sayaci/fotograf listesine dokunmaz. Cift barkod atlanir.
+  Future<int> addItemsToSession(
+      int sessionId, List<PriceChangeItem> items) async {
     final db = await DatabaseService.instance.database;
-    final startOfDay = DateTime(
-            DateTime.now().year, DateTime.now().month, DateTime.now().day)
-        .millisecondsSinceEpoch;
+    final existing = await getItems(sessionId);
+    final codes = existing.map((e) => e.barcode).toSet();
+    final batch = db.batch();
+    int added = 0;
+    for (final item in items) {
+      if (codes.contains(item.barcode)) continue;
+      codes.add(item.barcode);
+      batch.insert(AppConstants.priceChangeTable,
+          item.copyWith(sessionId: sessionId).toMap()..remove('id'));
+      added++;
+    }
+    await batch.commit(noResult: true);
+    return added;
+  }
+
+  Future<List<PriceChangeItem>> getItems(int sessionId) async {
+    final db = await DatabaseService.instance.database;
     final rows = await db.query(
       AppConstants.priceChangeTable,
-      where: 'created_at >= ?',
-      whereArgs: [startOfDay],
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
       orderBy: 'changed ASC, aisle ASC, created_at ASC',
     );
     return rows.map(PriceChangeItem.fromMap).toList();
   }
 
-  /// Barkodu aktif batch icinde ara.
-  Future<PriceChangeItem?> findInActiveBatch(String barcode) async {
-    final items = await getActiveBatch();
-    for (final i in items) {
-      if (i.barcode == barcode) return i;
-    }
-    return null;
+  Future<PriceChangeItem?> findInSession(
+      int sessionId, String barcode) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(
+      AppConstants.priceChangeTable,
+      where: 'session_id = ? AND barcode = ?',
+      whereArgs: [sessionId, barcode.trim()],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return PriceChangeItem.fromMap(rows.first);
   }
 
-  /// Bir kalemi "degistirildi" olarak isaretle (foto yolu ile).
-  Future<void> markChanged(int id, String photoPath) async {
+  /// Kalemi degistirildi isaretle; kanit fotografini KALICI klasore tasir.
+  Future<void> markChanged(int id, String tempPhotoPath) async {
+    final permanent = await persistPhoto(tempPhotoPath, 'proof_$id');
     final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.priceChangeTable,
       {
         'changed': 1,
         'changed_at': DateTime.now().millisecondsSinceEpoch,
-        'photo_path': photoPath,
+        'photo_path': permanent,
       },
       where: 'id = ?',
       whereArgs: [id],
     );
   }
 
-  /// Bugune ait TUM kalemleri sil (yeni gun / sifirlama).
-  Future<void> clearActiveBatch() async {
+  Future<void> completeSession(int sessionId) async {
     final db = await DatabaseService.instance.database;
-    final startOfDay = DateTime(
-            DateTime.now().year, DateTime.now().month, DateTime.now().day)
-        .millisecondsSinceEpoch;
-    await db.delete(
-      AppConstants.priceChangeTable,
-      where: 'created_at >= ?',
-      whereArgs: [startOfDay],
+    await db.update(
+      AppConstants.priceChangeSessionTable,
+      {
+        'status': 'completed',
+        'completed_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [sessionId],
     );
   }
 
-  /// Manuel kalem ekle/duzelt (OCR hatasi duzeltmesi icin).
+  /// Oturumu ve kalemlerini sil (kanit fotograflari diskte kalir).
+  Future<void> deleteSession(int sessionId) async {
+    final db = await DatabaseService.instance.database;
+    await db.delete(AppConstants.priceChangeTable,
+        where: 'session_id = ?', whereArgs: [sessionId]);
+    await db.delete(AppConstants.priceChangeSessionTable,
+        where: 'id = ?', whereArgs: [sessionId]);
+  }
+
   Future<int> upsertItem(PriceChangeItem item) async {
     final db = await DatabaseService.instance.database;
     if (item.id != null) {
@@ -254,11 +425,10 @@ class PriceChangeService {
           where: 'id = ?', whereArgs: [item.id]);
       return item.id!;
     }
-    return db.insert(AppConstants.priceChangeTable,
-        item.toMap()..remove('id'));
+    return db.insert(
+        AppConstants.priceChangeTable, item.toMap()..remove('id'));
   }
 
-  /// Bir kalemi sil.
   Future<void> deleteItem(int id) async {
     final db = await DatabaseService.instance.database;
     await db.delete(AppConstants.priceChangeTable,

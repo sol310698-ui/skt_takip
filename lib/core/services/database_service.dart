@@ -33,6 +33,8 @@ class DatabaseService {
     await _createShelfSessionTable(db);
     await _createMorningLabelTable(db);
     await _createPriceChangeTable(db);
+    await _createPriceChangeSessionTable(db);
+    await _createWarehouseTables(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -62,6 +64,15 @@ class DatabaseService {
     }
     if (oldVersion < 6) {
       await _createPriceChangeTable(db);
+    }
+    if (oldVersion < 7) {
+      await _createPriceChangeSessionTable(db);
+      // Mevcut kalemlere session_id kolonu ekle (0 = oturumsuz/eski).
+      await db.execute(
+          'ALTER TABLE ${AppConstants.priceChangeTable} ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0');
+    }
+    if (oldVersion < 8) {
+      await _createWarehouseTables(db);
     }
   }
 
@@ -158,6 +169,7 @@ class DatabaseService {
       CREATE TABLE IF NOT EXISTS ${AppConstants.priceChangeTable} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         batch_id TEXT NOT NULL,
+        session_id INTEGER NOT NULL DEFAULT 0,
         barcode TEXT NOT NULL,
         product_name TEXT,
         new_price REAL,
@@ -172,7 +184,73 @@ class DatabaseService {
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_pricechange_barcode ON ${AppConstants.priceChangeTable}(barcode)');
     await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_pricechange_batch ON ${AppConstants.priceChangeTable}(batch_id)');
+        'CREATE INDEX IF NOT EXISTS idx_pricechange_session ON ${AppConstants.priceChangeTable}(session_id)');
+  }
+
+  Future<void> _createPriceChangeSessionTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.priceChangeSessionTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER,
+        status TEXT NOT NULL DEFAULT 'active',
+        a4_count INTEGER NOT NULL DEFAULT 0,
+        a4_photos TEXT
+      )
+    ''');
+  }
+
+  Future<void> _createWarehouseTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.warehouseTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    // Raf: bir depoya ait, sutun + raf no, palet kapasitesi.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.whShelfTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        column_no INTEGER NOT NULL,
+        shelf_no INTEGER NOT NULL,
+        capacity INTEGER NOT NULL DEFAULT 1,
+        label TEXT
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_shelf_wh ON ${AppConstants.whShelfTable}(warehouse_id)');
+    // Palet: bir rafa ait (shelf_id), kod, durum.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.whPalletTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER NOT NULL,
+        shelf_id INTEGER,
+        code TEXT NOT NULL,
+        note TEXT,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pallet_wh ON ${AppConstants.whPalletTable}(warehouse_id)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pallet_shelf ON ${AppConstants.whPalletTable}(shelf_id)');
+    // Palet icindeki urunler: barkod + adet (tekli/karisik palet).
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.whPalletItemTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pallet_id INTEGER NOT NULL,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        added_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pitem_pallet ON ${AppConstants.whPalletItemTable}(pallet_id)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pitem_barcode ON ${AppConstants.whPalletItemTable}(barcode)');
   }
 
   Future<void> close() async {
