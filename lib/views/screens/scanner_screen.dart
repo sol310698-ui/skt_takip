@@ -332,16 +332,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 key: _captureKey,
                 child: ScalableOCR(
                   key: ValueKey('ocr_$_scanSession'),
-                  // Kutu cizimi YOK: kullanici cerceve gormez,
-                  // kameradaki metin serbestce taranir.
                   paintboxCustom: Paint()
                     ..style = PaintingStyle.stroke
-                    ..strokeWidth = 0
-                    ..color = Colors.transparent,
-                  boxLeftOff: 1,
-                  boxBottomOff: 1.5,
-                  boxRightOff: 1,
-                  boxTopOff: 1.5,
+                    ..strokeWidth = 3.0
+                    ..color = AppTheme.primary.withOpacity(0.6),
+                  boxLeftOff: 5,
+                  boxBottomOff: 2.5,
+                  boxRightOff: 5,
+                  boxTopOff: 2.5,
                   boxHeight: MediaQuery.of(context).size.height /
                       _speed.boxDivider,
                   getScannedText: _onScannedText,

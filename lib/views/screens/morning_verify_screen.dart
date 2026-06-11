@@ -40,6 +40,10 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
   List<MorningLabel> _today = [];
   bool _processing = false;
 
+  // Kayit modunda son okunan etiket (butona basilinca kaydedilir).
+  ScanResult? _pendingScan;
+  String? _pendingCode;
+
   // Sorgu sonucu (query modunda gosterilir)
   MorningQueryResult? _queryResult;
   String? _queryBarcode; // sorgulanan ama bulunamayan barkod
@@ -115,21 +119,40 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
     final raw = capture.barcodes.firstOrNull?.rawValue;
     if (raw == null || raw.trim().isEmpty) return;
 
-    setState(() => _processing = true);
     final parsed = ScanParser.parse(raw);
     final code = parsed.barcode;
-
-    if (code == null) {
-      setState(() => _processing = false);
-      return;
-    }
+    if (code == null) return;
 
     if (_mode == _Mode.record) {
-      await _recordLabel(parsed, code);
+      // KAYIT modu: OTOMATIK kaydetme. Sadece son okunani hazirla.
+      // Kullanici alttaki "Kaydet" butonuna basinca DB'ye yazilir.
+      if (code == _pendingCode) return; // ayni etiketi tekrar yakalama
+      setState(() {
+        _pendingScan = parsed;
+        _pendingCode = code;
+      });
     } else {
+      // SORGU modu: aninda sorgula.
+      setState(() => _processing = true);
       await _queryLabel(parsed, code);
+      if (mounted) setState(() => _processing = false);
     }
-    if (mounted) setState(() => _processing = false);
+  }
+
+  /// Bekleyen (okunan) etiketi DB'ye kaydeder — Kaydet butonu.
+  Future<void> _savePending() async {
+    final parsed = _pendingScan;
+    final code = _pendingCode;
+    if (parsed == null || code == null) return;
+    setState(() => _processing = true);
+    await _recordLabel(parsed, code);
+    if (mounted) {
+      setState(() {
+        _pendingScan = null;
+        _pendingCode = null;
+        _processing = false;
+      });
+    }
   }
 
   /// KAYIT modu: etiketi DB'ye yaz.
@@ -180,6 +203,8 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
       _mode = _Mode.query;
       _queryResult = null;
       _queryBarcode = null;
+      _pendingScan = null;
+      _pendingCode = null;
     });
     await _controller.start();
   }
@@ -304,7 +329,7 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
                   ),
                   child: Text(
                     _mode == _Mode.record
-                        ? 'Etiketleri sırayla okutun — otomatik kaydedilir'
+                        ? 'Etiketi okutun, sonra "Kaydet"e basın'
                         : 'Sorgulanacak etiketi okutun',
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -320,6 +345,9 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
           ),
         ),
 
+        // Kayit modunda: okunan etiket + Kaydet butonu
+        if (_mode == _Mode.record) _buildPendingBar(),
+
         // Alt icerik
         Expanded(
           child: _mode == _Mode.query
@@ -327,6 +355,67 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
               : _buildTodayList(),
         ),
       ],
+    );
+  }
+
+  /// Kayit modu: son okunan etiketi gosterir + Kaydet butonu.
+  Widget _buildPendingBar() {
+    final hasPending = _pendingScan != null;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(12),
+      decoration: AppTheme.card(
+          accentColor: hasPending ? AppTheme.primary : null),
+      child: Row(
+        children: [
+          Icon(
+            hasPending
+                ? Icons.qr_code_2_rounded
+                : Icons.qr_code_scanner_rounded,
+            color: hasPending ? AppTheme.primary : AppTheme.textTertiary,
+            size: 22,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: hasPending
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_pendingCode!,
+                          style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700)),
+                      if (_pendingScan!.price != null)
+                        Text(
+                            'Fiyat: ${_pendingScan!.price!.toStringAsFixed(2)} ₺',
+                            style: const TextStyle(
+                                color: AppTheme.statusSafe,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600))
+                      else
+                        const Text('Fiyat bilgisi yok',
+                            style: TextStyle(
+                                color: AppTheme.textTertiary,
+                                fontSize: 12)),
+                    ],
+                  )
+                : const Text('Bir etiket okutun...',
+                    style: TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 13)),
+          ),
+          const SizedBox(width: 10),
+          FilledButton.icon(
+            onPressed: (hasPending && !_processing) ? _savePending : null,
+            icon: const Icon(Icons.save_rounded, size: 18),
+            label: const Text('Kaydet'),
+            style: FilledButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -396,24 +485,6 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
                       Text(fmtTime.format(m.scannedAt),
                           style: const TextStyle(
                               fontSize: 11, color: AppTheme.textTertiary)),
-                      const SizedBox(width: 8),
-                      // Yeniden Tara butonu
-                      Tooltip(
-                        message: 'Tekrar Kaydet',
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => _rescanItem(m),
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(Icons.qr_code_scanner_rounded,
-                                size: 16, color: AppTheme.primary),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -423,31 +494,6 @@ class _MorningVerifyScreenState extends ConsumerState<MorningVerifyScreen> {
         ),
       ],
     );
-  }
-
-  /// Listeden bir etiketi tekrar kaydeder (aynı barkod tekrar eklenebilir).
-  Future<void> _rescanItem(MorningLabel m) async {
-    if (_processing) return;
-    setState(() => _processing = true);
-    await MorningLabelService.instance.add(MorningLabel(
-      barcode: m.barcode,
-      price: m.price,
-      labelExpiry: m.labelExpiry,
-      labelPrint: m.labelPrint,
-      scannedAt: DateTime.now(),
-      a4Photo: _a4Photo,
-    ));
-    await _loadToday();
-    if (mounted) {
-      setState(() => _processing = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Tekrar kaydedildi: ${m.barcode}'),
-          backgroundColor: AppTheme.primary,
-          duration: const Duration(milliseconds: 800),
-        ),
-      );
-    }
   }
 
   /// Sorgu sonucu paneli.
