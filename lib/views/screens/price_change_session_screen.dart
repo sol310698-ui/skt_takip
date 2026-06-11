@@ -142,13 +142,17 @@ class _PriceChangeSessionScreenState
       tempPhotoPath: photo.path,
       items: confirmed,
     );
+    // Barkod dizinini zenginlestir (yeni barkod+ad ciftleri).
+    final enriched =
+        await PriceChangeService.instance.enrichDirectory(confirmed);
     await _load();
     if (mounted) {
       setState(() => _busy = false);
       await _scanner.start();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$added ürün eklendi (toplam ${_items.length})'),
+          content: Text('$added ürün eklendi (toplam ${_items.length})'
+              '${enriched > 0 ? " • $enriched yeni ürün dizine kaydedildi" : ""}'),
           backgroundColor: AppTheme.statusSafe,
         ),
       );
@@ -274,13 +278,17 @@ class _PriceChangeSessionScreenState
 
     final added = await PriceChangeService.instance
         .addItemsToSession(widget.sessionId, confirmed);
+    // Barkod dizinini zenginlestir: yeni barkod+ad ciftlerini kaydet.
+    final enriched =
+        await PriceChangeService.instance.enrichDirectory(confirmed);
     await _load();
     if (mounted) {
       setState(() => _busy = false);
       await _scanner.start();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$added ürün eklendi (toplam ${_items.length})'),
+          content: Text('$added ürün eklendi (toplam ${_items.length})'
+              '${enriched > 0 ? " • $enriched yeni ürün dizine kaydedildi" : ""}'),
           backgroundColor: AppTheme.statusSafe,
         ),
       );

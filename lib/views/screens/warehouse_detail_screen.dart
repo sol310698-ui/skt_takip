@@ -530,6 +530,7 @@ class _SearchSheetState extends State<_SearchSheet> {
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   List<ProductLocation>? _results;
+  String? _searchedBarcode; // gercekten sorgulanan barkod (QR'dan cozulen)
   bool _searching = false;
   bool _camOpen = true;
 
@@ -540,12 +541,20 @@ class _SearchSheetState extends State<_SearchSheet> {
     super.dispose();
   }
 
-  Future<void> _search(String barcode) async {
-    if (barcode.trim().isEmpty) return;
-    setState(() => _searching = true);
+  Future<void> _search(String input) async {
+    if (input.trim().isEmpty) return;
+    // QR (*barkod*fiyat*...) ya da duz barkod -> barkodu cikar.
+    final parsed = ScanParser.parse(input);
+    final barcode = parsed.barcode ?? input.trim();
+
+    setState(() {
+      _searching = true;
+      _searchedBarcode = barcode;
+      _ctrl.text = barcode; // kullaniciya cozulen barkodu goster
+    });
     await _scanner.stop();
     final results = await WarehouseService.instance
-        .findProduct(widget.warehouseId, ScanParser.parse(barcode).barcode ?? barcode.trim());
+        .findProduct(widget.warehouseId, barcode);
     if (!mounted) return;
     setState(() {
       _results = results;
@@ -583,6 +592,13 @@ class _SearchSheetState extends State<_SearchSheet> {
             const Text('Ürün Ara',
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            const Text(
+              'Reyon etiketini (QR) veya ürün barkodunu okutun. Etiketten '
+              'okunan barkod depoda aranır.',
+              style:
+                  TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
             const SizedBox(height: 12),
             if (_camOpen)
               ClipRRect(
@@ -616,20 +632,78 @@ class _SearchSheetState extends State<_SearchSheet> {
             if (_searching)
               const Center(child: CircularProgressIndicator()),
             if (_results != null) ...[
-              if (_results!.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Center(
-                    child: Text('Bu ürün depoda bulunamadı',
-                        style:
-                            TextStyle(color: AppTheme.textSecondary)),
+              // Aranan barkod bilgisi
+              if (_searchedBarcode != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.qr_code_2_rounded,
+                          size: 16, color: AppTheme.textTertiary),
+                      const SizedBox(width: 6),
+                      Text('Aranan: $_searchedBarcode',
+                          style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12.5,
+                              color: AppTheme.textSecondary)),
+                    ],
                   ),
+                ),
+              if (_results!.isEmpty)
+                Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Column(
+                        children: [
+                          Icon(Icons.search_off_rounded,
+                              size: 40, color: AppTheme.textTertiary),
+                          SizedBox(height: 8),
+                          Text('Bu ürün depoda bulunamadı',
+                              style: TextStyle(
+                                  color: AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        setState(() {
+                          _results = null;
+                          _searchedBarcode = null;
+                          _camOpen = true;
+                        });
+                        await _scanner.start();
+                      },
+                      icon: const Icon(Icons.qr_code_scanner_rounded,
+                          size: 18),
+                      label: const Text('Tekrar Tara'),
+                    ),
+                  ],
                 )
               else ...[
-                Text('${_results!.length} konumda bulundu',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.statusSafe)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('${_results!.length} konumda bulundu',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.statusSafe)),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        setState(() {
+                          _results = null;
+                          _searchedBarcode = null;
+                          _camOpen = true;
+                        });
+                        await _scanner.start();
+                      },
+                      icon: const Icon(Icons.qr_code_scanner_rounded,
+                          size: 16),
+                      label: const Text('Tekrar'),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 ..._results!.map(_resultTile),
               ],

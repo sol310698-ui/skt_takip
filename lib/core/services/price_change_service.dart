@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../constants/app_constants.dart';
 import 'database_service.dart';
@@ -350,6 +351,33 @@ class PriceChangeService {
       codes.add(item.barcode);
       batch.insert(AppConstants.priceChangeTable,
           item.copyWith(sessionId: sessionId).toMap()..remove('id'));
+      added++;
+    }
+    await batch.commit(noResult: true);
+    return added;
+  }
+
+  /// Barkod+ad ciftlerini barkod dizinine ekler (yoksa).
+  /// Boylece sonraki aramalarda internete (OFF) gerek kalmaz; DB zenginlesir.
+  /// Mevcut kaydı KORUR (ignore), uzerine yazmaz. Donen: yeni eklenen sayisi.
+  Future<int> enrichDirectory(List<PriceChangeItem> items) async {
+    final db = await DatabaseService.instance.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    int added = 0;
+    final batch = db.batch();
+    final seen = <String>{};
+    for (final item in items) {
+      final name = item.productName?.trim();
+      final bc = item.barcode.trim();
+      // Ad yoksa dizine eklenemez (product_name NOT NULL).
+      if (name == null || name.isEmpty || bc.isEmpty) continue;
+      if (seen.contains(bc)) continue;
+      seen.add(bc);
+      batch.insert(
+        AppConstants.barcodeTable,
+        {'barcode': bc, 'product_name': name, 'imported_at': now},
+        conflictAlgorithm: ConflictAlgorithm.ignore, // mevcut kaydi koru
+      );
       added++;
     }
     await batch.commit(noResult: true);
