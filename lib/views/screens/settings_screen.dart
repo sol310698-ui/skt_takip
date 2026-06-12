@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,7 @@ import '../../core/services/backup_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
@@ -83,7 +85,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   Future<void> _export() async {
     setState(() => _exporting = true);
     try {
-      await ExportService.instance.exportToExcel();
+      // Urunleri provider'dan cek.
+      final products = ref.read(productListProvider).valueOrNull ?? [];
+      final active = products.where((p) => p.isActive).toList();
+      final history = products.where((p) => !p.isActive).toList();
+      await ExportService.instance
+          .exportToExcel(activeProducts: active, historyProducts: history);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -93,8 +100,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Hata: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Hata: $e')));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -122,13 +129,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
     if (!mounted || choice == null) return;
     if (choice == 'backup') {
-      await BackupService.instance.backup();
+      await BackupService.instance.exportDb();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Yedek alındı')));
+            const SnackBar(content: Text('Yedek alındı')));
       }
     } else {
-      await BackupService.instance.restore();
+      // Geri yükleme için dosya yolu gerekiyor — file picker ile al.
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowedExtensions: null,
+      );
+      if (result != null && result.files.single.path != null) {
+        await BackupService.instance.importDb(result.files.single.path!);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Geri yüklendi, uygulama yeniden başlatın')));
+        }
+      }
     }
   }
 
