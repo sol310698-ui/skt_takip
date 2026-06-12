@@ -11,6 +11,7 @@ import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
+import 'work_schedule_screen.dart';
 
 /// Ayarlar ekranı: banner ikonlarını + bildirim yönetimini toplar.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -183,6 +184,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        const SectionLabel('Çalışma'),
+        const SizedBox(height: 8),
+        _tile(
+          icon: Icons.calendar_month_rounded,
+          color: AppTheme.primary,
+          title: 'Çalışma Programı',
+          subtitle: 'Haftalık program oluştur, günlük alarm kur',
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const WorkScheduleScreen())),
+        ),
+        const SizedBox(height: 16),
         const SectionLabel('Veri'),
         const SizedBox(height: 8),
         _tile(

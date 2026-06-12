@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
+import 'pallet_detail_screen.dart';
 import 'warehouse_detail_screen.dart';
 
 /// Depo listesi — kartlar + "Yeni Depo" sihirbazi.
@@ -16,6 +17,8 @@ class WarehouseListScreen extends StatefulWidget {
 
 class _WarehouseListScreenState extends State<WarehouseListScreen> {
   List<Warehouse> _warehouses = [];
+  // Her depo için zemin paletleri: warehouseId -> paletler
+  final Map<int, List<PalletSummary>> _floorByWarehouse = {};
   bool _loading = true;
 
   @override
@@ -26,12 +29,20 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
 
   Future<void> _load() async {
     final list = await WarehouseService.instance.getWarehouses();
+    _floorByWarehouse.clear();
+    for (final w in list) {
+      final floor =
+          await WarehouseService.instance.getFloorPallets(w.id!);
+      if (floor.isNotEmpty) _floorByWarehouse[w.id!] = floor;
+    }
     if (!mounted) return;
     setState(() {
       _warehouses = list;
       _loading = false;
     });
   }
+
+  bool get _hasFloor => _floorByWarehouse.isNotEmpty;
 
   Future<void> _open(Warehouse w) async {
     await Navigator.of(context).push(MaterialPageRoute(
@@ -100,10 +111,31 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
                 )
               : RefreshIndicator(
                   onRefresh: _load,
-                  child: ListView.builder(
+                  child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    itemCount: _warehouses.length,
-                    itemBuilder: (_, i) => _card(_warehouses[i]),
+                    children: [
+                      const SectionLabel('Depolar'),
+                      const SizedBox(height: 8),
+                      ..._warehouses.map(_card),
+                      if (_hasFloor) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Icon(Icons.vertical_align_bottom_rounded,
+                                size: 18, color: AppTheme.amber),
+                            const SizedBox(width: 6),
+                            Text(
+                                'Zemindekiler (${_floorByWarehouse.values.fold(0, (s, l) => s + l.length)})',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                    color: AppTheme.amber)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ..._buildFloorSection(),
+                      ],
+                    ],
                   ),
                 ),
       floatingActionButton: _warehouses.isEmpty
@@ -115,6 +147,80 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
               icon: const Icon(Icons.add_rounded),
               label: const Text('Yeni Depo'),
             ),
+    );
+  }
+
+  // Zemin paletlerini depo bazında listele.
+  List<Widget> _buildFloorSection() {
+    final widgets = <Widget>[];
+    for (final entry in _floorByWarehouse.entries) {
+      final wh = _warehouses
+          .where((w) => w.id == entry.key)
+          .map((w) => w.name)
+          .firstOrNull;
+      for (final p in entry.value) {
+        widgets.add(_floorPalletTile(p, wh ?? 'Depo', entry.key));
+      }
+    }
+    return widgets;
+  }
+
+  Widget _floorPalletTile(PalletSummary p, String whName, int warehouseId) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      onTap: () async {
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => PalletDetailScreen(
+              palletId: p.pallet.id!, warehouseId: warehouseId),
+        ));
+        _load();
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.card(accentColor: AppTheme.amber),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: AppTheme.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.vertical_align_bottom_rounded,
+                  color: AppTheme.amber, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.pallet.code,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14)),
+                  const SizedBox(height: 2),
+                  Text('$whName • ${p.itemTypes} çeşit • ${p.totalQty} adet',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppTheme.textTertiary)),
+                ],
+              ),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppTheme.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppTheme.rPill),
+              ),
+              child: const Text('Zemin',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.amber)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

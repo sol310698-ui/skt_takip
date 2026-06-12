@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/notification_service.dart';
 import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
@@ -21,6 +22,25 @@ class ShiftScreen extends ConsumerStatefulWidget {
 
 class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Bildirimdeki "Bitir" aksiyonu → otomatik çıkış akışı.
+    NotificationService.onShiftFinishRequested = (shiftId) async {
+      if (!mounted) return;
+      final open = await ref.read(shiftRepositoryProvider).getOpenShift();
+      if (open != null && open.id == shiftId) {
+        await _clockOut(open);
+      }
+    };
+  }
+
+  @override
+  void dispose() {
+    NotificationService.onShiftFinishRequested = null;
+    super.dispose();
+  }
 
   Future<Position?> _getLocation() async {
     try {
@@ -74,8 +94,14 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
         inLongitude: pos?.longitude,
         photoInPath: photo,
       );
-      await ref.read(shiftListProvider.notifier).add(entry);
+      final newId = await ref.read(shiftListProvider.notifier).add(entry);
       ref.invalidate(openShiftProvider);
+
+      // Çıkış hatırlatması kur (giriş + 9 saat). 8→17, 13→22.
+      await NotificationService.instance.scheduleShiftCheckoutReminder(
+        shiftId: newId,
+        clockIn: entry.clockIn,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -95,6 +121,10 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
       );
       await ref.read(shiftListProvider.notifier).updateShift(updated);
       ref.invalidate(openShiftProvider);
+      // Çıkış yapıldı — hatırlatmayı iptal et.
+      if (open.id != null) {
+        await NotificationService.instance.cancelShiftCheckout(open.id!);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -260,6 +290,31 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.cloud_upload_rounded,
+                  color: AppTheme.accent),
+              title: const Text('Google Drive\'a Yedekle'),
+              subtitle: const Text('Veri + tüm fotoğraflar (ZIP)'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Yedek hazırlanıyor...'),
+                      duration: Duration(seconds: 1)),
+                );
+                try {
+                  await ShiftExportService.instance.backupToZip(list);
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Yedek hatası: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+            const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.table_chart_rounded,
                   color: AppTheme.statusSafe),

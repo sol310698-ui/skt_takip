@@ -1085,13 +1085,27 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     final name = _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
 
-    // Depoya ekle (SKT listesine eklenmez — depo ürünü ayrı tutulur).
+    // Depoya ekle.
     await WarehouseService.instance.addItemToPallet(
       palletId: widget.palletId,
       barcode:  _barcode!,
       quantity: qty,
       productName: name,
     );
+
+    // SKT girilmişse SKT listesine de ekle — palet bağlantısı OLMADAN
+    // (location boş; normal ürün gibi takip edilsin).
+    if (_expiry != null) {
+      final db = await DatabaseService.instance.database;
+      await db.insert('products', {
+        'name':            name ?? _barcode!,
+        'barcode':         _barcode!,
+        'expiry_date':     _expiry!.millisecondsSinceEpoch,
+        'quantity':        qty,
+        'created_at':      DateTime.now().millisecondsSinceEpoch,
+        'disposal_status': 'active',
+      });
+    }
 
     if (!mounted) return;
     setState(() {
@@ -1100,6 +1114,74 @@ class _AddItemSheetState extends State<_AddItemSheet> {
       _busy = false;
     });
     await _scanner.start();
+  }
+
+  /// Elle barkod / ürün adı girişi (kamera olmadan).
+  Future<void> _manualEntry() async {
+    final bcCtrl = TextEditingController();
+    final nmCtrl = TextEditingController();
+    await _scanner.stop();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Elle Ürün Girişi'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: bcCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Barkod',
+                prefixIcon: Icon(Icons.qr_code_rounded),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: nmCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Ürün adı (opsiyonel)',
+                prefixIcon: Icon(Icons.label_outline_rounded),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Devam')),
+        ],
+      ),
+    );
+
+    if (ok != true) {
+      await _scanner.start();
+      return;
+    }
+    final bc = bcCtrl.text.trim();
+    final nm = nmCtrl.text.trim();
+    if (bc.isEmpty && nm.isEmpty) {
+      await _scanner.start();
+      return;
+    }
+
+    String? name = nm.isEmpty ? null : nm;
+    if (name == null && bc.isNotEmpty) {
+      try {
+        name = await WarehouseService.instance.resolveName(bc);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _barcode = bc.isEmpty
+          ? 'MANUEL-${DateTime.now().millisecondsSinceEpoch % 100000}'
+          : bc;
+      if (name != null) _nameCtrl.text = name;
+    });
   }
 
   @override
@@ -1146,7 +1228,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               ],
             ),
             const SizedBox(height: 14),
-            if (_barcode == null)
+            if (_barcode == null) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppTheme.rMd),
                 child: SizedBox(
@@ -1154,7 +1236,14 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   child: MobileScanner(
                       controller: _scanner, onDetect: _onDetect),
                 ),
-              )
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _manualEntry,
+                icon: const Icon(Icons.keyboard_rounded, size: 18),
+                label: const Text('Elle Barkod / Ürün Adı Gir'),
+              ),
+            ]
             else ...[
               // Barkod satiri
               Container(

@@ -14,6 +14,10 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
+  // Mesai "Bitir" aksiyonuna basildiginda tetiklenecek callback.
+  // main.dart'tan veya shift ekranindan atanir.
+  static void Function(int shiftId)? onShiftFinishRequested;
+
   Future<void> init() async {
     if (_initialized) return;
     try {
@@ -23,7 +27,10 @@ class NotificationService {
           AndroidInitializationSettings('@drawable/ic_launcher');
       const initSettings = InitializationSettings(android: androidSettings);
 
-      await _plugin.initialize(initSettings);
+      await _plugin.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: _onNotificationResponse,
+      );
 
       await _plugin
           .resolvePlatformSpecificImplementation<
@@ -35,6 +42,67 @@ class NotificationService {
       _initialized = false;
     }
   }
+
+  /// Bildirim ya da aksiyon butonuna basilinca.
+  static void _onNotificationResponse(NotificationResponse resp) {
+    final payload = resp.payload ?? '';
+    if (payload.startsWith('shift_checkout:')) {
+      final shiftId = int.tryParse(payload.split(':').last);
+      if (shiftId == null) return;
+      // "Bitir" aksiyonu veya bildirime dokunma → çıkış akışı.
+      if (resp.actionId == 'shift_finish' || resp.actionId == null) {
+        onShiftFinishRequested?.call(shiftId);
+      }
+      // "Yoksay" → cancelNotification:true zaten kapatıyor, ek iş yok.
+    }
+  }
+
+  /// Mesai çıkış hatırlatması — giriş + 9 saat sonra.
+  /// "Bitir" ve "Yoksay" aksiyon butonları içerir.
+  /// shiftId payload olarak iletilir; uygulama açılınca çıkış akışı tetiklenir.
+  Future<void> scheduleShiftCheckoutReminder({
+    required int shiftId,
+    required DateTime clockIn,
+  }) async {
+    if (!_initialized) await init();
+    final fireAt = clockIn.add(const Duration(hours: 9));
+    // Geçmişse kurma.
+    if (fireAt.isBefore(DateTime.now())) return;
+
+    final tzTime = tz.TZDateTime.from(fireAt, tz.local);
+    final androidDetails = AndroidNotificationDetails(
+      'shift_checkout',
+      'Mesai Çıkış Hatırlatma',
+      channelDescription: 'Mesai bitiş saatinde çıkış hatırlatması',
+      importance: Importance.max,
+      priority: Priority.high,
+      category: AndroidNotificationCategory.reminder,
+      actions: const [
+        AndroidNotificationAction('shift_finish', 'Bitir',
+            showsUserInterface: true),
+        AndroidNotificationAction('shift_ignore', 'Yoksay',
+            cancelNotification: true),
+      ],
+    );
+
+    await _plugin.zonedSchedule(
+      _shiftNotifId(shiftId),
+      'Mesai Çıkışı',
+      'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
+      tzTime,
+      NotificationDetails(android: androidDetails),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: 'shift_checkout:$shiftId',
+    );
+  }
+
+  Future<void> cancelShiftCheckout(int shiftId) async {
+    if (!_initialized) await init();
+    await _plugin.cancel(_shiftNotifId(shiftId));
+  }
+
+  // Mesai bildirimleri icin ayri id araligi (cakismayi onlemek icin).
+  int _shiftNotifId(int shiftId) => 900000 + shiftId;
 
   /// Eski 100x sema (v24 ve oncesi) ile planlanmis bildirimleri temizler.
   /// Guvenlik icin genis aralik: her urun icin eski ve yeni schema dener.

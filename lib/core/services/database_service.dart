@@ -36,6 +36,7 @@ class DatabaseService {
     await _createPriceChangeSessionTable(db);
     await _createWarehouseTables(db);
     await _createTransferTable(db);
+    await _createScheduleTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -86,6 +87,22 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location TEXT');
     }
+    if (oldVersion < 12) {
+      await _createScheduleTable(db);
+    }
+  }
+
+  Future<void> _createScheduleTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.workScheduleTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        weekday INTEGER NOT NULL,
+        hour INTEGER NOT NULL,
+        minute INTEGER NOT NULL,
+        label TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
   }
 
   Future<void> _createProductsTable(Database db) async {

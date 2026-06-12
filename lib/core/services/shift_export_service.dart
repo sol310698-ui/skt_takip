@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -58,6 +59,94 @@ class ShiftExportService {
   }
 
   /// Metin ozet olarak paylas.
+  /// Mesai verisi + TÜM fotoğrafları tek ZIP'e paketler, paylaşır.
+  /// Kullanıcı paylaşım menüsünden Google Drive'a kaydedebilir.
+  Future<void> backupToZip(List<ShiftEntry> shifts) async {
+    final archive = Archive();
+
+    // 1) Excel'i oluştur ve arşive ekle.
+    final excelBytes = _buildExcelBytes(shifts);
+    if (excelBytes != null) {
+      archive.addFile(
+          ArchiveFile('mesai_kayitlari.xlsx', excelBytes.length, excelBytes));
+    }
+
+    // 2) Fotoğrafları ekle.
+    int photoCount = 0;
+    for (final s in shifts) {
+      for (final entry in [
+        ('giris', s.photoInPath),
+        ('cikis', s.photoOutPath),
+      ]) {
+        final path = entry.$2;
+        if (path == null) continue;
+        final file = File(path);
+        if (!file.existsSync()) continue;
+        final bytes = await file.readAsBytes();
+        final dateStr =
+            '${s.clockIn.year}${s.clockIn.month.toString().padLeft(2, '0')}${s.clockIn.day.toString().padLeft(2, '0')}';
+        final ext = path.split('.').last;
+        archive.addFile(ArchiveFile(
+          'fotograflar/${dateStr}_${s.id ?? photoCount}_${entry.$1}.$ext',
+          bytes.length,
+          bytes,
+        ));
+        photoCount++;
+      }
+    }
+
+    // 3) ZIP'i kaydet ve paylaş.
+    final zipData = ZipEncoder().encode(archive);
+    if (zipData == null) return;
+    final dir = await getApplicationDocumentsDirectory();
+    final stamp = DateTime.now();
+    final fname =
+        'mesai_yedek_${stamp.year}${stamp.month.toString().padLeft(2, '0')}${stamp.day.toString().padLeft(2, '0')}.zip';
+    final zipPath = '${dir.path}/$fname';
+    await File(zipPath).writeAsBytes(zipData);
+
+    await Share.shareXFiles(
+      [XFile(zipPath)],
+      text: 'Mesai Yedeği ($photoCount fotoğraf) — Google Drive\'a kaydedebilirsiniz',
+    );
+  }
+
+  /// Excel'i byte olarak üretir (paylaşmadan).
+  List<int>? _buildExcelBytes(List<ShiftEntry> shifts) {
+    final excel = Excel.createExcel();
+    final sheet = excel['Mesai'];
+    excel.setDefaultSheet('Mesai');
+
+    sheet.appendRow([
+      TextCellValue('Tarih'),
+      TextCellValue('Giriş'),
+      TextCellValue('Çıkış'),
+      TextCellValue('Süre'),
+      TextCellValue('Giriş Foto'),
+      TextCellValue('Çıkış Foto'),
+    ]);
+
+    final fmtDate = DateFormat('dd.MM.yyyy');
+    final fmtTime = DateFormat('HH:mm');
+    for (final s in shifts) {
+      final dur = s.clockOut != null
+          ? s.clockOut!.difference(s.clockIn)
+          : null;
+      sheet.appendRow([
+        TextCellValue(fmtDate.format(s.clockIn)),
+        TextCellValue(fmtTime.format(s.clockIn)),
+        TextCellValue(
+            s.clockOut != null ? fmtTime.format(s.clockOut!) : '-'),
+        TextCellValue(dur != null
+            ? '${dur.inHours}s ${dur.inMinutes % 60}dk'
+            : '-'),
+        TextCellValue(s.photoInPath != null ? 'Var' : '-'),
+        TextCellValue(s.photoOutPath != null ? 'Var' : '-'),
+      ]);
+    }
+    return excel.encode();
+  }
+
   Future<void> exportText(List<ShiftEntry> shifts) async {
     final df = DateFormat('dd.MM.yyyy');
     final tf = DateFormat('HH:mm');

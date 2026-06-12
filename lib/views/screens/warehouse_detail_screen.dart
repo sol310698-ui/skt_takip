@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import '../../core/constants/app_constants.dart';
-import '../../core/services/database_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
@@ -26,15 +23,12 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   Warehouse? _warehouse;
   List<ShelfSummary> _shelves = [];
   List<PalletSummary> _allPallets = [];
-  List<PalletSummary> _unstacked = [];
-  List<PalletSummary> _floorPallets = [];
-  List<Map<String, Object?>> _floorProducts = []; // products tablosundan zemin urunler
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 3, vsync: this);
+    _tab = TabController(length: 2, vsync: this);
     _load();
   }
 
@@ -50,27 +44,12 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         await WarehouseService.instance.getShelfSummaries(widget.warehouseId);
     final all =
         await WarehouseService.instance.getAllPallets(widget.warehouseId);
-    final un = await WarehouseService.instance
-        .getUnstackedPallets(widget.warehouseId);
-    final floor = await WarehouseService.instance
-        .getFloorPallets(widget.warehouseId);
-
-    // Zemin urunler: location 'Zemin' veya 'Depo / Palet' olan products.
-    final db = await DatabaseService.instance.database;
-    final floorProds = await db.query(
-      AppConstants.productTable,
-      where: "disposal_status = 'active' AND (location = 'Zemin' OR location = 'Depo / Palet')",
-      orderBy: 'expiry_date ASC',
-    );
 
     if (!mounted) return;
     setState(() {
       _warehouse = w;
       _shelves = shelves;
       _allPallets = all;
-      _unstacked = un;
-      _floorPallets = floor;
-      _floorProducts = floorProds;
       _loading = false;
     });
   }
@@ -210,7 +189,6 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           tabs: const [
             Tab(text: 'Harita', icon: Icon(Icons.grid_view_rounded)),
             Tab(text: 'Paletler', icon: Icon(Icons.inventory_2_rounded)),
-            Tab(text: 'Zemin', icon: Icon(Icons.vertical_align_bottom_rounded)),
           ],
         ),
       ),
@@ -218,7 +196,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           ? const LoadingState()
           : TabBarView(
               controller: _tab,
-              children: [_buildMap(), _buildPalletList(), _buildFloorView()],
+              children: [_buildMap(), _buildPalletList()],
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createPallet(),
@@ -455,162 +433,6 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   }
 
   // ── PALET LISTESI ──────────────────────────────────────────────────
-  // ── ZEMİN SEKMESİ ──────────────────────────────────────────────────
-  Widget _buildFloorView() {
-    final hasAnything =
-        _floorPallets.isNotEmpty || _floorProducts.isNotEmpty;
-
-    if (!hasAnything) {
-      return EmptyState(
-        icon: Icons.vertical_align_bottom_rounded,
-        iconColor: AppTheme.amber,
-        title: 'Zeminde ürün/palet yok',
-        subtitle: 'Palet oluştururken "Zemine Al"ı seçin ya da '
-            'palet içindeki bir üründe "Yere Al"ı kullanın.',
-        action: FilledButton.icon(
-          onPressed: () => _createPallet(toFloor: true),
-          icon: const Icon(Icons.add_box_rounded),
-          label: const Text('Zemine Palet Ekle'),
-          style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.amber,
-              foregroundColor: Colors.black),
-        ),
-      );
-    }
-
-    final fmt = DateFormat('dd.MM.yyyy');
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-        children: [
-          // Zemin paletler
-          if (_floorPallets.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.inventory_2_rounded,
-                    size: 16, color: AppTheme.amber),
-                const SizedBox(width: 6),
-                Text('Zemin Paletler (${_floorPallets.length})',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textSecondary,
-                        fontSize: 13)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ..._floorPallets.map((p) => _palletTile(p)),
-            const SizedBox(height: 16),
-          ],
-
-          // Zemin ürünler
-          if (_floorProducts.isNotEmpty) ...[
-            Row(
-              children: [
-                const Icon(Icons.inventory_rounded,
-                    size: 16, color: AppTheme.primary),
-                const SizedBox(width: 6),
-                Text('Zemin Ürünler (${_floorProducts.length})',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textSecondary,
-                        fontSize: 13)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ..._floorProducts.map((row) {
-              final name    = row['name'] as String? ?? '-';
-              final barcode = row['barcode'] as String? ?? '';
-              final expMs   = row['expiry_date'] as int?;
-              final expiry  = expMs != null
-                  ? DateTime.fromMillisecondsSinceEpoch(expMs)
-                  : null;
-              final qty     = row['quantity'] as int? ?? 1;
-              final loc     = row['location'] as String? ?? 'Zemin';
-              final now     = DateTime.now();
-              final daysLeft = expiry != null
-                  ? expiry.difference(now).inDays
-                  : null;
-              final statusColor = daysLeft == null
-                  ? AppTheme.textTertiary
-                  : daysLeft < 0
-                      ? AppTheme.statusExpired
-                      : daysLeft <= 7
-                          ? AppTheme.statusCritical
-                          : daysLeft <= 30
-                              ? AppTheme.statusWarning
-                              : AppTheme.statusSafe;
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(14),
-                decoration: AppTheme.card(accentColor: statusColor),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(9),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.13),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(Icons.inventory_rounded,
-                          color: statusColor, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(name,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          if (barcode.isNotEmpty)
-                            Text(barcode,
-                                style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 11,
-                                    color: AppTheme.textTertiary)),
-                          Text('$qty adet  •  $loc',
-                              style: const TextStyle(
-                                  fontSize: 11.5,
-                                  color: AppTheme.textSecondary)),
-                        ],
-                      ),
-                    ),
-                    if (expiry != null)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(fmt.format(expiry),
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                  color: statusColor)),
-                          if (daysLeft != null)
-                            Text(
-                              daysLeft < 0
-                                  ? 'Doldu'
-                                  : '$daysLeft gün',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: statusColor),
-                            ),
-                        ],
-                      ),
-                  ],
-                ),
-              );
-            }),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildPalletList() {
     if (_allPallets.isEmpty) {
       return EmptyState(
@@ -630,12 +452,6 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
       children: [
-        if (_unstacked.isNotEmpty) ...[
-          const SectionLabel('Bekleyen Paletler (istiflenmemiş)'),
-          const SizedBox(height: 8),
-          ..._unstacked.map((p) => _palletTile(p)),
-          const SizedBox(height: 16),
-        ],
         const SectionLabel('Tüm Paletler'),
         const SizedBox(height: 8),
         ..._allPallets.map((p) => _palletTile(p)),
