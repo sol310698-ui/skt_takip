@@ -35,6 +35,7 @@ class DatabaseService {
     await _createPriceChangeTable(db);
     await _createPriceChangeSessionTable(db);
     await _createWarehouseTables(db);
+    await _createTransferTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -73,6 +74,9 @@ class DatabaseService {
     }
     if (oldVersion < 8) {
       await _createWarehouseTables(db);
+    }
+    if (oldVersion < 9) {
+      await _createTransferTable(db);
     }
   }
 
@@ -251,6 +255,35 @@ class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_pitem_pallet ON ${AppConstants.whPalletItemTable}(pallet_id)');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_pitem_barcode ON ${AppConstants.whPalletItemTable}(barcode)');
+  }
+
+  Future<void> _createTransferTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.whTransferTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pallet_id INTEGER NOT NULL,
+        pallet_code TEXT NOT NULL,
+        transfer_type TEXT NOT NULL DEFAULT 'internal',
+        -- internal: depo ici raf degisimi
+        -- external: magaza/depo disi cikis
+        from_warehouse_id INTEGER,
+        from_shelf_id INTEGER,
+        from_warehouse_name TEXT,
+        from_shelf_label TEXT,
+        to_warehouse_id INTEGER,
+        to_shelf_id INTEGER,
+        to_warehouse_name TEXT,
+        to_shelf_label TEXT,
+        to_external_name TEXT,
+        to_external_address TEXT,
+        note TEXT,
+        created_at INTEGER NOT NULL,
+        items_snapshot TEXT NOT NULL
+        -- items_snapshot: JSON - transfer anindaki palet icerigi
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_transfer_pallet ON ${AppConstants.whTransferTable}(pallet_id)');
   }
 
   Future<void> close() async {

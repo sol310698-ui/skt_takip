@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../constants/app_constants.dart';
 import 'barcode_lookup_service.dart';
 import 'database_service.dart';
@@ -459,4 +461,121 @@ class WarehouseService {
     }
     return result;
   }
+
+  // ── Transfer kayitlari ──────────────────────────────────────────────
+  Future<int> recordTransfer(WhTransfer t) async {
+    final db = await DatabaseService.instance.database;
+    return db.insert(AppConstants.whTransferTable, t.toMap()..remove('id'));
+  }
+
+  Future<List<WhTransfer>> getTransfers(int palletId) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.whTransferTable,
+        where: 'pallet_id = ?',
+        whereArgs: [palletId],
+        orderBy: 'created_at DESC');
+    return rows.map(WhTransfer.fromMap).toList();
+  }
+
+  Future<List<WhTransfer>> getAllTransfers(int warehouseId) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.whTransferTable,
+        where: 'from_warehouse_id = ? OR to_warehouse_id = ?',
+        whereArgs: [warehouseId, warehouseId],
+        orderBy: 'created_at DESC');
+    return rows.map(WhTransfer.fromMap).toList();
+  }
+}
+
+/// Transfer kaydi modeli.
+class WhTransfer {
+  final int? id;
+  final int palletId;
+  final String palletCode;
+  final String transferType; // 'internal' | 'external'
+  final int? fromWarehouseId;
+  final int? fromShelfId;
+  final String? fromWarehouseName;
+  final String? fromShelfLabel;
+  final int? toWarehouseId;
+  final int? toShelfId;
+  final String? toWarehouseName;
+  final String? toShelfLabel;
+  final String? toExternalName;
+  final String? toExternalAddress;
+  final String? note;
+  final DateTime createdAt;
+  final List<WhPalletItem> itemsSnapshot;
+
+  const WhTransfer({
+    this.id,
+    required this.palletId,
+    required this.palletCode,
+    this.transferType = 'internal',
+    this.fromWarehouseId,
+    this.fromShelfId,
+    this.fromWarehouseName,
+    this.fromShelfLabel,
+    this.toWarehouseId,
+    this.toShelfId,
+    this.toWarehouseName,
+    this.toShelfLabel,
+    this.toExternalName,
+    this.toExternalAddress,
+    this.note,
+    required this.createdAt,
+    this.itemsSnapshot = const [],
+  });
+
+  factory WhTransfer.fromMap(Map<String, Object?> m) {
+    List<WhPalletItem> items = [];
+    try {
+      final raw = m['items_snapshot'] as String? ?? '[]';
+      final list = jsonDecode(raw) as List;
+      items = list
+          .map((e) => WhPalletItem.fromMap(Map<String, Object?>.from(e as Map)))
+          .toList();
+    } catch (_) {}
+    return WhTransfer(
+      id: m['id'] as int?,
+      palletId: m['pallet_id'] as int,
+      palletCode: m['pallet_code'] as String,
+      transferType: (m['transfer_type'] as String?) ?? 'internal',
+      fromWarehouseId: m['from_warehouse_id'] as int?,
+      fromShelfId: m['from_shelf_id'] as int?,
+      fromWarehouseName: m['from_warehouse_name'] as String?,
+      fromShelfLabel: m['from_shelf_label'] as String?,
+      toWarehouseId: m['to_warehouse_id'] as int?,
+      toShelfId: m['to_shelf_id'] as int?,
+      toWarehouseName: m['to_warehouse_name'] as String?,
+      toShelfLabel: m['to_shelf_label'] as String?,
+      toExternalName: m['to_external_name'] as String?,
+      toExternalAddress: m['to_external_address'] as String?,
+      note: m['note'] as String?,
+      createdAt:
+          DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
+      itemsSnapshot: items,
+    );
+  }
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'pallet_id': palletId,
+        'pallet_code': palletCode,
+        'transfer_type': transferType,
+        'from_warehouse_id': fromWarehouseId,
+        'from_shelf_id': fromShelfId,
+        'from_warehouse_name': fromWarehouseName,
+        'from_shelf_label': fromShelfLabel,
+        'to_warehouse_id': toWarehouseId,
+        'to_shelf_id': toShelfId,
+        'to_warehouse_name': toWarehouseName,
+        'to_shelf_label': toShelfLabel,
+        'to_external_name': toExternalName,
+        'to_external_address': toExternalAddress,
+        'note': note,
+        'created_at': createdAt.millisecondsSinceEpoch,
+        'items_snapshot': jsonEncode(
+            itemsSnapshot.map((i) => i.toMap()).toList()),
+      };
 }

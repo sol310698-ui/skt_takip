@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/waybill_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
@@ -120,11 +121,14 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     }
   }
 
-  // ── Transfer ───────────────────────────────────────────────────────
+  // ── Depo ici transfer ───────────────────────────────────────────────
   Future<void> _transfer() async {
     final shelves =
         await WarehouseService.instance.getShelfSummaries(widget.warehouseId);
+    final warehouse = await WarehouseService.instance
+        .getWarehouse(widget.warehouseId);
     if (!mounted) return;
+
     final target = await showModalBottomSheet<int?>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -143,8 +147,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
           children: [
             Center(
               child: Container(
-                width: 40,
-                height: 4,
+                width: 40, height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                     color: AppTheme.textTertiary,
@@ -152,17 +155,13 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               ),
             ),
             const Text('Paleti Taşı',
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             const Text('Hedef rafı seçin (dolu raflar pasiftir).',
-                style: TextStyle(
-                    fontSize: 12.5, color: AppTheme.textSecondary)),
+                style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
             const SizedBox(height: 14),
-            // Bekleme alanina al
             ListTile(
-              leading: const Icon(Icons.pending_rounded,
-                  color: AppTheme.amber),
+              leading: const Icon(Icons.pending_rounded, color: AppTheme.amber),
               title: const Text('Bekleme alanına al'),
               subtitle: const Text('Raftan çıkar, istiflenmemiş yap'),
               onTap: () => Navigator.pop(context, -1),
@@ -172,24 +171,18 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               child: ListView(
                 shrinkWrap: true,
                 children: shelves.map((s) {
-                  final full = s.isFull &&
-                      s.shelf.id != _pallet?.shelfId;
+                  final full = s.isFull && s.shelf.id != _pallet?.shelfId;
                   final isCurrent = s.shelf.id == _pallet?.shelfId;
                   return ListTile(
                     enabled: !full && !isCurrent,
                     leading: Icon(Icons.shelves,
-                        color: full
-                            ? AppTheme.textTertiary
-                            : AppTheme.accent),
-                    title: Text(
-                        'Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}'),
+                        color: full ? AppTheme.textTertiary : AppTheme.accent),
+                    title: Text('Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}'),
                     subtitle: Text(isCurrent
                         ? 'Şu anki konum'
-                        : '${s.palletCount}/${s.shelf.capacity} dolu'
-                            '${full ? " — DOLU" : ""}'),
+                        : '${s.palletCount}/${s.shelf.capacity} dolu${full ? " — DOLU" : ""}'),
                     trailing: isCurrent
-                        ? const Icon(Icons.check_circle_rounded,
-                            color: AppTheme.statusSafe)
+                        ? const Icon(Icons.check_circle_rounded, color: AppTheme.statusSafe)
                         : null,
                     onTap: (full || isCurrent)
                         ? null
@@ -205,20 +198,280 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
     if (target == null) return;
     final targetShelf = target == -1 ? null : target;
+
+    // Mevcut raf bilgisini al (transfer kaydı için)
+    final fromShelf = _shelf;
+    final WhShelf? toShelf = targetShelf != null
+        ? shelves.firstWhere((s) => s.shelf.id == targetShelf).shelf
+        : null;
+
     final ok = await WarehouseService.instance
         .movePallet(widget.palletId, targetShelf);
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hedef raf dolu')),
-      );
+          const SnackBar(content: Text('Hedef raf dolu')));
       return;
     }
-    _load();
+
+    // Transfer kaydet
+    final t = WhTransfer(
+      palletId: widget.palletId,
+      palletCode: _pallet!.code,
+      transferType: 'internal',
+      fromWarehouseId: widget.warehouseId,
+      fromShelfId: fromShelf?.id,
+      fromWarehouseName: warehouse?.name,
+      fromShelfLabel: fromShelf != null
+          ? 'S${fromShelf.columnNo}-R${fromShelf.shelfNo}'
+          : 'Bekleme',
+      toWarehouseId: widget.warehouseId,
+      toShelfId: toShelf?.id,
+      toWarehouseName: warehouse?.name,
+      toShelfLabel: toShelf != null
+          ? 'S${toShelf.columnNo}-R${toShelf.shelfNo}'
+          : 'Bekleme',
+      createdAt: DateTime.now(),
+      itemsSnapshot: _items,
+    );
+    await WarehouseService.instance.recordTransfer(t);
+    await _load();
+
+    if (!mounted) return;
+    // Irsaliye onerisi
+    _offerWaybill(t);
+  }
+
+  // ── Magaza disi transfer ────────────────────────────────────────────
+  Future<void> _externalTransfer() async {
+    final nameCtrl = TextEditingController();
+    final addrCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final warehouse = await WarehouseService.instance
+        .getWarehouse(widget.warehouseId);
+
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mağaza Dışı Sevk'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Bu palet mağazadan çıkacak. Alıcı bilgilerini girin; '
+                'irsaliye PDF oluşturulacak.',
+                style: TextStyle(
+                    fontSize: 12.5, color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Alıcı adı / Mağaza *',
+                  prefixIcon: Icon(Icons.store_rounded),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: addrCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Adres',
+                  prefixIcon: Icon(Icons.location_on_rounded),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Not (opsiyonel)',
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.coral),
+            child: const Text('Sevk Et & İrsaliye'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || nameCtrl.text.trim().isEmpty) return;
+
+    final t = WhTransfer(
+      palletId: widget.palletId,
+      palletCode: _pallet!.code,
+      transferType: 'external',
+      fromWarehouseId: widget.warehouseId,
+      fromShelfId: _shelf?.id,
+      fromWarehouseName: warehouse?.name,
+      fromShelfLabel: _shelf != null
+          ? 'S${_shelf!.columnNo}-R${_shelf!.shelfNo}'
+          : 'Bekleme',
+      toExternalName: nameCtrl.text.trim(),
+      toExternalAddress: addrCtrl.text.trim(),
+      note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+      createdAt: DateTime.now(),
+      itemsSnapshot: _items,
+    );
+
+    await WarehouseService.instance.recordTransfer(t);
+    // Dış transfer: paleti bekleme alanına al (raftan çıkar)
+    await WarehouseService.instance.movePallet(widget.palletId, null);
+    await _load();
+
+    if (!mounted) return;
+    _offerWaybill(t);
+  }
+
+  // ── Irsaliye onerisi & PDF ──────────────────────────────────────────
+  void _offerWaybill(WhTransfer t) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Palet taşındı'),
-          backgroundColor: AppTheme.statusSafe),
+      SnackBar(
+        content: const Text('Transfer kaydedildi'),
+        backgroundColor: AppTheme.statusSafe,
+        action: SnackBarAction(
+          label: 'İrsaliye',
+          textColor: Colors.white,
+          onPressed: () => _generateAndShareWaybill(t),
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  Future<void> _generateAndShareWaybill(WhTransfer t) async {
+    setState(() => _loading = true);
+    try {
+      final path = await WaybillService.instance.generateWaybill(
+        pallet: _pallet!,
+        items: t.itemsSnapshot.isNotEmpty ? t.itemsSnapshot : _items,
+        transfer: t,
+      );
+      await WaybillService.instance.sharePdf(path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF oluşturulamadı: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Gecmis transferler listesi
+  Future<void> _showTransferHistory() async {
+    final transfers =
+        await WarehouseService.instance.getTransfers(widget.palletId);
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scroll) => Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: ListView(
+            controller: scroll,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                      color: AppTheme.textTertiary,
+                      borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              Text('Transfer Geçmişi (${transfers.length})',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              if (transfers.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text('Henüz transfer kaydı yok',
+                        style:
+                            TextStyle(color: AppTheme.textSecondary)),
+                  ),
+                )
+              else
+                ...transfers.map((t) => _transferTile(t)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _transferTile(WhTransfer t) {
+    final isExt = t.transferType == 'external';
+    final from = t.fromShelfLabel ?? 'Bekleme';
+    final to = isExt
+        ? (t.toExternalName ?? 'Dış')
+        : (t.toShelfLabel ?? 'Bekleme');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(
+          accentColor: isExt ? AppTheme.coral : AppTheme.accent),
+      child: Row(
+        children: [
+          Icon(
+              isExt ? Icons.local_shipping_rounded : Icons.swap_horiz_rounded,
+              color: isExt ? AppTheme.coral : AppTheme.accent,
+              size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$from  →  $to',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 13)),
+                Text(
+                  '${t.createdAt.day.toString().padLeft(2, '0')}.${t.createdAt.month.toString().padLeft(2, '0')}.${t.createdAt.year}  •  '
+                  '${t.itemsSnapshot.length} çeşit',
+                  style: const TextStyle(
+                      fontSize: 11.5, color: AppTheme.textSecondary),
+                ),
+                if (t.note != null)
+                  Text(t.note!,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppTheme.textTertiary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_rounded,
+                color: AppTheme.coral),
+            tooltip: 'İrsaliye',
+            onPressed: () => _generateAndShareWaybill(t),
+          ),
+        ],
+      ),
     );
   }
 
@@ -261,16 +514,38 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
         actions: [
+          // Depo ici transfer
           IconButton(
             icon: const Icon(Icons.swap_horiz_rounded),
-            tooltip: 'Taşı',
+            tooltip: 'Depo İçi Taşı',
             onPressed: _loading ? null : _transfer,
           ),
+          // Transfer gecmisi + Magaza disi + Sil
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'history') _showTransferHistory();
+              if (v == 'external') _externalTransfer();
               if (v == 'delete') _deletePallet();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'external',
+                child: Row(children: [
+                  Icon(Icons.local_shipping_rounded,
+                      size: 18, color: AppTheme.coral),
+                  SizedBox(width: 8),
+                  Text('Mağaza Dışı Sevk'),
+                ]),
+              ),
+              PopupMenuItem(
+                value: 'history',
+                child: Row(children: [
+                  Icon(Icons.history_rounded,
+                      size: 18, color: AppTheme.accent),
+                  SizedBox(width: 8),
+                  Text('Transfer Geçmişi'),
+                ]),
+              ),
               PopupMenuItem(
                 value: 'delete',
                 child: Row(children: [

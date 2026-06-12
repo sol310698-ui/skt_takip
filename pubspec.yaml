@@ -33,6 +33,9 @@ dependencies:
   cached_network_image: ^3.4.1
   audioplayers: ^6.1.0
   vibration: ^2.0.0
+  pdf: ^3.10.8
+  qr_flutter: ^4.1.0
+  printing: ^5.13.1
 
 dev_dependencies:
   flutter_lints: ^4.0.0

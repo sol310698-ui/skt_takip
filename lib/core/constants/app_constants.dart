@@ -6,7 +6,7 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 8; // v8: depo (warehouse) tablolari
+  static const int dbVersion = 9; // v9: palet transfer kayitlari
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';
@@ -18,6 +18,7 @@ class AppConstants {
   static const String whShelfTable = 'wh_shelves';
   static const String whPalletTable = 'wh_pallets';
   static const String whPalletItemTable = 'wh_pallet_items';
+  static const String whTransferTable = 'wh_transfers'; // depo-ici + disari
 
   static const List<int> defaultNotifyThresholds = [30, 15, 7, 3, 1];
   static const int warningDays = 7;
