@@ -478,8 +478,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
       );
     }
 
-    final fmt     = DateFormat('dd.MM.yyyy');
-    final fmtTime = DateFormat('dd.MM.yyyy HH:mm');
+    final fmt = DateFormat('dd.MM.yyyy');
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -637,12 +636,6 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           ..._unstacked.map((p) => _palletTile(p)),
           const SizedBox(height: 16),
         ],
-        if (_floorPallets.isNotEmpty) ...[
-          const SectionLabel('Zemindekiler'),
-          const SizedBox(height: 8),
-          ..._floorPallets.map((p) => _palletTile(p)),
-          const SizedBox(height: 16),
-        ],
         const SectionLabel('Tüm Paletler'),
         const SizedBox(height: 8),
         ..._allPallets.map((p) => _palletTile(p)),
@@ -654,9 +647,9 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     final isFloor   = p.pallet.isOnFloor;
     final isWaiting = p.pallet.isUnstacked;
     final loc = p.shelf != null
-        ? 'S\${p.shelf!.columnNo}-R\${p.shelf!.shelfNo}'
+        ? 'S${p.shelf!.columnNo}-R${p.shelf!.shelfNo}'
         : isFloor
-            ? 'Zemin \${p.pallet.floorNo! + 1}'
+            ? 'Zemin ${p.pallet.floorNo! + 1}'
             : 'Bekliyor';
     final accent = isFloor
         ? AppTheme.amber
@@ -698,7 +691,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 14)),
                   const SizedBox(height: 2),
-                  Text('\${p.itemTypes} çeşit • \${p.totalQty} adet',
+                  Text('${p.itemTypes} çeşit • ${p.totalQty} adet',
                       style: const TextStyle(
                           fontSize: 12, color: AppTheme.textTertiary)),
                 ],

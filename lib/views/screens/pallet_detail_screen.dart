@@ -916,9 +916,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
   /// Ürünü yere al: ürün tablosuna "Zemin" konumlu kayıt ekle.
   Future<void> _putItemOnFloor(WhPalletItem item) async {
-    // Kaç adet alınacak?
     int amount = item.quantity;
-    final expiryCtrl = TextEditingController();
 
     final ok = await showDialog<bool>(
       context: context,
@@ -929,8 +927,8 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'Ürün SKT listesine "Zemin" konumuyla eklenecek. '
-                'Son kullanma tarihini girin.',
+                'Ürün, deponun "Zemin" paletine taşınacak. '
+                'Kaç adet alınsın?',
                 style: TextStyle(
                     fontSize: 12.5, color: AppTheme.textSecondary),
               ),
@@ -939,8 +937,8 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton.filledTonal(
-                    onPressed: () =>
-                        setSt(() => amount = (amount - 1).clamp(1, item.quantity)),
+                    onPressed: () => setSt(
+                        () => amount = (amount - 1).clamp(1, item.quantity)),
                     icon: const Icon(Icons.remove_rounded),
                   ),
                   Container(
@@ -951,21 +949,11 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                             fontSize: 22, fontWeight: FontWeight.w800)),
                   ),
                   IconButton.filledTonal(
-                    onPressed: () =>
-                        setSt(() => amount = (amount + 1).clamp(1, item.quantity)),
+                    onPressed: () => setSt(
+                        () => amount = (amount + 1).clamp(1, item.quantity)),
                     icon: const Icon(Icons.add_rounded),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: expiryCtrl,
-                keyboardType: TextInputType.datetime,
-                decoration: const InputDecoration(
-                  labelText: 'SKT (dd.MM.yyyy)',
-                  prefixIcon: Icon(Icons.event_rounded),
-                  hintText: '31.12.2027',
-                ),
               ),
             ],
           ),
@@ -986,43 +974,24 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     );
 
     if (ok != true) return;
-
-    // Tarihi parse et
-    DateTime? expiry;
-    try {
-      final parts = expiryCtrl.text.trim().split('.');
-      if (parts.length == 3) {
-        expiry = DateTime(
-            int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
-      }
-    } catch (_) {}
-    expiry ??= DateTime.now().add(const Duration(days: 365));
-
     setState(() => _loading = true);
 
-    // Products tablosuna ekle
-    final db = await DatabaseService.instance.database;
-    await db.insert('products', {
-      'name': item.productName ?? item.barcode,
-      'barcode': item.barcode,
-      'expiry_date': expiry.millisecondsSinceEpoch,
-      'quantity': amount,
-      'location': 'Zemin',
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-      'disposal_status': 'active',
-    });
-
-    // Paletten çıkar
-    await WarehouseService.instance.removeItemQuantity(item.id!, amount);
+    // "Zemin" paletini bul/oluştur ve ürünü oraya taşı.
+    final floorPalletId = await WarehouseService.instance
+        .getOrCreateFloorPallet(widget.warehouseId);
+    await WarehouseService.instance.transferItemToPallet(
+      sourceItemId: item.id!,
+      targetPalletId: floorPalletId,
+      amount: amount,
+    );
     await _load();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-              '$amount adet "${item.productName ?? item.barcode}" SKT listesine eklendi (Zemin)'),
+          content: Text('$amount adet "Zemin" paletine alındı'),
           backgroundColor: AppTheme.statusSafe,
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -1088,7 +1057,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     try {
       final p = txt.split(RegExp(r'[./\-]'));
       if (p.length == 3) {
-        final y = int.parse(p[2].length == 2 ? '20\${p[2]}' : p[2]);
+        final y = int.parse(p[2].length == 2 ? '20${p[2]}' : p[2]);
         d = DateTime(y, int.parse(p[1]), int.parse(p[0]));
       }
     } catch (_) {}
@@ -1116,27 +1085,13 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     final name = _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
 
-    // Depoya ekle.
+    // Depoya ekle (SKT listesine eklenmez — depo ürünü ayrı tutulur).
     await WarehouseService.instance.addItemToPallet(
       palletId: widget.palletId,
       barcode:  _barcode!,
       quantity: qty,
       productName: name,
     );
-
-    // SKT girilmişse SKT listesine de ekle.
-    if (_expiry != null) {
-      final db = await DatabaseService.instance.database;
-      await db.insert('products', {
-        'name':            name ?? _barcode!,
-        'barcode':         _barcode!,
-        'expiry_date':     _expiry!.millisecondsSinceEpoch,
-        'quantity':        qty,
-        'location':        'Depo / Palet',
-        'created_at':      DateTime.now().millisecondsSinceEpoch,
-        'disposal_status': 'active',
-      });
-    }
 
     if (!mounted) return;
     setState(() {

@@ -527,6 +527,24 @@ class WarehouseService {
     return result;
   }
 
+  /// "Zemin" adli ozel paleti bulur, yoksa olusturur (floorNo=0).
+  /// Yere alinan urunler bu palette toplanir.
+  Future<int> getOrCreateFloorPallet(int warehouseId) async {
+    final db = await DatabaseService.instance.database;
+    final existing = await db.query(AppConstants.whPalletTable,
+        where: "warehouse_id = ? AND code = 'Zemin' AND floor_no IS NOT NULL",
+        whereArgs: [warehouseId],
+        limit: 1);
+    if (existing.isNotEmpty) {
+      return existing.first['id'] as int;
+    }
+    return createPallet(
+      warehouseId: warehouseId,
+      floorNo: 0,
+      code: 'Zemin',
+    );
+  }
+
   /// Bir kalemin tamamini veya bir kismini baska palete tasir.
   /// Kaynak paletten [amount] adet cikar, hedef palete ekler.
   Future<void> transferItemToPallet({
