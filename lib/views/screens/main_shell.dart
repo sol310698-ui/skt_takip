@@ -182,7 +182,8 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true,
+      extendBody: false,
+      backgroundColor: AppTheme.background,
       body: IndexedStack(
         index: _stackIndex,
         children: [

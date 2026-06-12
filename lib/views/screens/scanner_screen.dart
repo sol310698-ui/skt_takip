@@ -128,6 +128,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   final List<String> _recentTexts = [];
   int get _maxRecentTexts => _speed.maxRecentTexts;
 
+  // Sifirlamadan beri islenen kare sayisi (adaptif esik icin).
+  int _framesSinceReset = 0;
+
   void _onScannedText(String value) {
     if (_done) return;
 
@@ -136,6 +139,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     _lastProcess = now;
 
     if (value.trim().isEmpty) return;
+    _framesSinceReset++;
 
     // Son kareleri biriktir.
     _recentTexts.add(value);
@@ -150,13 +154,25 @@ class _ScannerScreenState extends State<ScannerScreen> {
       return;
     }
 
-    // 2) Coklu kareden oylama: biriken tum karelerdeki adaylari skorla,
-    // oylama bonusu uygulayip en guvenli adayi sec. Yeterince yuksek
-    // (>=100) skora ulasinca kabul et. Bu, ardisik kararsiz okumalarda
-    // erken/yanlis kabulu onler.
+    // 2) Coklu kareden oylama + ADAPTIF esik:
+    // Ilk karelerde katiyiz (yanlis kabul olmasin); etiket zor okunuyorsa
+    // (kare sayisi artiyor ama kabul yok) esigi kademeli dusur.
+    // Dusuk esikler YALNIZCA gelecekteki tarihler icin gecerli —
+    // gecmis tarihler (muhtemel uretim tarihi) hep yuksek esik ister.
     final best = du.DateUtils.bestCandidateFromMultiple(_recentTexts);
     if (best == null) return;
-    if (best.score >= 100) {
+
+    final isFuture = du.DateUtils.daysUntil(best.date) >= 0;
+    final int need;
+    if (_framesSinceReset <= 3) {
+      need = 100; // baslangic: katı
+    } else if (_framesSinceReset <= 7) {
+      need = isFuture ? 75 : 100; // zorlaniyor: biraz esnet
+    } else {
+      need = isFuture ? 55 : 90; // cok zorlaniyor: gelecek tarihe guven
+    }
+
+    if (best.score >= need) {
       _accept(best.date);
     }
   }
@@ -196,6 +212,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() {
       _speed = s;
       _recentTexts.clear();
+      _framesSinceReset = 0;
       _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
       _ready = false;       // kamerayi kaldir
       _scanSession++;       // ScalableOCR'i yeni boxHeight ile yeniden kur
@@ -244,6 +261,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       _capturedFrame = null; // yakalanan kareyi temizle
       _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
       _recentTexts.clear(); // eski kare metinlerini temizle
+      _framesSinceReset = 0;
       _ready = false; // kamerayi kaldir (gri kalmayi onler)
       _scanSession++; // ScalableOCR'i tamamen sifirla (eski veri temizlenir)
     });

@@ -148,9 +148,10 @@ class DateUtils {
   }
 
   /// Harfe benzeyen rakamlari duzeltir (noktali/lazer baski hatalari).
-  /// DIKKAT: Yalnizca tarih regex'i ile YAKALANMIS gun/ay/yil gruplarina
-  /// uygulanir (_buildFull/_buildMonthYear icinde). Serbest metne
-  /// uygulanmaz; aksi halde gercek harfleri bozardi.
+  /// Hem yakalanan gun/ay/yil gruplarina hem de _extractDatesFromLine'daki
+  /// tarama KOPYASININ tamamina uygulanir (l3.O5.2O27 -> 13.05.2027).
+  /// Orijinal satir bozulmaz; anahtar kelime tespiti orijinalde yapilir.
+  /// Yanlis donusumler _safeDate dogrulamasiyla elenir.
   static String _fixOcrDigits(String s) {
     return s
         .replaceAll(RegExp(r'[Oo]'), '0')
@@ -165,13 +166,27 @@ class DateUtils {
   static List<DateTime> _extractDatesFromLine(String line) {
     final results = <DateTime>[];
 
-    // ON TEMIZLIK: saat ve lot/parti kisimlarini cikar (tarih sanilmasin).
+    // ON TEMIZLIK 0: Iki nokta/noktali virgul/virgul ile yazilmis tarihleri
+    // kurtar: "13:05:2027" / "13;05;27" / "13,05,2027" -> "13.05.2027".
+    // (Saat temizliginden ONCE yapilmali, yoksa "13:05" saat sanilip silinir.)
+    String clean = line.replaceAllMapped(
+      RegExp(r'(\d{1,2})\s*[:;,]\s*(\d{1,2})\s*[:;,]\s*(\d{2,4})'),
+      (m) => '${m.group(1)}.${m.group(2)}.${m.group(3)}',
+    );
+
+    // ON TEMIZLIK 1: saat ve lot/parti kisimlarini cikar (tarih sanilmasin).
     // Saat: SS:DD veya SS:DD:SS  ->  13.05.2027 00:45 icindeki "00:45" silinir
-    String clean = line.replaceAll(RegExp(r'\b\d{1,2}:\d{2}(:\d{2})?\b'), ' ');
+    clean = clean.replaceAll(RegExp(r'\b\d{1,2}:\d{2}(:\d{2})?\b'), ' ');
     // Lot/parti: "L:262033" gibi - L/LOT/PARTI sonrasi uzun sayilar
     clean = clean.replaceAll(
         RegExp(r'\b(L|LOT|PARTI|SERI|BATCH)\s*[:.]?\s*\d+', caseSensitive: false),
         ' ');
+
+    // ON TEMIZLIK 2: OCR harf-rakam karisimini duzelt (l3.O5.2O27 -> 13.05.2027).
+    // Regexler \d istedigi icin duzeltme YAKALAMADAN ONCE yapilmali.
+    // Yanlis pozitifler _safeDate (ay 1-12, gun 1-31, yil 2020-2100)
+    // dogrulamasiyla elenir; risk dusuk, kazanim buyuk.
+    clean = _fixOcrDigits(clean);
 
     // 1) Tam tarih: gun[ayrac]ay[ayrac]yil
     // Ayraclar: . / - bosluk  (DIKKAT: ":" cikarildi, o saat ayraci)
