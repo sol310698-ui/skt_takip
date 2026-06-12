@@ -1111,31 +1111,32 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   Future<void> _confirm() async {
     if (_barcode == null) return;
     _parseExpiry();
-    if (_expiry == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Geçerli bir SKT girin (gg.aa.yyyy)"),
-        backgroundColor: AppTheme.statusWarning,
-      ));
-      return;
-    }
+    // SKT ve ad opsiyonel — girilmemişse de kaydedilir.
     final qty  = (int.tryParse(_qtyCtrl.text.trim()) ?? 1).clamp(1, 9999);
     final name = _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
 
+    // Depoya ekle.
     await WarehouseService.instance.addItemToPallet(
-      palletId: widget.palletId, barcode: _barcode!,
-      quantity: qty, productName: name,
+      palletId: widget.palletId,
+      barcode:  _barcode!,
+      quantity: qty,
+      productName: name,
     );
-    final db = await DatabaseService.instance.database;
-    await db.insert("products", {
-      "name":            name ?? _barcode!,
-      "barcode":         _barcode!,
-      "expiry_date":     _expiry!.millisecondsSinceEpoch,
-      "quantity":        qty,
-      "location":        "Depo / Palet",
-      "created_at":      DateTime.now().millisecondsSinceEpoch,
-      "disposal_status": "active",
-    });
+
+    // SKT girilmişse SKT listesine de ekle.
+    if (_expiry != null) {
+      final db = await DatabaseService.instance.database;
+      await db.insert('products', {
+        'name':            name ?? _barcode!,
+        'barcode':         _barcode!,
+        'expiry_date':     _expiry!.millisecondsSinceEpoch,
+        'quantity':        qty,
+        'location':        'Depo / Palet',
+        'created_at':      DateTime.now().millisecondsSinceEpoch,
+        'disposal_status': 'active',
+      });
+    }
 
     if (!mounted) return;
     setState(() {
@@ -1244,7 +1245,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       onChanged: (_) => _parseExpiry(),
                       onSubmitted: (_) => _parseExpiry(),
                       decoration: InputDecoration(
-                        labelText: "SKT (gg.aa.yyyy)",
+                        labelText: "SKT (gg.aa.yyyy) — opsiyonel",
                         prefixIcon: Icon(Icons.event_rounded,
                             color: _expiry != null ? AppTheme.statusSafe : null),
                         suffixIcon: _expiry != null
@@ -1289,14 +1290,13 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _busy ? null : _confirm,
-                icon: _busy
+                onPressed: _busy ? null : _confirm,                icon: _busy
                     ? const SizedBox(width: 16, height: 16,
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: Colors.black))
                     : const Icon(Icons.add_rounded),
-                label: const Text("Palete Ekle + SKT Kaydet",
-                    style: TextStyle(fontWeight: FontWeight.w700)),
+                label: Text(_expiry != null ? "Palete Ekle + SKT Kaydet" : "Palete Ekle",
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
                 style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.accent,
                     foregroundColor: Colors.black),

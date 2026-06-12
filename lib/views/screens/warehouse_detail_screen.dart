@@ -24,6 +24,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   List<ShelfSummary> _shelves = [];
   List<PalletSummary> _allPallets = [];
   List<PalletSummary> _unstacked = [];
+  List<PalletSummary> _floorPallets = [];
   bool _loading = true;
 
   @override
@@ -47,12 +48,15 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         await WarehouseService.instance.getAllPallets(widget.warehouseId);
     final un = await WarehouseService.instance
         .getUnstackedPallets(widget.warehouseId);
+    final floor = await WarehouseService.instance
+        .getFloorPallets(widget.warehouseId);
     if (!mounted) return;
     setState(() {
       _warehouse = w;
       _shelves = shelves;
       _allPallets = all;
       _unstacked = un;
+      _floorPallets = floor;
       _loading = false;
     });
   }
@@ -426,6 +430,12 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           ..._unstacked.map((p) => _palletTile(p)),
           const SizedBox(height: 16),
         ],
+        if (_floorPallets.isNotEmpty) ...[
+          const SectionLabel('Zemindekiler'),
+          const SizedBox(height: 8),
+          ..._floorPallets.map((p) => _palletTile(p)),
+          const SizedBox(height: 16),
+        ],
         const SectionLabel('Tüm Paletler'),
         const SizedBox(height: 8),
         ..._allPallets.map((p) => _palletTile(p)),
@@ -434,9 +444,20 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   }
 
   Widget _palletTile(PalletSummary p, {bool pop = false}) {
+    final isFloor   = p.pallet.isOnFloor;
+    final isWaiting = p.pallet.isUnstacked;
     final loc = p.shelf != null
-        ? 'S${p.shelf!.columnNo}-R${p.shelf!.shelfNo}'
-        : 'Bekliyor';
+        ? 'S\${p.shelf!.columnNo}-R\${p.shelf!.shelfNo}'
+        : isFloor
+            ? 'Zemin \${p.pallet.floorNo! + 1}'
+            : 'Bekliyor';
+    final accent = isFloor
+        ? AppTheme.amber
+        : (isWaiting ? AppTheme.statusWarning : AppTheme.accent);
+    final locIcon = isFloor
+        ? Icons.vertical_align_bottom_rounded
+        : (isWaiting ? Icons.pending_rounded : Icons.place_rounded);
+
     return InkWell(
       borderRadius: BorderRadius.circular(AppTheme.rLg),
       onTap: () {
@@ -446,19 +467,20 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(14),
-        decoration: AppTheme.card(
-            accentColor:
-                p.shelf == null ? AppTheme.amber : AppTheme.accent),
+        decoration: AppTheme.card(accentColor: accent),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
-                color: AppTheme.accent.withOpacity(0.13),
+                color: accent.withOpacity(0.13),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.inventory_2_rounded,
-                  color: AppTheme.accent, size: 20),
+              child: Icon(
+                isFloor
+                    ? Icons.vertical_align_bottom_rounded
+                    : Icons.inventory_2_rounded,
+                color: accent, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -469,41 +491,28 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 14)),
                   const SizedBox(height: 2),
-                  Text('${p.itemTypes} çeşit • ${p.totalQty} adet',
+                  Text('\${p.itemTypes} çeşit • \${p.totalQty} adet',
                       style: const TextStyle(
                           fontSize: 12, color: AppTheme.textTertiary)),
                 ],
               ),
             ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: (p.shelf == null
-                        ? AppTheme.amber
-                        : AppTheme.accent)
-                    .withOpacity(0.15),
+                color: accent.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(AppTheme.rPill),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                      p.shelf == null
-                          ? Icons.pending_rounded
-                          : Icons.place_rounded,
-                      size: 13,
-                      color: p.shelf == null
-                          ? AppTheme.amber
-                          : AppTheme.accent),
+                  Icon(locIcon, size: 13, color: accent),
                   const SizedBox(width: 4),
                   Text(loc,
                       style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
-                          color: p.shelf == null
-                              ? AppTheme.amber
-                              : AppTheme.accent)),
+                          color: accent)),
                 ],
               ),
             ),
@@ -513,6 +522,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     );
   }
 }
+
 
 /// ════════════════════════════════════════════════════════════════════
 ///  Urun arama sheet'i (barkod okut veya yaz)
