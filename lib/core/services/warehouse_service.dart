@@ -102,6 +102,15 @@ class WhPalletItem {
         quantity: (m['quantity'] as int?) ?? 1,
         addedAt: DateTime.fromMillisecondsSinceEpoch(m['added_at'] as int),
       );
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'pallet_id': palletId,
+        'barcode': barcode,
+        'product_name': productName,
+        'quantity': quantity,
+        'added_at': addedAt.millisecondsSinceEpoch,
+      };
 }
 
 /// Raf + uzerindeki palet sayisi (harita gosterimi).
