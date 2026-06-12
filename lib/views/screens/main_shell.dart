@@ -4,8 +4,6 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
-import 'label_inspect_screen.dart';
-import 'morning_verify_screen.dart';
 import 'price_change_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
@@ -87,24 +85,6 @@ class _MainShellState extends State<MainShell> {
               title: 'Reyon Kontrol',
               subtitle: 'Ürün + etiket eşleştirme, fiyat farkı kontrolü',
               onTap: () => _push(const ShelfCheckScreen()),
-            ),
-            const SizedBox(height: 10),
-            _sheetOption(
-              icon: Icons.document_scanner_rounded,
-              color: AppTheme.accent,
-              title: 'Etiket İnceleme',
-              subtitle:
-                  'Etiketi okut: fiyat, tarihler, ürün bilgisi, web arama',
-              onTap: () => _push(const LabelInspectScreen()),
-            ),
-            const SizedBox(height: 10),
-            _sheetOption(
-              icon: Icons.wb_sunny_rounded,
-              color: AppTheme.amber,
-              title: 'Sabah Etiket Kaydı',
-              subtitle:
-                  'Teslim alınan etiketleri kaydet, sonra sorgula (30 gün)',
-              onTap: () => _push(const MorningVerifyScreen()),
             ),
             const SizedBox(height: 10),
             _sheetOption(

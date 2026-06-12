@@ -8,7 +8,7 @@ import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
 import 'barcode_entry_screen.dart';
 import 'import_screen.dart';
-import 'universal_scan_screen.dart';
+import 'label_inspect_screen.dart';
 
 /// Barkod dizini liste ekrani (Excel'den import edilenler).
 class BarcodeListScreen extends ConsumerStatefulWidget {
@@ -98,6 +98,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
           ],
         ),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -309,7 +310,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
 
   Future<void> _openScan() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const UniversalScanScreen()),
+      MaterialPageRoute(builder: (_) => const LabelInspectScreen()),
     );
     _load();
   }

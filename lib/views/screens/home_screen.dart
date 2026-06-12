@@ -15,6 +15,7 @@ import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
+import 'label_inspect_screen.dart';
 import 'scanner_screen.dart';
 import 'web_search_screen.dart';
 
@@ -101,13 +102,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openScanner,
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.document_scanner_rounded),
-        label: const Text('SKT Tara',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+      floatingActionButtonLocation:
+          FloatingActionButtonLocation.endFloat,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Etiket inceleme (fiyat+tarih+barkod+OFF)
+          FloatingActionButton.extended(
+            heroTag: 'home_label',
+            onPressed: _openLabelInspect,
+            backgroundColor: AppTheme.accent,
+            foregroundColor: Colors.black,
+            icon: const Icon(Icons.document_scanner_rounded),
+            label: const Text('Tara',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(height: 10),
+          // SKT tarih tarama -> urun kaydet
+          FloatingActionButton(
+            heroTag: 'home_skt',
+            onPressed: _openScanner,
+            backgroundColor: AppTheme.primary,
+            foregroundColor: Colors.white,
+            tooltip: 'SKT Tara',
+            child: const Icon(Icons.event_available_rounded),
+          ),
+        ],
       ),
     );
   }
@@ -605,6 +626,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => DisposalSheet(product: product),
+    );
+  }
+
+  Future<void> _openLabelInspect() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LabelInspectScreen()),
     );
   }
 

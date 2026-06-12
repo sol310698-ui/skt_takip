@@ -20,14 +20,23 @@ class DateUtils {
   }
 
   // Son kullanma anahtar kelimeleri (genis liste)
+  // E: / T: / EXP: / BBE: gibi lazer vuruslu kutu prefixleri dahil.
   static final RegExp _expiryKw = RegExp(
-    r'(S\.?K\.?T|S\.?T\.?T|SON\s*T[UÜ]K|SON\s*KUL|T\.?E\.?T\.?[Tİ]?|TUK|TÜK|EXP|BBE|USE\s*BY|LAST|TET[Tİ])',
+    r'(S\.?K\.?T|S\.?T\.?T|SON\s*T[UÜ]K|SON\s*KUL|T\.?E\.?T\.?[Tİ]?|TUK|TÜK'
+    r'|EXP|BBE|USE\s*BY|LAST|TET[Tİ]'
+    r'|\bE\s*[:=]\s*\d'    // E:22.07.27 - lazer kutu
+    r'|\bT\s*[:=]\s*\d'    // T:22.07.27 - bazi kutular
+    r'|\bBBD\b|\bMHD\b'    // Almanca/Avrupai
+    r')',
     caseSensitive: false,
   );
 
   // Uretim anahtar kelimeleri (bunlari ATLA)
   static final RegExp _productionKw = RegExp(
-    r'(Ü\.?T|U\.?T|ÜRT|URT|ÜRET|URET|IMAL|İMAL|PROD|MFG|ÜRETİM|URETIM|PRODUCTION)',
+    r'(Ü\.?T|U\.?T|ÜRT|URT|ÜRET|URET|IMAL|İMAL|PROD|MFG|ÜRETİM|URETIM|PRODUCTION'
+    r'|\bP\s*[:=]\s*\d'    // P:22.07.24 - lazer kutu uretim tarihi
+    r'|\bMFD\b|\bDOM\b'    // date of manufacture
+    r')',
     caseSensitive: false,
   );
 
@@ -172,6 +181,13 @@ class DateUtils {
     String clean = line.replaceAllMapped(
       RegExp(r'(\d{1,2})\s*[:;,]\s*(\d{1,2})\s*[:;,]\s*(\d{2,4})'),
       (m) => '${m.group(1)}.${m.group(2)}.${m.group(3)}',
+    );
+
+    // ON TEMIZLIK -1: Lazer vuruslu kutu prefixleri: "E:", "P:", "T:" vs.
+    // "E:22.07.27" -> "22.07.27"  (prefix sonrasi dogrudan rakamla basliyor)
+    clean = clean.replaceAll(
+      RegExp(r'\b[EPTBept]\s*[:=]\s*(?=\d)'),
+      '',
     );
 
     // ON TEMIZLIK 1: saat ve lot/parti kisimlarini cikar (tarih sanilmasin).

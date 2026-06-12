@@ -178,8 +178,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _accept(DateTime date) {
-    // Once o anki kamera karesini yakala (kanit goruntusu), sonra sonucu goster.
-    _captureFrame();
+    // Kameranin hala ekranda oldugu bu anda frame'i yakala,
+    // SONRA done=true yaparak kamerayi kapat.
+    // (Eski: fire-and-forget cagri, widget kapaninca boundary null doner.)
+    _captureAndAccept(date);
+  }
+
+  Future<void> _captureAndAccept(DateTime date) async {
+    // Frame'i onceden yakala (kamera hala goruntuleniyor).
+    await _captureFrame();
+    if (!mounted) return;
     setState(() {
       _detected = date;
       _done = true;
@@ -487,16 +495,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
           children: [
             // Yakalanan kamera karesi - kullanici tarihi gozle dogrulasin.
             if (_capturedFrame != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppTheme.rMd),
-                child: Image.memory(
-                  _capturedFrame!,
-                  width: double.infinity,
-                  height: 130,
-                  fit: BoxFit.cover,
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  border: Border.all(
+                      color: AppTheme.statusSafe.withOpacity(0.4),
+                      width: 1.5),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  child: Image.memory(
+                    _capturedFrame!,
+                    width: double.infinity,
+                    fit: BoxFit.contain, // krop yok, tam goruntur
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text('Okunan görüntü — tarihi doğrulayın',
                   style: TextStyle(
                       color: AppTheme.textTertiary, fontSize: 12)),
