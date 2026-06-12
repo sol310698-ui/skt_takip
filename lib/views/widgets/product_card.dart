@@ -99,6 +99,7 @@ class ProductCard extends StatelessWidget {
                       ),
                       if (product.quantity > 1 ||
                           product.category != null ||
+                          product.location != null ||
                           partyCount > 1) ...[
                         const SizedBox(height: 8),
                         Wrap(
@@ -115,6 +116,10 @@ class ProductCard extends StatelessWidget {
                             if (product.category != null)
                               _chip(product.category!,
                                   Icons.category_rounded),
+                            if (product.location != null)
+                              _chip(product.location!,
+                                  Icons.place_rounded,
+                                  color: AppTheme.amber),
                           ],
                         ),
                       ],

@@ -54,7 +54,8 @@ class WhShelf {
 class WhPallet {
   final int? id;
   final int warehouseId;
-  final int? shelfId; // null = istiflenmemis (bekleme)
+  final int? shelfId;   // null + floorNo==null → bekleme; null + floorNo≥0 → zemin
+  final int? floorNo;   // zemin pozisyonu (0-based); null = rafta veya bekleme
   final String code;
   final String? note;
   final DateTime createdAt;
@@ -62,15 +63,20 @@ class WhPallet {
     this.id,
     required this.warehouseId,
     this.shelfId,
+    this.floorNo,
     required this.code,
     this.note,
     required this.createdAt,
   });
 
+  bool get isOnFloor => floorNo != null;
+  bool get isUnstacked => shelfId == null && floorNo == null;
+
   factory WhPallet.fromMap(Map<String, Object?> m) => WhPallet(
         id: m['id'] as int?,
         warehouseId: m['warehouse_id'] as int,
         shelfId: m['shelf_id'] as int?,
+        floorNo: m['floor_no'] as int?,
         code: m['code'] as String,
         note: m['note'] as String?,
         createdAt:
@@ -243,10 +249,12 @@ class WarehouseService {
 
   // ── Paletler ────────────────────────────────────────────────────────
   /// Palet olustur. shelfId verilirse direkt istifle (kapasite kontrollu).
+  /// floorNo verilirse zemine al (0-based). Ikisi de null = bekleme.
   /// Donen: olusan palet id, ya da kapasite doluysa -1.
   Future<int> createPallet({
     required int warehouseId,
     int? shelfId,
+    int? floorNo,
     required String code,
     String? note,
   }) async {
@@ -257,6 +265,7 @@ class WarehouseService {
     return db.insert(AppConstants.whPalletTable, {
       'warehouse_id': warehouseId,
       'shelf_id': shelfId,
+      'floor_no': floorNo,
       'code': code.trim(),
       'note': note,
       'created_at': DateTime.now().millisecondsSinceEpoch,
@@ -285,10 +294,20 @@ class WarehouseService {
   }
 
   /// Istiflenmemis (bekleyen) paletler.
+  /// Zemin paletleri.
+  Future<List<PalletSummary>> getFloorPallets(int warehouseId) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.whPalletTable,
+        where: 'warehouse_id = ? AND floor_no IS NOT NULL',
+        whereArgs: [warehouseId],
+        orderBy: 'floor_no ASC, created_at DESC');
+    return _summarize(rows);
+  }
+
   Future<List<PalletSummary>> getUnstackedPallets(int warehouseId) async {
     final db = await DatabaseService.instance.database;
     final rows = await db.query(AppConstants.whPalletTable,
-        where: 'warehouse_id = ? AND shelf_id IS NULL',
+        where: 'warehouse_id = ? AND shelf_id IS NULL AND floor_no IS NULL',
         whereArgs: [warehouseId],
         orderBy: 'created_at DESC');
     return _summarize(rows);
@@ -338,16 +357,51 @@ class WarehouseService {
     return WhPallet.fromMap(rows.first);
   }
 
-  /// Paleti baska rafa tasi (transfer). Hedef raf doluysa false.
-  Future<bool> movePallet(int palletId, int? targetShelfId) async {
+  /// Paleti tasi: hedef raf, zemin (floorNo) veya bekleme (ikisi de null).
+  /// targetWarehouseId verilirse farkli depoya tasi.
+  /// Donen: false = hedef raf dolu.
+  Future<bool> movePallet(int palletId, int? targetShelfId,
+      {int? floorNo, int? targetWarehouseId}) async {
     final db = await DatabaseService.instance.database;
     if (targetShelfId != null && !await _shelfHasSpace(targetShelfId)) {
       return false;
     }
-    await db.update(AppConstants.whPalletTable,
-        {'shelf_id': targetShelfId},
+    final update = <String, Object?>{
+      'shelf_id': targetShelfId,
+      'floor_no': floorNo,
+    };
+    if (targetWarehouseId != null) {
+      update['warehouse_id'] = targetWarehouseId;
+    }
+    await db.update(AppConstants.whPalletTable, update,
         where: 'id = ?', whereArgs: [palletId]);
     return true;
+  }
+
+  /// Reyona acilan kaydi (shelf_out).
+  Future<int> recordShelfOut({
+    required int palletId,
+    required String palletCode,
+    required int warehouseId,
+    required List<WhPalletItem> items,
+    int? fromShelfId,
+    String? fromShelfLabel,
+    String? warehouseName,
+    String? note,
+  }) async {
+    final t = WhTransfer(
+      palletId: palletId,
+      palletCode: palletCode,
+      transferType: 'shelf_out',
+      fromWarehouseId: warehouseId,
+      fromShelfId: fromShelfId,
+      fromWarehouseName: warehouseName,
+      fromShelfLabel: fromShelfLabel,
+      note: note,
+      createdAt: DateTime.now(),
+      itemsSnapshot: items,
+    );
+    return recordTransfer(t);
   }
 
   Future<void> deletePallet(int id) async {

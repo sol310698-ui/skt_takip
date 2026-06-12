@@ -13,10 +13,9 @@ import '../widgets/product_card.dart';
 import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
-import 'history_screen.dart';
-import 'import_screen.dart';
 import 'label_inspect_screen.dart';
 import 'scanner_screen.dart';
+import 'settings_screen.dart';
 import 'web_search_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -156,37 +155,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               Row(
                 children: [
-                  // Excel Export
+                  // Ayarlar (eski 5 ikon buraya toplandı)
                   _BannerIconBtn(
-                    icon: _exporting
-                        ? Icons.hourglass_empty
-                        : Icons.table_chart_outlined,
-                    tooltip: 'Excel Export',
-                    onTap: _exporting ? null : _export,
-                  ),
-                  // Gecmis
-                  _BannerIconBtn(
-                    icon: Icons.history,
-                    tooltip: 'İmha & İade Geçmişi',
+                    icon: Icons.settings_rounded,
+                    tooltip: 'Ayarlar',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
-                          builder: (_) => const HistoryScreen()),
+                          builder: (_) => const SettingsScreen()),
                     ),
-                  ),
-                  // Excel Import
-                  _BannerIconBtn(
-                    icon: Icons.upload_file_outlined,
-                    tooltip: 'Barkod Import',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const ImportScreen()),
-                    ),
-                  ),
-                  // DB Yedek / Geri Yukle
-                  _BannerIconBtn(
-                    icon: Icons.cloud_download_outlined,
-                    tooltip: 'Yedek Al / Geri Yükle',
-                    onTap: _openBackupMenu,
                   ),
                   // Yeni urun
                   _BannerIconBtn(

@@ -28,6 +28,7 @@ class Product {
   final DisposalStatus disposalStatus;
   final DateTime? disposalDate;
   final String? disposalNote;
+  final String? location; // raf konumu: "Raf A3", "Zemin", "B Koridoru" vb.
 
   const Product({
     this.id,
@@ -40,6 +41,7 @@ class Product {
     this.disposalStatus = DisposalStatus.active,
     this.disposalDate,
     this.disposalNote,
+    this.location,
   });
 
   ExpiryStatus get status => DateUtils.statusFor(expiryDate);
@@ -57,6 +59,7 @@ class Product {
     DisposalStatus? disposalStatus,
     DateTime? disposalDate,
     String? disposalNote,
+    String? location,
   }) {
     return Product(
       id: id ?? this.id,
@@ -69,6 +72,7 @@ class Product {
       disposalStatus: disposalStatus ?? this.disposalStatus,
       disposalDate: disposalDate ?? this.disposalDate,
       disposalNote: disposalNote ?? this.disposalNote,
+      location: location ?? this.location,
     );
   }
 
@@ -84,6 +88,7 @@ class Product {
       'disposal_status': disposalStatus.name,
       'disposal_date': disposalDate?.millisecondsSinceEpoch,
       'disposal_note': disposalNote,
+      'location': location,
     };
   }
 
@@ -111,6 +116,7 @@ class Product {
           ? DateTime.fromMillisecondsSinceEpoch(map['disposal_date'] as int)
           : null,
       disposalNote: map['disposal_note'] as String?,
+      location: map['location'] as String?,
     );
   }
 }

@@ -78,6 +78,14 @@ class DatabaseService {
     if (oldVersion < 9) {
       await _createTransferTable(db);
     }
+    if (oldVersion < 10) {
+      await db.execute(
+          'ALTER TABLE ${AppConstants.whPalletTable} ADD COLUMN floor_no INTEGER');
+    }
+    if (oldVersion < 11) {
+      await db.execute(
+          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location TEXT');
+    }
   }
 
   Future<void> _createProductsTable(Database db) async {
@@ -92,7 +100,8 @@ class DatabaseService {
         created_at INTEGER NOT NULL,
         disposal_status TEXT NOT NULL DEFAULT 'active',
         disposal_date INTEGER,
-        disposal_note TEXT
+        disposal_note TEXT,
+        location TEXT
       )
     ''');
     await db.execute(
@@ -231,6 +240,7 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         warehouse_id INTEGER NOT NULL,
         shelf_id INTEGER,
+        floor_no INTEGER,
         code TEXT NOT NULL,
         note TEXT,
         created_at INTEGER NOT NULL

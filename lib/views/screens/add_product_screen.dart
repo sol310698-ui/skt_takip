@@ -48,6 +48,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _barcodeCtrl;
   late final TextEditingController _categoryCtrl;
+  late final TextEditingController _locationCtrl;
   late int _quantity;
   DateTime? _expiryDate;
 
@@ -67,6 +68,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _barcodeCtrl =
         TextEditingController(text: e?.barcode ?? widget.prefillBarcode ?? '');
     _categoryCtrl = TextEditingController(text: e?.category ?? '');
+    _locationCtrl = TextEditingController(text: e?.location ?? '');
     _quantity = e?.quantity ?? 1;
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;
 
@@ -89,6 +91,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _nameCtrl.dispose();
     _barcodeCtrl.dispose();
     _categoryCtrl.dispose();
+    _locationCtrl.dispose();
     super.dispose();
   }
 
@@ -370,6 +373,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       category: _categoryCtrl.text.trim().isEmpty
           ? null
           : _categoryCtrl.text.trim(),
+      location: _locationCtrl.text.trim().isEmpty
+          ? null
+          : _locationCtrl.text.trim(),
       createdAt: base?.createdAt ?? DateTime.now(),
     );
 
@@ -479,6 +485,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       decoration: const InputDecoration(
                         hintText: 'örn. Süt Ürünleri, A1 reyonu',
                         prefixIcon: Icon(Icons.category_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _label('Konum / Yer'),
+                    TextFormField(
+                      controller: _locationCtrl,
+                      decoration: const InputDecoration(
+                        hintText: 'örn. Raf A3, Zemin, B Koridoru Sağ',
+                        prefixIcon: Icon(Icons.place_outlined),
                       ),
                     ),
                     const SizedBox(height: 18),

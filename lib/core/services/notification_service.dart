@@ -153,6 +153,18 @@ class NotificationService {
     }
   }
 
+  /// Planlı (bekleyen) bildirimleri döndürür.
+  Future<List<PendingNotificationRequest>> getPending() async {
+    if (!_initialized) await init();
+    return _plugin.pendingNotificationRequests();
+  }
+
+  /// Tek bildirimi iptal et.
+  Future<void> cancelOne(int id) async {
+    if (!_initialized) await init();
+    await _plugin.cancel(id);
+  }
+
   int _groupNotifId(DateTime day) =>
       day.year * 10000 + day.month * 100 + day.day;
 
