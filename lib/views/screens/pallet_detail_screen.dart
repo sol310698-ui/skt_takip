@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/database_service.dart';
 import '../../core/services/waybill_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
+import 'scanner_screen.dart';
 
 /// Palet detayi: icindeki urunler, ekle/cikar, transfer.
 class PalletDetailScreen extends StatefulWidget {
@@ -616,11 +618,11 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
       ),
       confirmDismiss: (_) async {
         _removeItem(item);
-        return false; // dialog hallediyor
+        return false;
       },
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.rLg),
-        onTap: () => _removeItem(item),
+        onTap: () => _showItemOptions(item),
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(14),
@@ -659,13 +661,371 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                   ],
                 ),
               ),
-              const Icon(Icons.remove_circle_outline_rounded,
+              const Icon(Icons.more_vert_rounded,
                   color: AppTheme.textTertiary, size: 20),
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Item için seçenek menüsü: Başka Palete Taşı, Yere Al, Çıkar.
+  Future<void> _showItemOptions(WhPalletItem item) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Text(item.productName ?? item.barcode,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w700),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text('${item.quantity} adet',
+                style: const TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 13)),
+            const SizedBox(height: 16),
+            _optionTile(
+              icon: Icons.swap_horiz_rounded,
+              color: AppTheme.accent,
+              title: 'Başka Palete Taşı',
+              subtitle: 'Seçilen palete aktar',
+              value: 'transfer',
+            ),
+            const SizedBox(height: 8),
+            _optionTile(
+              icon: Icons.download_rounded,
+              color: AppTheme.amber,
+              title: 'Yere Al',
+              subtitle: 'SKT listesine "Zemin" konumlu ürün olarak ekle',
+              value: 'floor',
+            ),
+            const SizedBox(height: 8),
+            _optionTile(
+              icon: Icons.remove_circle_outline_rounded,
+              color: AppTheme.statusExpired,
+              title: 'Çıkar',
+              subtitle: 'Paletten kaldır',
+              value: 'remove',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (choice == 'transfer') await _transferItemToPallet(item);
+    if (choice == 'floor') await _putItemOnFloor(item);
+    if (choice == 'remove') await _removeItem(item);
+  }
+
+  Widget _optionTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required String value,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      onTap: () => Navigator.pop(context, value),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.card(),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14.5)),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppTheme.textSecondary)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                color: AppTheme.textTertiary, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Ürünü başka palete taşı.
+  Future<void> _transferItemToPallet(WhPalletItem item) async {
+    // Tüm depolardaki paletleri listele (kendisi hariç).
+    final allPallets =
+        await WarehouseService.instance.getAllPallets(widget.warehouseId);
+    // Diğer depoları da dahil et
+    final otherWarehouses =
+        (await WarehouseService.instance.getWarehouses())
+            .where((w) => w.id != widget.warehouseId)
+            .toList();
+    List<PalletSummary> otherPallets = [...allPallets
+        .where((p) => p.pallet.id != widget.palletId)];
+    for (final w in otherWarehouses) {
+      final wPallets = await WarehouseService.instance.getAllPallets(w.id!);
+      otherPallets.addAll(wPallets);
+    }
+
+    if (!mounted) return;
+    if (otherPallets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Başka palet bulunamadı')),
+      );
+      return;
+    }
+
+    // Adet seçimi + palet seçimi
+    int amount = item.quantity;
+    int? targetPalletId;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          title: const Text('Başka Palete Taşı'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Adet
+                const Text('Taşınacak adet:',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton.filledTonal(
+                      onPressed: () =>
+                          setSt(() => amount = (amount - 1).clamp(1, item.quantity)),
+                      icon: const Icon(Icons.remove_rounded),
+                    ),
+                    Container(
+                      width: 50,
+                      alignment: Alignment.center,
+                      child: Text('$amount',
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: () =>
+                          setSt(() => amount = (amount + 1).clamp(1, item.quantity)),
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Text('Hedef palet:',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 8),
+                ...otherPallets.map((p) {
+                  final whName = otherWarehouses
+                      .where((w) => w.id == p.pallet.warehouseId)
+                      .map((w) => w.name)
+                      .firstOrNull;
+                  final loc = p.shelf != null
+                      ? 'S${p.shelf!.columnNo}-R${p.shelf!.shelfNo}'
+                      : 'Bekleme';
+                  final label = whName != null
+                      ? '$whName • $loc'
+                      : loc;
+                  return RadioListTile<int>(
+                    value: p.pallet.id!,
+                    groupValue: targetPalletId,
+                    title: Text(p.pallet.code,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600)),
+                    subtitle: Text(label,
+                        style: const TextStyle(fontSize: 12)),
+                    onChanged: (v) => setSt(() => targetPalletId = v),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  );
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('İptal')),
+            FilledButton(
+              onPressed: targetPalletId == null
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.accent),
+              child: const Text('Taşı'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok != true || targetPalletId == null) return;
+
+    setState(() => _loading = true);
+    await WarehouseService.instance.transferItemToPallet(
+      sourceItemId: item.id!,
+      targetPalletId: targetPalletId!,
+      amount: amount,
+    );
+    await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$amount adet taşındı'),
+          backgroundColor: AppTheme.statusSafe,
+        ),
+      );
+    }
+  }
+
+  /// Ürünü yere al: ürün tablosuna "Zemin" konumlu kayıt ekle.
+  Future<void> _putItemOnFloor(WhPalletItem item) async {
+    // Kaç adet alınacak?
+    int amount = item.quantity;
+    final expiryCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          title: const Text('Yere Al'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ürün SKT listesine "Zemin" konumuyla eklenecek. '
+                'Son kullanma tarihini girin.',
+                style: TextStyle(
+                    fontSize: 12.5, color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton.filledTonal(
+                    onPressed: () =>
+                        setSt(() => amount = (amount - 1).clamp(1, item.quantity)),
+                    icon: const Icon(Icons.remove_rounded),
+                  ),
+                  Container(
+                    width: 50,
+                    alignment: Alignment.center,
+                    child: Text('$amount',
+                        style: const TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.w800)),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: () =>
+                        setSt(() => amount = (amount + 1).clamp(1, item.quantity)),
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: expiryCtrl,
+                keyboardType: TextInputType.datetime,
+                decoration: const InputDecoration(
+                  labelText: 'SKT (dd.MM.yyyy)',
+                  prefixIcon: Icon(Icons.event_rounded),
+                  hintText: '31.12.2027',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('İptal')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.amber,
+                  foregroundColor: Colors.black),
+              child: const Text('Yere Al'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (ok != true) return;
+
+    // Tarihi parse et
+    DateTime? expiry;
+    try {
+      final parts = expiryCtrl.text.trim().split('.');
+      if (parts.length == 3) {
+        expiry = DateTime(
+            int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+      }
+    } catch (_) {}
+    expiry ??= DateTime.now().add(const Duration(days: 365));
+
+    setState(() => _loading = true);
+
+    // Products tablosuna ekle
+    final db = await DatabaseService.instance.database;
+    await db.insert('products', {
+      'name': item.productName ?? item.barcode,
+      'barcode': item.barcode,
+      'expiry_date': expiry.millisecondsSinceEpoch,
+      'quantity': amount,
+      'location': 'Zemin',
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+      'disposal_status': 'active',
+    });
+
+    // Paletten çıkar
+    await WarehouseService.instance.removeItemQuantity(item.id!, amount);
+    await _load();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '$amount adet "${item.productName ?? item.barcode}" SKT listesine eklendi (Zemin)'),
+          backgroundColor: AppTheme.statusSafe,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 }
 
@@ -675,7 +1035,6 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 class _AddItemSheet extends StatefulWidget {
   final int palletId;
   const _AddItemSheet({required this.palletId});
-
   @override
   State<_AddItemSheet> createState() => _AddItemSheetState();
 }
@@ -683,15 +1042,21 @@ class _AddItemSheet extends StatefulWidget {
 class _AddItemSheetState extends State<_AddItemSheet> {
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
-  final _qtyCtrl = TextEditingController(text: '1');
-  String? _barcode;
-  bool _busy = false;
-  int _added = 0;
+  final _expiryCtrl = TextEditingController();
+  final _qtyCtrl    = TextEditingController(text: '1');
+  final _nameCtrl   = TextEditingController();
+
+  String?   _barcode;
+  DateTime? _expiry;
+  bool _busy  = false;
+  int  _added = 0;
 
   @override
   void dispose() {
     _scanner.dispose();
+    _expiryCtrl.dispose();
     _qtyCtrl.dispose();
+    _nameCtrl.dispose();
     super.dispose();
   }
 
@@ -699,26 +1064,83 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     if (_busy || _barcode != null) return;
     final raw = cap.barcodes.firstOrNull?.rawValue;
     if (raw == null) return;
-    final code = ScanParser.parse(raw).barcode ?? raw.trim();
+    final parsed = ScanParser.parse(raw);
+    final code   = parsed.barcode ?? raw.trim();
     await _scanner.stop();
-    // Isim ekleme aninda servis icinde dizin/OFF'tan cozulur.
-    setState(() => _barcode = code);
+    if (parsed.expiryDate != null) {
+      final d = parsed.expiryDate!;
+      _expiryCtrl.text =
+          '${d.day.toString().padLeft(2,"0")}.${d.month.toString().padLeft(2,"0")}.${d.year}';
+    }
+    String? name;
+    try { name = await WarehouseService.instance.resolveName(code); } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _barcode = code;
+      _expiry  = parsed.expiryDate;
+      if (name != null) _nameCtrl.text = name;
+    });
+  }
+
+  void _parseExpiry() {
+    final txt = _expiryCtrl.text.trim();
+    DateTime? d;
+    try {
+      final p = txt.split(RegExp(r'[./\-]'));
+      if (p.length == 3) {
+        final y = int.parse(p[2].length == 2 ? '20\${p[2]}' : p[2]);
+        d = DateTime(y, int.parse(p[1]), int.parse(p[0]));
+      }
+    } catch (_) {}
+    setState(() => _expiry = d);
+  }
+
+  Future<void> _scanExpiry() async {
+    final result = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (result == null || !mounted) return;
+    final d = result.year == 1900 ? null : result;
+    if (d != null) {
+      _expiryCtrl.text =
+          '${d.day.toString().padLeft(2,"0")}.${d.month.toString().padLeft(2,"0")}.${d.year}';
+    }
+    setState(() => _expiry = d);
   }
 
   Future<void> _confirm() async {
     if (_barcode == null) return;
-    final qty = int.tryParse(_qtyCtrl.text.trim()) ?? 1;
+    _parseExpiry();
+    if (_expiry == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("Geçerli bir SKT girin (gg.aa.yyyy)"),
+        backgroundColor: AppTheme.statusWarning,
+      ));
+      return;
+    }
+    final qty  = (int.tryParse(_qtyCtrl.text.trim()) ?? 1).clamp(1, 9999);
+    final name = _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
-    await WarehouseService.instance.addItemToPallet(
-      palletId: widget.palletId,
-      barcode: _barcode!,
-      quantity: qty < 1 ? 1 : qty,
-    );
-    setState(() {
-      _added++;
-      _barcode = null;
 
-      _qtyCtrl.text = '1';
+    await WarehouseService.instance.addItemToPallet(
+      palletId: widget.palletId, barcode: _barcode!,
+      quantity: qty, productName: name,
+    );
+    final db = await DatabaseService.instance.database;
+    await db.insert("products", {
+      "name":            name ?? _barcode!,
+      "barcode":         _barcode!,
+      "expiry_date":     _expiry!.millisecondsSinceEpoch,
+      "quantity":        qty,
+      "location":        "Depo / Palet",
+      "created_at":      DateTime.now().millisecondsSinceEpoch,
+      "disposal_status": "active",
+    });
+
+    if (!mounted) return;
+    setState(() {
+      _added++; _barcode = null; _expiry = null;
+      _expiryCtrl.clear(); _qtyCtrl.text = "1"; _nameCtrl.clear();
       _busy = false;
     });
     await _scanner.start();
@@ -733,130 +1155,160 @@ class _AddItemSheetState extends State<_AddItemSheet> {
       ),
       padding: EdgeInsets.fromLTRB(
           20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                  color: AppTheme.textTertiary,
-                  borderRadius: BorderRadius.circular(2)),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
             ),
-          ),
-          Row(
-            children: [
-              const Expanded(
-                child: Text('Ürün Ekle',
-                    style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-              ),
-              if (_added > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppTheme.statusSafe.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(AppTheme.rPill),
-                  ),
-                  child: Text('$_added eklendi',
-                      style: const TextStyle(
-                          color: AppTheme.statusSafe,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12)),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text("Ürün Ekle",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                 ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_barcode == null)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppTheme.rMd),
-              child: SizedBox(
-                height: 200,
-                child: MobileScanner(
-                    controller: _scanner, onDetect: _onDetect),
-              ),
-            )
-          else ...[
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: AppTheme.card(accentColor: AppTheme.accent),
-              child: Row(
-                children: [
-                  const Icon(Icons.qr_code_2_rounded,
-                      color: AppTheme.accent),
+                if (_added > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.statusSafe.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(AppTheme.rPill),
+                    ),
+                    child: Text("\$_added eklendi",
+                        style: const TextStyle(
+                            color: AppTheme.statusSafe,
+                            fontWeight: FontWeight.w700, fontSize: 12)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (_barcode == null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+                child: SizedBox(
+                  height: 190,
+                  child: MobileScanner(
+                      controller: _scanner, onDetect: _onDetect),
+                ),
+              )
+            else ...[
+              // Barkod satiri
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: AppTheme.card(accentColor: AppTheme.accent),
+                child: Row(children: [
+                  const Icon(Icons.qr_code_2_rounded, color: AppTheme.accent, size: 20),
                   const SizedBox(width: 10),
+                  Expanded(child: Text(_barcode!,
+                      style: const TextStyle(fontFamily: "monospace",
+                          fontWeight: FontWeight.w700, fontSize: 13))),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero, minimumSize: const Size(50, 30)),
+                    onPressed: () async {
+                      setState(() { _barcode = null; _expiry = null; });
+                      _expiryCtrl.clear(); _nameCtrl.clear();
+                      await _scanner.start();
+                    },
+                    child: const Text("Değiştir", style: TextStyle(fontSize: 12)),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 10),
+              // Urun adi
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Ürün adı",
+                  prefixIcon: Icon(Icons.label_outline_rounded),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 10),
+              // SKT - klavye + opsiyonel OCR
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_barcode!,
-                            style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.w700)),
-                        const Text('Adet girip onaylayın',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondary)),
-                      ],
+                    child: TextField(
+                      controller: _expiryCtrl,
+                      keyboardType: TextInputType.datetime,
+                      onChanged: (_) => _parseExpiry(),
+                      onSubmitted: (_) => _parseExpiry(),
+                      decoration: InputDecoration(
+                        labelText: "SKT (gg.aa.yyyy)",
+                        prefixIcon: Icon(Icons.event_rounded,
+                            color: _expiry != null ? AppTheme.statusSafe : null),
+                        suffixIcon: _expiry != null
+                            ? const Icon(Icons.check_circle_rounded,
+                                color: AppTheme.statusSafe, size: 18)
+                            : null,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: "OCR ile tara",
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: _scanExpiry,
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceAlt,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: AppTheme.textTertiary.withOpacity(0.3)),
+                        ),
+                        child: const Icon(Icons.document_scanner_rounded,
+                            size: 20, color: AppTheme.primary),
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                const Text('Adet:',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _qtyCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(isDense: true),
-                  ),
+              const SizedBox(height: 10),
+              // Adet
+              TextField(
+                controller: _qtyCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Adet",
+                  prefixIcon: Icon(Icons.inventory_2_outlined),
+                  isDense: true,
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _busy
-                        ? null
-                        : () async {
-                            setState(() => _barcode = null);
-                            await _scanner.start();
-                          },
-                    child: const Text('Yeniden Tara'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _confirm,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Palete Ekle'),
-                    style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.accent,
-                        foregroundColor: Colors.black),
-                  ),
-                ),
-              ],
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _busy ? null : _confirm,
+                icon: _busy
+                    ? const SizedBox(width: 16, height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.black))
+                    : const Icon(Icons.add_rounded),
+                label: const Text("Palete Ekle + SKT Kaydet",
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.accent,
+                    foregroundColor: Colors.black),
+              ),
+            ],
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => Navigator.pop(context, _added > 0),
+              child: Text(_added > 0 ? "Bitir (\$_added eklendi)" : "Kapat"),
             ),
           ],
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => Navigator.pop(context, _added > 0),
-            child: Text(_added > 0 ? 'Bitir ($_added eklendi)' : 'Kapat'),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -448,6 +448,8 @@ class WarehouseService {
     }
   }
 
+  Future<String?> resolveName(String barcode) => _resolveName(barcode);
+
   Future<String?> _resolveName(String barcode) async {
     final db = await DatabaseService.instance.database;
     // Once barkod dizini.
@@ -525,7 +527,30 @@ class WarehouseService {
     return result;
   }
 
-  // ── Transfer kayitlari ──────────────────────────────────────────────
+  /// Bir kalemin tamamini veya bir kismini baska palete tasir.
+  /// Kaynak paletten [amount] adet cikar, hedef palete ekler.
+  Future<void> transferItemToPallet({
+    required int sourceItemId,
+    required int targetPalletId,
+    required int amount,
+  }) async {
+    final db = await DatabaseService.instance.database;
+    // Kaynak kalemi bul
+    final rows = await db.query(AppConstants.whPalletItemTable,
+        where: 'id = ?', whereArgs: [sourceItemId], limit: 1);
+    if (rows.isEmpty) return;
+    final item = WhPalletItem.fromMap(rows.first);
+    // Hedef palete ekle (varsa adedi artir)
+    await addItemToPallet(
+      palletId: targetPalletId,
+      barcode: item.barcode,
+      quantity: amount,
+      productName: item.productName,
+    );
+    // Kaynaktan cikar
+    await removeItemQuantity(sourceItemId, amount);
+  }
+
   Future<int> recordTransfer(WhTransfer t) async {
     final db = await DatabaseService.instance.database;
     return db.insert(AppConstants.whTransferTable, t.toMap()..remove('id'));
