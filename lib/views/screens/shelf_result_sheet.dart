@@ -25,7 +25,7 @@ class ShelfResultSheet extends StatelessWidget {
   final double? oldPrice;
   final DateTime? priceUpdateDate;
   final DateTime? printDate;
-  final VoidCallback? onSaveToDb; // urun fazinda hizli kayit (dizine)
+  final VoidCallback? onSaveToDb; // artık kullanılmıyor, kaldırıldı
 
   const ShelfResultSheet({
     super.key,
@@ -161,30 +161,6 @@ class ShelfResultSheet extends StatelessWidget {
                     style: FilledButton.styleFrom(backgroundColor: s.color),
                     child: const Text('Yeni Ürün Yap'),
                   ),
-                ),
-              ],
-            )
-          else if (isProduct && onSaveToDb != null)
-            Column(
-              children: [
-                // Hizli kayit: tek dokunusla dizine ekle.
-                FilledButton.icon(
-                  onPressed: () {
-                    onSaveToDb!.call();
-                    Navigator.of(context).pop();
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.statusSafe,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  icon: const Icon(Icons.bookmark_add_rounded),
-                  label: const Text('Listeye Kaydet ve Devam',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Kaydetmeden Devam'),
                 ),
               ],
             )

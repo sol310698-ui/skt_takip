@@ -123,111 +123,68 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
   // ── Depo ici transfer ───────────────────────────────────────────────
   Future<void> _transfer() async {
-    final shelves =
-        await WarehouseService.instance.getShelfSummaries(widget.warehouseId);
-    final warehouse = await WarehouseService.instance
-        .getWarehouse(widget.warehouseId);
+    // Tum depolari ve raflarini cek.
+    final allWarehouses = await WarehouseService.instance.getWarehouses();
+    final currentWarehouse =
+        await WarehouseService.instance.getWarehouse(widget.warehouseId);
     if (!mounted) return;
 
-    final target = await showModalBottomSheet<int?>(
+    // Transfer hedefini kullaniciya sec: (warehouseId, shelfId) cift
+    // shelfId == null && warehouseId == widget.warehouseId → bekleme
+    // shelfId == null && warehouseId != widget.warehouseId → diger depoda bekleme
+    final result = await showModalBottomSheet<_TransferTarget>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.7),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                    color: AppTheme.textTertiary,
-                    borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-            const Text('Paleti Taşı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            const Text('Hedef rafı seçin (dolu raflar pasiftir).',
-                style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
-            const SizedBox(height: 14),
-            ListTile(
-              leading: const Icon(Icons.pending_rounded, color: AppTheme.amber),
-              title: const Text('Bekleme alanına al'),
-              subtitle: const Text('Raftan çıkar, istiflenmemiş yap'),
-              onTap: () => Navigator.pop(context, -1),
-            ),
-            const Divider(),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: shelves.map((s) {
-                  final full = s.isFull && s.shelf.id != _pallet?.shelfId;
-                  final isCurrent = s.shelf.id == _pallet?.shelfId;
-                  return ListTile(
-                    enabled: !full && !isCurrent,
-                    leading: Icon(Icons.shelves,
-                        color: full ? AppTheme.textTertiary : AppTheme.accent),
-                    title: Text('Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}'),
-                    subtitle: Text(isCurrent
-                        ? 'Şu anki konum'
-                        : '${s.palletCount}/${s.shelf.capacity} dolu${full ? " — DOLU" : ""}'),
-                    trailing: isCurrent
-                        ? const Icon(Icons.check_circle_rounded, color: AppTheme.statusSafe)
-                        : null,
-                    onTap: (full || isCurrent)
-                        ? null
-                        : () => Navigator.pop(context, s.shelf.id),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
+      builder: (_) => _TransferSheet(
+        currentWarehouseId: widget.warehouseId,
+        currentShelfId: _pallet?.shelfId,
+        allWarehouses: allWarehouses,
       ),
     );
 
-    if (target == null) return;
-    final targetShelf = target == -1 ? null : target;
+    if (result == null) return;
 
-    // Mevcut raf bilgisini al (transfer kaydı için)
     final fromShelf = _shelf;
-    final WhShelf? toShelf = targetShelf != null
-        ? shelves.firstWhere((s) => s.shelf.id == targetShelf).shelf
-        : null;
+    // Hedef raf bilgisi (aynı ya da farklı depodan)
+    WhShelf? toShelf;
+    Warehouse? toWarehouse;
+    if (result.shelfId != null) {
+      final targetShelves = await WarehouseService.instance
+          .getShelves(result.warehouseId);
+      toShelf = targetShelves
+          .where((s) => s.id == result.shelfId)
+          .firstOrNull;
+    }
+    toWarehouse =
+        await WarehouseService.instance.getWarehouse(result.warehouseId);
 
-    final ok = await WarehouseService.instance
-        .movePallet(widget.palletId, targetShelf);
+    final ok = await WarehouseService.instance.movePallet(
+      widget.palletId,
+      result.shelfId,
+      targetWarehouseId:
+          result.warehouseId != widget.warehouseId ? result.warehouseId : null,
+    );
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hedef raf dolu')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Hedef raf dolu')));
       return;
     }
 
-    // Transfer kaydet
     final t = WhTransfer(
       palletId: widget.palletId,
       palletCode: _pallet!.code,
       transferType: 'internal',
       fromWarehouseId: widget.warehouseId,
       fromShelfId: fromShelf?.id,
-      fromWarehouseName: warehouse?.name,
+      fromWarehouseName: currentWarehouse?.name,
       fromShelfLabel: fromShelf != null
           ? 'S${fromShelf.columnNo}-R${fromShelf.shelfNo}'
           : 'Bekleme',
-      toWarehouseId: widget.warehouseId,
+      toWarehouseId: result.warehouseId,
       toShelfId: toShelf?.id,
-      toWarehouseName: warehouse?.name,
+      toWarehouseName: toWarehouse?.name,
       toShelfLabel: toShelf != null
           ? 'S${toShelf.columnNo}-R${toShelf.shelfNo}'
           : 'Bekleme',
@@ -238,7 +195,6 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     await _load();
 
     if (!mounted) return;
-    // Irsaliye onerisi
     _offerWaybill(t);
   }
 
@@ -901,6 +857,221 @@ class _AddItemSheetState extends State<_AddItemSheet> {
             child: Text(_added > 0 ? 'Bitir ($_added eklendi)' : 'Kapat'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Transfer hedef: hangi depo, hangi raf (null=bekleme).
+class _TransferTarget {
+  final int warehouseId;
+  final int? shelfId;
+  const _TransferTarget({required this.warehouseId, this.shelfId});
+}
+
+/// Depolar arasi transfer secim sheet'i.
+/// Ust: depo secici (chip'ler). Alt: secilen depodaki raflar.
+class _TransferSheet extends StatefulWidget {
+  final int currentWarehouseId;
+  final int? currentShelfId;
+  final List<Warehouse> allWarehouses;
+  const _TransferSheet({
+    required this.currentWarehouseId,
+    required this.currentShelfId,
+    required this.allWarehouses,
+  });
+
+  @override
+  State<_TransferSheet> createState() => _TransferSheetState();
+}
+
+class _TransferSheetState extends State<_TransferSheet> {
+  late int _selectedWarehouseId;
+  List<ShelfSummary> _shelves = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedWarehouseId = widget.currentWarehouseId;
+    _loadShelves(_selectedWarehouseId);
+  }
+
+  Future<void> _loadShelves(int warehouseId) async {
+    setState(() => _loading = true);
+    final shelves =
+        await WarehouseService.instance.getShelfSummaries(warehouseId);
+    if (!mounted) return;
+    setState(() {
+      _shelves = shelves;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.92,
+      minChildSize: 0.5,
+      expand: false,
+      builder: (ctx, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Tutac
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const Text('Paleti Taşı',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            const Text('Hedef depo ve rafı seçin.',
+                style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
+            const SizedBox(height: 14),
+
+            // Depo secici (yatay chip'ler)
+            if (widget.allWarehouses.length > 1) ...[
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: widget.allWarehouses.map((w) {
+                    final selected = w.id == _selectedWarehouseId;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (w.id == _selectedWarehouseId) return;
+                          setState(() => _selectedWarehouseId = w.id!);
+                          _loadShelves(w.id!);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? AppTheme.accent
+                                : AppTheme.surfaceAlt,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.rPill),
+                            border: selected
+                                ? null
+                                : Border.all(
+                                    color: AppTheme.textTertiary
+                                        .withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.warehouse_rounded,
+                                  size: 15,
+                                  color: selected
+                                      ? Colors.black
+                                      : AppTheme.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(w.name,
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: selected
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: selected
+                                          ? Colors.black
+                                          : AppTheme.textPrimary)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+            ],
+
+            // Bekleme alanina al
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.pending_rounded,
+                  color: AppTheme.amber),
+              title: const Text('Bekleme alanına al'),
+              subtitle: Text('${_selectedWarehouseId == widget.currentWarehouseId ? "Aynı depo" : widget.allWarehouses.where((w) => w.id == _selectedWarehouseId).map((w) => w.name).firstOrNull ?? "Hedef depo"} — istiflenmemiş'),
+              onTap: () => Navigator.pop(context,
+                  _TransferTarget(warehouseId: _selectedWarehouseId)),
+            ),
+            const Divider(),
+
+            // Raflar
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_shelves.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Center(
+                  child: Text('Bu depoda raf tanımlı değil',
+                      style: TextStyle(color: AppTheme.textSecondary)),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView(
+                  controller: scroll,
+                  children: _shelves.map((s) {
+                    final full = s.isFull &&
+                        !(s.shelf.id == widget.currentShelfId &&
+                            _selectedWarehouseId ==
+                                widget.currentWarehouseId);
+                    final isCurrent = s.shelf.id ==
+                            widget.currentShelfId &&
+                        _selectedWarehouseId == widget.currentWarehouseId;
+                    return ListTile(
+                      enabled: !full && !isCurrent,
+                      leading: Icon(Icons.shelves,
+                          color: full
+                              ? AppTheme.textTertiary
+                              : AppTheme.accent),
+                      title: Text(
+                          'Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}'),
+                      subtitle: Text(isCurrent
+                          ? 'Şu anki konum'
+                          : '${s.palletCount}/${s.shelf.capacity} dolu'
+                              '${full ? " — DOLU" : ""}'),
+                      trailing: isCurrent
+                          ? const Icon(Icons.check_circle_rounded,
+                              color: AppTheme.statusSafe)
+                          : null,
+                      onTap: (full || isCurrent)
+                          ? null
+                          : () => Navigator.pop(
+                                context,
+                                _TransferTarget(
+                                  warehouseId: _selectedWarehouseId,
+                                  shelfId: s.shelf.id,
+                                ),
+                              ),
+                    );
+                  }).toList(),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

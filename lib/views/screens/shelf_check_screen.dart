@@ -7,7 +7,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/feedback_service.dart';
 import '../../core/services/shelf_session_service.dart';
-import 'barcode_entry_screen.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
@@ -132,21 +131,8 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       _lookupOffInBackground(code);
     }
 
-    await _showSheet(ShelfResultSheet(
-      type: ShelfResultType.product,
-      barcode: code,
-      productName: name,
-      // Dizinde yoksa BarcodeEntryScreen ile hizli kayit sun.
-      onSaveToDb: !inDirectory
-          ? () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => BarcodeEntryScreen(
-                  prefillBarcode: code,
-                  prefillName: name,
-                ),
-              ))
-          : null,
-    ));
-
+    // Ürün okundu — sheet göstermeden direkt etiket fazına geç.
+    // (Eski akışta "Listeye Kaydet ve Devam" / "Kaydetmeden Devam" vardı, kaldırıldı.)
     setState(() => _phase = _Phase.label);
   }
 
