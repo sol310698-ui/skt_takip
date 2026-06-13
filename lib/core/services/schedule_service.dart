@@ -126,14 +126,16 @@ class ScheduleService {
   Future<void> setAlarm(ScheduleEntry e) async {
     final intent = AndroidIntent(
       action: 'android.intent.action.SET_ALARM',
+      flags: <int>[
+        268435456, // FLAG_ACTIVITY_NEW_TASK (0x10000000)
+      ],
       arguments: <String, dynamic>{
         'android.intent.extra.alarm.HOUR': e.hour,
         'android.intent.extra.alarm.MINUTES': e.minute,
         'android.intent.extra.alarm.MESSAGE':
             e.label ?? 'Mesai - ${weekdayNames[e.weekday - 1]}',
-        // Haftanin gunu (tekrarli) — alarmclock format
         'android.intent.extra.alarm.DAYS': <int>[_toAlarmClockDay(e.weekday)],
-        // Kullanici onaylamadan kurulmasin diye UI goster:
+        // SKIP_UI false → alarm uygulaması açılıp onay alır.
         'android.intent.extra.alarm.SKIP_UI': false,
       },
     );

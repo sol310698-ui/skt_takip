@@ -1220,7 +1220,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       color: AppTheme.statusSafe.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(AppTheme.rPill),
                     ),
-                    child: Text("\$_added eklendi",
+                    child: Text("$_added eklendi",
                         style: const TextStyle(
                             color: AppTheme.statusSafe,
                             fontWeight: FontWeight.w700, fontSize: 12)),
@@ -1349,7 +1349,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
             const SizedBox(height: 10),
             TextButton(
               onPressed: () => Navigator.pop(context, _added > 0),
-              child: Text(_added > 0 ? "Bitir (\$_added eklendi)" : "Kapat"),
+              child: Text(_added > 0 ? "Bitir ($_added eklendi)" : "Kapat"),
             ),
           ],
         ),
