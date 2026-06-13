@@ -32,10 +32,12 @@ class NotificationService {
         onDidReceiveNotificationResponse: _onNotificationResponse,
       );
 
-      await _plugin
+      final androidImpl = _plugin
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
-          ?.requestNotificationsPermission();
+              AndroidFlutterLocalNotificationsPlugin>();
+      await androidImpl?.requestNotificationsPermission();
+      // "Alarmlar ve hatırlatıcılar" iznini iste (Samsung/Android 13+).
+      await androidImpl?.requestExactAlarmsPermission();
 
       _initialized = true;
     } catch (e) {
