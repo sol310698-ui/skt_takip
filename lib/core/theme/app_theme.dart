@@ -143,6 +143,17 @@ class AppTheme {
     return base.copyWith(
       scaffoldBackgroundColor: background,
       splashFactory: InkSparkle.splashFactory,
+      // Tüm sayfa geçişleri alttan yukarı kayar.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _SlideUpTransitionsBuilder(),
+          TargetPlatform.iOS: _SlideUpTransitionsBuilder(),
+          TargetPlatform.fuchsia: _SlideUpTransitionsBuilder(),
+          TargetPlatform.linux: _SlideUpTransitionsBuilder(),
+          TargetPlatform.macOS: _SlideUpTransitionsBuilder(),
+          TargetPlatform.windows: _SlideUpTransitionsBuilder(),
+        },
+      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: background,
         foregroundColor: textPrimary,
@@ -264,6 +275,33 @@ class AppTheme {
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(rPill)),
       ),
+    );
+  }
+}
+
+/// Tüm sayfa geçişleri için alttan yukarı kayma animasyonu.
+class _SlideUpTransitionsBuilder extends PageTransitionsBuilder {
+  const _SlideUpTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).animate(curved),
+      child: FadeTransition(opacity: animation, child: child),
     );
   }
 }

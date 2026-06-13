@@ -5,6 +5,7 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
+import 'image_zoom_screen.dart';
 import 'pallet_detail_screen.dart';
 
 /// Depo detayi: Harita (sutun×raf izgara) + Liste sekmeleri + arama.
@@ -459,6 +460,12 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     );
   }
 
+  void _showPalletImage(WhPallet pallet) {
+    final path = pallet.imagePath;
+    if (path == null) return;
+    openImageZoom(context, filePath: path, title: pallet.code);
+  }
+
   Widget _palletTile(PalletSummary p, {bool pop = false}) {
     final isFloor   = p.pallet.isOnFloor;
     final isWaiting = p.pallet.isUnstacked;
@@ -513,6 +520,35 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                 ],
               ),
             ),
+            // Resim varsa "Göster" butonu
+            if (p.pallet.imagePath != null) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _showPalletImage(p.pallet),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 5),
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.image_rounded,
+                          size: 14, color: AppTheme.primary),
+                      SizedBox(width: 3),
+                      Text('Göster',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.primary)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(

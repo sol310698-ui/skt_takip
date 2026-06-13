@@ -90,6 +90,10 @@ class DatabaseService {
     if (oldVersion < 12) {
       await _createScheduleTable(db);
     }
+    if (oldVersion < 13) {
+      await db.execute(
+          'ALTER TABLE ${AppConstants.whPalletTable} ADD COLUMN image_path TEXT');
+    }
   }
 
   Future<void> _createScheduleTable(Database db) async {
@@ -260,6 +264,7 @@ class DatabaseService {
         floor_no INTEGER,
         code TEXT NOT NULL,
         note TEXT,
+        image_path TEXT,
         created_at INTEGER NOT NULL
       )
     ''');

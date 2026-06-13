@@ -58,6 +58,7 @@ class WhPallet {
   final int? floorNo;   // zemin pozisyonu (0-based); null = rafta veya bekleme
   final String code;
   final String? note;
+  final String? imagePath;
   final DateTime createdAt;
   const WhPallet({
     this.id,
@@ -66,6 +67,7 @@ class WhPallet {
     this.floorNo,
     required this.code,
     this.note,
+    this.imagePath,
     required this.createdAt,
   });
 
@@ -79,6 +81,7 @@ class WhPallet {
         floorNo: m['floor_no'] as int?,
         code: m['code'] as String,
         note: m['note'] as String?,
+        imagePath: m['image_path'] as String?,
         createdAt:
             DateTime.fromMillisecondsSinceEpoch(m['created_at'] as int),
       );
@@ -355,6 +358,17 @@ class WarehouseService {
         where: 'id = ?', whereArgs: [id], limit: 1);
     if (rows.isEmpty) return null;
     return WhPallet.fromMap(rows.first);
+  }
+
+  /// Palet resmini günceller (kaldırmak için null geç).
+  Future<void> updatePalletImage(int palletId, String? imagePath) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.whPalletTable,
+      {'image_path': imagePath},
+      where: 'id = ?',
+      whereArgs: [palletId],
+    );
   }
 
   /// Paleti tasi: hedef raf, zemin (floorNo) veya bekleme (ikisi de null).

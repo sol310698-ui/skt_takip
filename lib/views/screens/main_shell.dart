@@ -7,7 +7,6 @@ import 'home_screen.dart';
 import 'price_change_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
-import 'universe_transition.dart';
 import 'warehouse_list_screen.dart';
 
 /// Alt navigasyon barli ana kabuk.
@@ -287,10 +286,10 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  /// Depo evrenine gec (warp animasyonu ile).
+  /// Depo sayfasını aç (alttan kayarak — tema otomatik).
   void _enterWarehouse() {
     Navigator.of(context).push(
-      UniverseTransition(page: const WarehouseListScreen()),
+      MaterialPageRoute(builder: (_) => const WarehouseListScreen()),
     );
   }
 }

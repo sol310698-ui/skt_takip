@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/services/alarm_service.dart';
@@ -49,21 +50,30 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     super.dispose();
   }
 
-  void _dismiss() {
-    AlarmService.instance.dismiss(widget.alarm.id);
-    if (mounted && Navigator.of(context).canPop()) {
+  /// Alarm ekranını kapat. Uygulamayı açmak yerine arka plana atar
+  /// (kilit ekranındaysa kilit ekranına geri döner).
+  void _closeAlarm() {
+    if (!mounted) return;
+    // Önce alarm ekranını route'tan kaldır.
+    if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
+    // Sonra uygulamayı arka plana at — ana ekran/kilit ekranına dön.
+    SystemNavigator.pop();
+  }
+
+  void _dismiss() {
+    AlarmService.instance.dismiss(widget.alarm.id);
+    _closeAlarm();
   }
 
   void _snooze() {
     AlarmService.instance.snooze(widget.alarm);
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
+    _closeAlarm();
   }
 
   void _shiftFinish() {
+    // Çıkış akışı (foto+konum) için uygulamada KAL, arka plana atma.
     AlarmService.instance.dismiss(widget.alarm.id);
     AlarmService.onShiftFinishRequested?.call(widget.alarm.refId ?? 0);
     if (mounted && Navigator.of(context).canPop()) {

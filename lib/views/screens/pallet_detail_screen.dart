@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/waybill_service.dart';
@@ -7,6 +11,7 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
+import 'image_zoom_screen.dart';
 import 'scanner_screen.dart';
 
 /// Palet detayi: icindeki urunler, ekle/cikar, transfer.
@@ -52,6 +57,111 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
   }
 
   int get _totalQty => _items.fold(0, (s, i) => s + i.quantity);
+
+  // ── Palet resmi ──────────────────────────────────────────────────────
+  Future<void> _capturePalletImage() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                  color: AppTheme.textTertiary,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded,
+                  color: AppTheme.accent),
+              title: const Text('Kamera ile çek'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded,
+                  color: AppTheme.accent),
+              title: const Text('Galeriden seç'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            if (_pallet?.imagePath != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded,
+                    color: AppTheme.statusExpired),
+                title: const Text('Resmi sil'),
+                onTap: () => Navigator.pop(context, null),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+
+    // Kullanıcı "Resmi sil" seçtiyse source null ama _pallet.imagePath dolu.
+    if (source == null) {
+      if (_pallet?.imagePath != null) {
+        await WarehouseService.instance
+            .updatePalletImage(widget.palletId, null);
+        await _load();
+      }
+      return;
+    }
+
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 80,
+      );
+      if (picked == null) return;
+
+      // Kalıcı dizine kopyala.
+      final dir = await getApplicationDocumentsDirectory();
+      final palletDir = Directory('${dir.path}/pallet_images');
+      if (!palletDir.existsSync()) palletDir.createSync(recursive: true);
+      final fname =
+          'pallet_${widget.palletId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final newPath = '${palletDir.path}/$fname';
+      await File(picked.path).copy(newPath);
+
+      // Eski resmi sil.
+      final old = _pallet?.imagePath;
+      if (old != null && File(old).existsSync()) {
+        try { File(old).deleteSync(); } catch (_) {}
+      }
+
+      await WarehouseService.instance
+          .updatePalletImage(widget.palletId, newPath);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Palet resmi kaydedildi'),
+            backgroundColor: AppTheme.statusSafe,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Resim hatası: $e')),
+        );
+      }
+    }
+  }
+
+  void _showImage() {
+    final path = _pallet?.imagePath;
+    if (path == null) return;
+    openImageZoom(context, filePath: path, title: _pallet!.code);
+  }
 
   // ── Urun ekle ──────────────────────────────────────────────────────
   Future<void> _addItem() async {
@@ -472,6 +582,21 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
         actions: [
+          // Resim göster (varsa)
+          if (_pallet?.imagePath != null)
+            IconButton(
+              icon: const Icon(Icons.image_rounded),
+              tooltip: 'Resmi Göster',
+              onPressed: _showImage,
+            ),
+          // Resim çek/ekle
+          IconButton(
+            icon: Icon(_pallet?.imagePath != null
+                ? Icons.add_a_photo_rounded
+                : Icons.photo_camera_rounded),
+            tooltip: _pallet?.imagePath != null ? 'Resmi Değiştir' : 'Resim Çek',
+            onPressed: _loading ? null : _capturePalletImage,
+          ),
           // Depo ici transfer
           IconButton(
             icon: const Icon(Icons.swap_horiz_rounded),
