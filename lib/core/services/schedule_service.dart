@@ -1,6 +1,7 @@
-import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import '../constants/app_constants.dart';
+import 'alarm_service.dart';
 import 'database_service.dart';
 
 /// Haftalik calisma programi kalemi (gun + saat).
@@ -70,23 +71,6 @@ class ScheduleService {
     'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'
   ];
 
-  // Android AlarmClock DAYS sabitleri: Pazar=1..Cumartesi=7
-  // DateTime.weekday: Pzt=1..Paz=7 -> donusum gerekiyor.
-  static int _toAlarmClockDay(int dtWeekday) {
-    // dt: 1=Pzt..7=Paz  →  alarmclock: 1=Paz,2=Pzt..7=Cmt
-    return dtWeekdayToAlarmClock[dtWeekday]!;
-  }
-
-  static const Map<int, int> dtWeekdayToAlarmClock = {
-    1: 2, // Pzt
-    2: 3, // Sal
-    3: 4, // Çar
-    4: 5, // Per
-    5: 6, // Cum
-    6: 7, // Cmt
-    7: 1, // Paz
-  };
-
   Future<int> add(ScheduleEntry e) async {
     final db = await DatabaseService.instance.database;
     return db.insert(
@@ -122,33 +106,108 @@ class ScheduleService {
     return map;
   }
 
-  /// Telefonun alarm uygulamasina TEK haftalik tekrarli alarm kurar.
-  Future<void> setAlarm(ScheduleEntry e) async {
-    final intent = AndroidIntent(
-      action: 'android.intent.action.SET_ALARM',
-      flags: <int>[
-        268435456, // FLAG_ACTIVITY_NEW_TASK (0x10000000)
-      ],
-      arguments: <String, dynamic>{
-        'android.intent.extra.alarm.HOUR': e.hour,
-        'android.intent.extra.alarm.MINUTES': e.minute,
-        'android.intent.extra.alarm.MESSAGE':
-            e.label ?? 'Mesai - ${weekdayNames[e.weekday - 1]}',
-        'android.intent.extra.alarm.DAYS': <int>[_toAlarmClockDay(e.weekday)],
-        // SKIP_UI false → alarm uygulaması açılıp onay alır.
-        'android.intent.extra.alarm.SKIP_UI': false,
-      },
-    );
-    await intent.launch();
+  /// Bir sonraki [weekday] gününün [hour]:[minute] anını hesaplar.
+  static DateTime _nextOccurrence(int weekday, int hour, int minute) {
+    final now = DateTime.now();
+    var date = DateTime(now.year, now.month, now.day, hour, minute);
+    // Hedef güne ilerle.
+    while (date.weekday != weekday || date.isBefore(now)) {
+      date = date.add(const Duration(days: 1));
+      date = DateTime(date.year, date.month, date.day, hour, minute);
+    }
+    return date;
   }
 
-  /// Tum aktif kalemleri sirayla alarm olarak kurar.
-  /// (Kullanici her biri icin alarm uygulamasinda onaylar.)
-  Future<void> setAllAlarms(List<ScheduleEntry> entries) async {
-    for (final e in entries.where((x) => x.enabled)) {
-      await setAlarm(e);
-      // Kisa bekleme — intent'ler ust uste binmesin.
-      await Future.delayed(const Duration(milliseconds: 400));
+  /// Alarm id → AndroidAlarmManager için benzersiz int.
+  static int alarmId(int entryId) => 700000 + entryId;
+
+  /// Uygulama içi alarmı kur (kilit ekranında çalar).
+  /// android_alarm_manager_plus ile cihaz uykudayken bile tetiklenir,
+  /// callback haftalık tekrar için kendini yeniden kurar.
+  Future<void> setAlarm(ScheduleEntry e) async {
+    if (e.id == null) return;
+    final when = _nextOccurrence(e.weekday, e.hour, e.minute);
+    await AndroidAlarmManager.oneShotAt(
+      when,
+      alarmId(e.id!),
+      scheduleAlarmCallback,
+      exact: true,
+      wakeup: true,
+      allowWhileIdle: true,
+      rescheduleOnReboot: true,
+    );
+  }
+
+  // ── Mesai çıkış alarmı ──────────────────────────────────────────────
+  static int shiftAlarmId(int shiftId) => 800000 + shiftId;
+
+  /// Mesai çıkış alarmı kur: giriş + 9 saat (8→17, 13→22).
+  Future<void> setShiftCheckoutAlarm({
+    required int shiftId,
+    required DateTime clockIn,
+  }) async {
+    final when = clockIn.add(const Duration(hours: 9));
+    if (when.isBefore(DateTime.now())) return;
+    await AndroidAlarmManager.oneShotAt(
+      when,
+      shiftAlarmId(shiftId),
+      shiftCheckoutCallback,
+      exact: true,
+      wakeup: true,
+      allowWhileIdle: true,
+      rescheduleOnReboot: true,
+    );
+  }
+
+  Future<void> cancelShiftCheckoutAlarm(int shiftId) async {
+    await AndroidAlarmManager.cancel(shiftAlarmId(shiftId));
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  TOP-LEVEL ALARM CALLBACK
+///  android_alarm_manager_plus bunu ayrı bir isolate'te çağırır.
+///  Burada alarmı çaldırır ve haftalık tekrar için yeniden kurar.
+/// ════════════════════════════════════════════════════════════════════
+@pragma('vm:entry-point')
+Future<void> scheduleAlarmCallback(int alarmId) async {
+  // entryId'yi geri çöz.
+  final entryId = alarmId - 700000;
+
+  // DB'den ilgili kaydı bul.
+  final entries = await ScheduleService.instance.getAll();
+  ScheduleEntry? entry;
+  for (final e in entries) {
+    if (e.id == entryId) {
+      entry = e;
+      break;
     }
   }
+  if (entry == null || !entry.enabled) return;
+
+  // Alarmı çaldır.
+  await AlarmService.instance.fireAlarm(RingingAlarm(
+    id: 700000 + entryId,
+    title: entry.label ?? 'Mesai Zamanı',
+    body:
+        '${ScheduleService.weekdayNames[entry.weekday - 1]} • ${entry.timeStr}',
+    kind: AlarmKind.schedule,
+    refId: entryId,
+  ));
+
+  // Haftalık tekrar: bir sonraki aynı güne yeniden kur.
+  await ScheduleService.instance.setAlarm(entry);
+}
+
+/// Mesai çıkış alarmı callback'i (giriş + 9 saat). Tek seferlik.
+@pragma('vm:entry-point')
+Future<void> shiftCheckoutCallback(int alarmId) async {
+  final shiftId = alarmId - 800000;
+  await AlarmService.instance.fireAlarm(RingingAlarm(
+    id: alarmId,
+    title: 'Mesai Çıkışı',
+    body: 'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
+    kind: AlarmKind.shiftCheckout,
+    refId: shiftId,
+  ));
 }

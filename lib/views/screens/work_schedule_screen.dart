@@ -93,13 +93,22 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   }
 
   Future<void> _deleteEntry(ScheduleEntry e) async {
+    if (e.id != null) await ScheduleService.instance.cancelAlarm(e.id!);
     await ScheduleService.instance.delete(e.id!);
     await _load();
   }
 
   Future<void> _toggleEntry(ScheduleEntry e) async {
-    await ScheduleService.instance
-        .update(e.copyWith(enabled: !e.enabled));
+    final updated = e.copyWith(enabled: !e.enabled);
+    await ScheduleService.instance.update(updated);
+    // Kapatıldıysa alarmı iptal et, açıldıysa kur.
+    if (e.id != null) {
+      if (updated.enabled) {
+        await ScheduleService.instance.setAlarm(updated);
+      } else {
+        await ScheduleService.instance.cancelAlarm(e.id!);
+      }
+    }
     await _load();
   }
 

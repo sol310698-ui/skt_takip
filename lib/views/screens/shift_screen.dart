@@ -4,7 +4,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/services/notification_service.dart';
+import '../../core/services/alarm_service.dart';
+import '../../core/services/schedule_service.dart';
 import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/shift_entry.dart';
@@ -26,8 +27,8 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   @override
   void initState() {
     super.initState();
-    // Bildirimdeki "Bitir" aksiyonu → otomatik çıkış akışı.
-    NotificationService.onShiftFinishRequested = (shiftId) async {
+    // Alarm "Çıkış Yap" aksiyonu → otomatik çıkış akışı.
+    AlarmService.onShiftFinishRequested = (shiftId) async {
       if (!mounted) return;
       final open = await ref.read(shiftRepositoryProvider).getOpenShift();
       if (open != null && open.id == shiftId) {
@@ -38,7 +39,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
 
   @override
   void dispose() {
-    NotificationService.onShiftFinishRequested = null;
+    AlarmService.onShiftFinishRequested = null;
     super.dispose();
   }
 
@@ -97,8 +98,8 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
       final newId = await ref.read(shiftListProvider.notifier).add(entry);
       ref.invalidate(openShiftProvider);
 
-      // Çıkış hatırlatması kur (giriş + 9 saat). 8→17, 13→22.
-      await NotificationService.instance.scheduleShiftCheckoutReminder(
+      // Çıkış alarmı kur (giriş + 9 saat). 8→17, 13→22.
+      await ScheduleService.instance.setShiftCheckoutAlarm(
         shiftId: newId,
         clockIn: entry.clockIn,
       );
@@ -121,9 +122,9 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
       );
       await ref.read(shiftListProvider.notifier).updateShift(updated);
       ref.invalidate(openShiftProvider);
-      // Çıkış yapıldı — hatırlatmayı iptal et.
+      // Çıkış yapıldı — alarmı iptal et.
       if (open.id != null) {
-        await NotificationService.instance.cancelShiftCheckout(open.id!);
+        await ScheduleService.instance.cancelShiftCheckoutAlarm(open.id!);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
