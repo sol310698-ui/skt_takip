@@ -66,8 +66,8 @@ class AlarmService {
       'Alarmlar',
       description: 'Çalışma programı ve mesai alarmları',
       importance: Importance.max,
-      playSound: false, // sesi kendimiz AudioPlayer ile çalıyoruz
-      enableVibration: false, // titreşimi kendimiz yönetiyoruz
+      playSound: true,
+      enableVibration: true,
     );
     final androidImpl = _plugin
         .resolvePlatformSpecificImplementation<
@@ -94,8 +94,9 @@ class AlarmService {
       fullScreenIntent: true, // kilit ekranını uyandırır
       ongoing: true,
       autoCancel: false,
-      playSound: false,
-      enableVibration: false,
+      playSound: true, // sistem sesi (AudioPlayer'a ek güvence)
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
       actions: <AndroidNotificationAction>[
         const AndroidNotificationAction('alarm_snooze', 'Ertele (5 dk)'),
         AndroidNotificationAction(

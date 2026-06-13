@@ -136,6 +136,29 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     await _load();
   }
 
+  Future<void> _testAlarm() async {
+    await ScheduleService.instance.testAlarmIn10s();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Test Alarmı Kuruldu'),
+        content: const Text(
+          '10 saniye sonra alarm çalacak.\n\n'
+          'Şimdi ekranı KİLİTLE ve bekle. Alarm tam ekran açılmalı.\n\n'
+          'Çalmazsa: Ayarlar → Uygulamalar → SKT Takip → '
+          '"Alarmlar ve hatırlatıcılar" iznini ve pil ayarından '
+          '"Kısıtlanmamış" seçeneğini aç.',
+        ),
+        actions: [
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Tamam')),
+        ],
+      ),
+    );
+  }
+
   // ── Alarm kurma ────────────────────────────────────────────────────
   Future<void> _setOneAlarm(ScheduleEntry e) async {
     try {
@@ -212,12 +235,19 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15)),
                             const Text(
-                                'Alarmlar telefonun saat uygulamasına kurulur',
+                                'Alarmlar uygulama içinde, kilit ekranında çalar',
                                 style: TextStyle(
                                     fontSize: 12,
                                     color: AppTheme.textSecondary)),
                           ],
                         ),
+                      ),
+                      // Test alarmı
+                      IconButton(
+                        icon: const Icon(Icons.bug_report_rounded),
+                        color: AppTheme.amber,
+                        tooltip: 'Test (10 sn)',
+                        onPressed: _testAlarm,
                       ),
                     ],
                   ),

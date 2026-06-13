@@ -141,6 +141,19 @@ class ScheduleService {
     );
   }
 
+  /// Test: 10 saniye sonra alarm çalar (teşhis için).
+  Future<void> testAlarmIn10s() async {
+    final when = DateTime.now().add(const Duration(seconds: 10));
+    await AndroidAlarmManager.oneShotAt(
+      when,
+      999999, // test id
+      testAlarmCallback,
+      exact: true,
+      wakeup: true,
+      allowWhileIdle: true,
+    );
+  }
+
   Future<void> cancelAlarm(int entryId) async {
     await AndroidAlarmManager.cancel(alarmId(entryId));
   }
@@ -216,6 +229,19 @@ Future<void> scheduleAlarmCallback(int alarmId) async {
 
   // Haftalık tekrar: bir sonraki aynı güne yeniden kur.
   await ScheduleService.instance.setAlarm(entry);
+}
+
+/// Test alarmı callback'i (10 sn sonra). Teşhis için.
+@pragma('vm:entry-point')
+Future<void> testAlarmCallback(int alarmId) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  await AlarmService.instance.fireAlarm(const RingingAlarm(
+    id: 999999,
+    title: 'Test Alarmı ✓',
+    body: 'Alarm sistemi çalışıyor!',
+    kind: AlarmKind.schedule,
+  ));
 }
 
 /// Mesai çıkış alarmı callback'i (giriş + 9 saat). Tek seferlik.
