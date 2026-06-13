@@ -1,3 +1,4 @@
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/schedule_service.dart';
@@ -136,6 +137,27 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     await _load();
   }
 
+  Future<void> _openFullScreenIntentSettings() async {
+    try {
+      final intent = AndroidIntent(
+        action: 'android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT',
+        data: 'package:com.example.skt_takip',
+        flags: <int>[268435456], // FLAG_ACTIVITY_NEW_TASK
+      );
+      await intent.launch();
+    } catch (_) {
+      // Eski cihazlarda bu ayar yok — uygulama ayarlarını aç.
+      try {
+        final intent = AndroidIntent(
+          action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
+          data: 'package:com.example.skt_takip',
+          flags: <int>[268435456],
+        );
+        await intent.launch();
+      } catch (_) {}
+    }
+  }
+
   Future<void> _testAlarm() async {
     await ScheduleService.instance.testAlarmIn10s();
     if (!mounted) return;
@@ -145,12 +167,20 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
         title: const Text('Test Alarmı Kuruldu'),
         content: const Text(
           '10 saniye sonra alarm çalacak.\n\n'
-          'Şimdi ekranı KİLİTLE ve bekle. Alarm tam ekran açılmalı.\n\n'
-          'Çalmazsa: Ayarlar → Uygulamalar → SKT Takip → '
-          '"Alarmlar ve hatırlatıcılar" iznini ve pil ayarından '
-          '"Kısıtlanmamış" seçeneğini aç.',
+          'Şimdi ekranı KİLİTLE ve bekle. Alarm kilit ekranının '
+          'üzerine tam ekran gelmeli.\n\n'
+          'Kilit ekranında AÇILMAZSA, "Tam Ekran İzni" butonuna basıp '
+          'bu uygulama için izni aç. Ayrıca pil ayarından '
+          '"Kısıtlanmamış" seç.',
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openFullScreenIntentSettings();
+            },
+            child: const Text('Tam Ekran İzni'),
+          ),
           FilledButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Tamam')),
