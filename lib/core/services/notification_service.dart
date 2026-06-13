@@ -92,6 +92,8 @@ class NotificationService {
       tzTime,
       NotificationDetails(android: androidDetails),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
       payload: 'shift_checkout:$shiftId',
     );
   }
