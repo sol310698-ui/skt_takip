@@ -1,5 +1,6 @@
+import 'dart:ui' show DartPluginRegistrant;
+
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../constants/app_constants.dart';
