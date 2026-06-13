@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,8 +23,6 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.light,
   ));
 
-  // Alarm yöneticisi (uygulama kapalıyken bile tetiklenir).
-  await AndroidAlarmManager.initialize();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:vibration/vibration.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -52,6 +55,7 @@ class AlarmService {
 
   Future<void> init() async {
     if (_initialized) return;
+    tzdata.initializeTimeZones();
     const androidSettings =
         AndroidInitializationSettings('@drawable/ic_launcher');
     const initSettings = InitializationSettings(android: androidSettings);
@@ -118,6 +122,123 @@ class AlarmService {
 
     await _startRingingEffects();
     _ringController.add(alarm);
+  }
+
+  /// Tam ekran alarm bildirim detayları (planlı alarmlar için ortak).
+  AndroidNotificationDetails _alarmDetails(AlarmKind kind) {
+    return AndroidNotificationDetails(
+      _channelId,
+      'Alarmlar',
+      channelDescription: 'Çalışma programı ve mesai alarmları',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      fullScreenIntent: true,
+      ongoing: true,
+      autoCancel: false,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+      additionalFlags: Int32List.fromList(<int>[4]), // FLAG_INSISTENT (ses tekrar)
+      actions: <AndroidNotificationAction>[
+        const AndroidNotificationAction('alarm_snooze', 'Ertele (5 dk)'),
+        AndroidNotificationAction(
+          kind == AlarmKind.shiftCheckout ? 'shift_finish' : 'alarm_dismiss',
+          kind == AlarmKind.shiftCheckout ? 'Çıkış Yap' : 'Kapat',
+          cancelNotification: true,
+        ),
+      ],
+    );
+  }
+
+  String _payload(AlarmKind kind, int id, int? refId) =>
+      '${kind.name}:$id:${refId ?? ''}';
+
+  /// Belirli bir tarihte tam ekran alarm planla (tek seferlik).
+  Future<void> scheduleAt({
+    required int id,
+    required DateTime when,
+    required String title,
+    required String body,
+    required AlarmKind kind,
+    int? refId,
+  }) async {
+    await init();
+    final tzWhen = tz.TZDateTime.from(when, tz.local);
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      tzWhen,
+      NotificationDetails(android: _alarmDetails(kind)),
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: _payload(kind, id, refId),
+    );
+  }
+
+  /// N süre sonra tam ekran alarm (test için).
+  Future<void> scheduleOnceAfter({
+    required int id,
+    required Duration delay,
+    required String title,
+    required String body,
+    required AlarmKind kind,
+    int? refId,
+  }) async {
+    await scheduleAt(
+      id: id,
+      when: DateTime.now().add(delay),
+      title: title,
+      body: body,
+      kind: kind,
+      refId: refId,
+    );
+  }
+
+  /// Haftalık tekrarlı tam ekran alarm — her hafta aynı gün/saat.
+  Future<void> scheduleWeekly({
+    required int id,
+    required int weekday, // 1=Pzt..7=Paz
+    required int hour,
+    required int minute,
+    required String title,
+    required String body,
+    required AlarmKind kind,
+    int? refId,
+  }) async {
+    await init();
+    final when = _nextWeekdayTime(weekday, hour, minute);
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      when,
+      NotificationDetails(android: _alarmDetails(kind)),
+      androidScheduleMode: AndroidScheduleMode.alarmClock,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      payload: _payload(kind, id, refId),
+    );
+  }
+
+  /// Bir sonraki [weekday] gününün [hour]:[minute] tz zamanı.
+  tz.TZDateTime _nextWeekdayTime(int weekday, int hour, int minute) {
+    final now = tz.TZDateTime.now(tz.local);
+    var d = tz.TZDateTime(
+        tz.local, now.year, now.month, now.day, hour, minute);
+    while (d.weekday != weekday || d.isBefore(now)) {
+      d = d.add(const Duration(days: 1));
+      d = tz.TZDateTime(tz.local, d.year, d.month, d.day, hour, minute);
+    }
+    return d;
+  }
+
+  Future<void> cancelScheduled(int id) async {
+    await init();
+    await _plugin.cancel(id);
   }
 
   /// Ses + titreşim döngüsü başlat.

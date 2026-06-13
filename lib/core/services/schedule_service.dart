@@ -1,8 +1,3 @@
-import 'dart:ui' show DartPluginRegistrant;
-
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:flutter/widgets.dart';
-
 import '../constants/app_constants.dart';
 import 'alarm_service.dart';
 import 'database_service.dart';
@@ -109,153 +104,69 @@ class ScheduleService {
     return map;
   }
 
-  /// Bir sonraki [weekday] gününün [hour]:[minute] anını hesaplar.
-  static DateTime _nextOccurrence(int weekday, int hour, int minute) {
-    final now = DateTime.now();
-    var date = DateTime(now.year, now.month, now.day, hour, minute);
-    // Hedef güne ilerle.
-    while (date.weekday != weekday || date.isBefore(now)) {
-      date = date.add(const Duration(days: 1));
-      date = DateTime(date.year, date.month, date.day, hour, minute);
-    }
-    return date;
-  }
+  // ════════════════════════════════════════════════════════════════════
+  //  ALARM KURMA — flutter_local_notifications zonedSchedule + fullScreen
+  //  (android_alarm_manager_plus KULLANILMIYOR; zonedSchedule sistem
+  //   tarafından zamanlanır, ayrı isolate/callback gerektirmez, güvenilir.)
+  // ════════════════════════════════════════════════════════════════════
 
-  /// Alarm id → AndroidAlarmManager için benzersiz int.
   static int alarmId(int entryId) => 700000 + entryId;
+  static int shiftAlarmId(int shiftId) => 800000 + shiftId;
 
-  /// Uygulama içi alarmı kur (kilit ekranında çalar).
-  /// android_alarm_manager_plus ile cihaz uykudayken bile tetiklenir,
-  /// callback haftalık tekrar için kendini yeniden kurar.
+  /// Haftalık tekrarlı alarm kur — her hafta o gün/saat çalar.
   Future<void> setAlarm(ScheduleEntry e) async {
     if (e.id == null) return;
-    final when = _nextOccurrence(e.weekday, e.hour, e.minute);
-    await AndroidAlarmManager.oneShotAt(
-      when,
-      alarmId(e.id!),
-      scheduleAlarmCallback,
-      exact: true,
-      wakeup: true,
-      allowWhileIdle: true,
-      rescheduleOnReboot: true,
-    );
-  }
-
-  /// Test: 10 saniye sonra alarm çalar (teşhis için).
-  Future<void> testAlarmIn10s() async {
-    final when = DateTime.now().add(const Duration(seconds: 10));
-    await AndroidAlarmManager.oneShotAt(
-      when,
-      999999, // test id
-      testAlarmCallback,
-      exact: true,
-      wakeup: true,
-      allowWhileIdle: true,
+    await AlarmService.instance.scheduleWeekly(
+      id: alarmId(e.id!),
+      weekday: e.weekday,
+      hour: e.hour,
+      minute: e.minute,
+      title: e.label ?? 'Mesai Zamanı',
+      body: '${weekdayNames[e.weekday - 1]} • ${e.timeStr}',
+      kind: AlarmKind.schedule,
+      refId: e.id!,
     );
   }
 
   Future<void> cancelAlarm(int entryId) async {
-    await AndroidAlarmManager.cancel(alarmId(entryId));
+    await AlarmService.instance.cancelScheduled(alarmId(entryId));
   }
 
-  /// Tüm aktif kalemler için alarmları kurar.
   Future<void> setAllAlarms(List<ScheduleEntry> entries) async {
     for (final e in entries.where((x) => x.enabled)) {
       await setAlarm(e);
     }
   }
 
-  // ── Mesai çıkış alarmı ──────────────────────────────────────────────
-  static int shiftAlarmId(int shiftId) => 800000 + shiftId;
+  /// Test: 10 saniye sonra alarm çalar (teşhis için).
+  Future<void> testAlarmIn10s() async {
+    await AlarmService.instance.scheduleOnceAfter(
+      id: 999999,
+      delay: const Duration(seconds: 10),
+      title: 'Test Alarmı ✓',
+      body: 'Alarm sistemi çalışıyor!',
+      kind: AlarmKind.schedule,
+    );
+  }
 
-  /// Mesai çıkış alarmı kur: giriş + 9 saat (8→17, 13→22).
+  // ── Mesai çıkış alarmı (giriş + 9 saat) ──────────────────────────────
   Future<void> setShiftCheckoutAlarm({
     required int shiftId,
     required DateTime clockIn,
   }) async {
     final when = clockIn.add(const Duration(hours: 9));
     if (when.isBefore(DateTime.now())) return;
-    await AndroidAlarmManager.oneShotAt(
-      when,
-      shiftAlarmId(shiftId),
-      shiftCheckoutCallback,
-      exact: true,
-      wakeup: true,
-      allowWhileIdle: true,
-      rescheduleOnReboot: true,
+    await AlarmService.instance.scheduleAt(
+      id: shiftAlarmId(shiftId),
+      when: when,
+      title: 'Mesai Çıkışı',
+      body: 'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
+      kind: AlarmKind.shiftCheckout,
+      refId: shiftId,
     );
   }
 
   Future<void> cancelShiftCheckoutAlarm(int shiftId) async {
-    await AndroidAlarmManager.cancel(shiftAlarmId(shiftId));
+    await AlarmService.instance.cancelScheduled(shiftAlarmId(shiftId));
   }
-}
-
-/// ════════════════════════════════════════════════════════════════════
-///  TOP-LEVEL ALARM CALLBACK
-///  android_alarm_manager_plus bunu ayrı bir isolate'te çağırır.
-///  Burada alarmı çaldırır ve haftalık tekrar için yeniden kurar.
-/// ════════════════════════════════════════════════════════════════════
-@pragma('vm:entry-point')
-Future<void> scheduleAlarmCallback(int alarmId) async {
-  // Ayrı isolate — plugin'leri başlat.
-  WidgetsFlutterBinding.ensureInitialized();
-  DartPluginRegistrant.ensureInitialized();
-
-  final entryId = alarmId - 700000;
-
-  // DB'den ilgili kaydı bul.
-  ScheduleEntry? entry;
-  try {
-    final entries = await ScheduleService.instance.getAll();
-    for (final e in entries) {
-      if (e.id == entryId) {
-        entry = e;
-        break;
-      }
-    }
-  } catch (_) {}
-  if (entry == null || !entry.enabled) return;
-
-  // Alarmı çaldır (tam ekran bildirim + ses + titreşim).
-  await AlarmService.instance.fireAlarm(RingingAlarm(
-    id: 700000 + entryId,
-    title: entry.label ?? 'Mesai Zamanı',
-    body:
-        '${ScheduleService.weekdayNames[entry.weekday - 1]} • ${entry.timeStr}',
-    kind: AlarmKind.schedule,
-    refId: entryId,
-  ));
-
-  // Haftalık tekrar: bir sonraki aynı güne yeniden kur.
-  await ScheduleService.instance.setAlarm(entry);
-}
-
-/// Test alarmı callback'i (10 sn sonra). Teşhis için.
-@pragma('vm:entry-point')
-Future<void> testAlarmCallback(int alarmId) async {
-  WidgetsFlutterBinding.ensureInitialized();
-  DartPluginRegistrant.ensureInitialized();
-  await AlarmService.instance.fireAlarm(const RingingAlarm(
-    id: 999999,
-    title: 'Test Alarmı ✓',
-    body: 'Alarm sistemi çalışıyor!',
-    kind: AlarmKind.schedule,
-  ));
-}
-
-/// Mesai çıkış alarmı callback'i (giriş + 9 saat). Tek seferlik.
-@pragma('vm:entry-point')
-Future<void> shiftCheckoutCallback(int alarmId) async {
-  WidgetsFlutterBinding.ensureInitialized();
-  DartPluginRegistrant.ensureInitialized();
-
-  final shiftId = alarmId - 800000;
-  await AlarmService.instance.fireAlarm(RingingAlarm(
-    id: alarmId,
-    title: 'Mesai Çıkışı',
-    body: 'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
-    kind: AlarmKind.shiftCheckout,
-    refId: shiftId,
-  ));
 }
