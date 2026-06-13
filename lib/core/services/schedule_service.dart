@@ -1,4 +1,6 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../constants/app_constants.dart';
 import 'alarm_service.dart';
@@ -182,21 +184,26 @@ class ScheduleService {
 /// ════════════════════════════════════════════════════════════════════
 @pragma('vm:entry-point')
 Future<void> scheduleAlarmCallback(int alarmId) async {
-  // entryId'yi geri çöz.
+  // Ayrı isolate — plugin'leri başlat.
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+
   final entryId = alarmId - 700000;
 
   // DB'den ilgili kaydı bul.
-  final entries = await ScheduleService.instance.getAll();
   ScheduleEntry? entry;
-  for (final e in entries) {
-    if (e.id == entryId) {
-      entry = e;
-      break;
+  try {
+    final entries = await ScheduleService.instance.getAll();
+    for (final e in entries) {
+      if (e.id == entryId) {
+        entry = e;
+        break;
+      }
     }
-  }
+  } catch (_) {}
   if (entry == null || !entry.enabled) return;
 
-  // Alarmı çaldır.
+  // Alarmı çaldır (tam ekran bildirim + ses + titreşim).
   await AlarmService.instance.fireAlarm(RingingAlarm(
     id: 700000 + entryId,
     title: entry.label ?? 'Mesai Zamanı',
@@ -213,6 +220,9 @@ Future<void> scheduleAlarmCallback(int alarmId) async {
 /// Mesai çıkış alarmı callback'i (giriş + 9 saat). Tek seferlik.
 @pragma('vm:entry-point')
 Future<void> shiftCheckoutCallback(int alarmId) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+
   final shiftId = alarmId - 800000;
   await AlarmService.instance.fireAlarm(RingingAlarm(
     id: alarmId,

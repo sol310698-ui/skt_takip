@@ -77,8 +77,27 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       minute: time.minute,
       label: labelCtrl.text.trim().isEmpty ? null : labelCtrl.text.trim(),
     );
-    await ScheduleService.instance.add(entry);
+    final newId = await ScheduleService.instance.add(entry);
+    // Eklenince alarmı otomatik kur.
+    final saved = ScheduleEntry(
+      id: newId,
+      weekday: entry.weekday,
+      hour: entry.hour,
+      minute: entry.minute,
+      label: entry.label,
+      enabled: true,
+    );
+    await ScheduleService.instance.setAlarm(saved);
     await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '${ScheduleService.weekdayNames[weekday - 1]} ${time.format(context)} alarmı kuruldu'),
+          backgroundColor: AppTheme.statusSafe,
+        ),
+      );
+    }
   }
 
   Future<void> _editEntry(ScheduleEntry e) async {
@@ -87,8 +106,13 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       initialTime: TimeOfDay(hour: e.hour, minute: e.minute),
     );
     if (time == null) return;
-    await ScheduleService.instance.update(
-        e.copyWith(hour: time.hour, minute: time.minute));
+    final updated = e.copyWith(hour: time.hour, minute: time.minute);
+    await ScheduleService.instance.update(updated);
+    // Saat değişti — alarmı yeniden kur.
+    if (e.id != null && updated.enabled) {
+      await ScheduleService.instance.cancelAlarm(e.id!);
+      await ScheduleService.instance.setAlarm(updated);
+    }
     await _load();
   }
 

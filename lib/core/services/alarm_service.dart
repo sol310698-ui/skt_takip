@@ -69,10 +69,13 @@ class AlarmService {
       playSound: false, // sesi kendimiz AudioPlayer ile çalıyoruz
       enableVibration: false, // titreşimi kendimiz yönetiyoruz
     );
-    await _plugin
+    final androidImpl = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+            AndroidFlutterLocalNotificationsPlugin>();
+    await androidImpl?.createNotificationChannel(channel);
+    // İzinleri iste: bildirim + tam zamanlı alarm.
+    await androidImpl?.requestNotificationsPermission();
+    await androidImpl?.requestExactAlarmsPermission();
 
     _initialized = true;
   }
