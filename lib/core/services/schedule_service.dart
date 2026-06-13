@@ -138,6 +138,17 @@ class ScheduleService {
     );
   }
 
+  Future<void> cancelAlarm(int entryId) async {
+    await AndroidAlarmManager.cancel(alarmId(entryId));
+  }
+
+  /// Tüm aktif kalemler için alarmları kurar.
+  Future<void> setAllAlarms(List<ScheduleEntry> entries) async {
+    for (final e in entries.where((x) => x.enabled)) {
+      await setAlarm(e);
+    }
+  }
+
   // ── Mesai çıkış alarmı ──────────────────────────────────────────────
   static int shiftAlarmId(int shiftId) => 800000 + shiftId;
 
