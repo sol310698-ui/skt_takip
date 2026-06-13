@@ -7,12 +7,25 @@ import 'package:intl/intl.dart';
 
 import '../../core/services/alarm_service.dart';
 import '../../core/theme/app_theme.dart';
+import 'shift_screen.dart';
 
-/// Alarm çaldığında açılan tam ekran modern ekran.
-/// Saat, tarih, kayan "Kaydır ve kapat" butonu, ertele.
+/// Alarm caldiginda acilan tam ekran modern ekran.
+/// Saat, tarih, kayan "Kaydir ve kapat" butonu, ertele.
 class AlarmRingScreen extends StatefulWidget {
-  final RingingAlarm alarm;
-  const AlarmRingScreen({super.key, required this.alarm});
+  final int alarmId;
+  final String title;
+  final String body;
+  final bool isShift;
+  final int? shiftId;
+
+  const AlarmRingScreen({
+    super.key,
+    required this.alarmId,
+    required this.title,
+    required this.body,
+    this.isShift = false,
+    this.shiftId,
+  });
 
   @override
   State<AlarmRingScreen> createState() => _AlarmRingScreenState();
@@ -50,40 +63,45 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     super.dispose();
   }
 
-  /// Alarm ekranını kapat. Uygulamayı açmak yerine arka plana atar
-  /// (kilit ekranındaysa kilit ekranına geri döner).
+  /// Alarm ekranini kapat. Uygulamayi acmak yerine arka plana atar.
   void _closeAlarm() {
     if (!mounted) return;
-    // Önce alarm ekranını route'tan kaldır.
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
-    // Sonra uygulamayı arka plana at — ana ekran/kilit ekranına dön.
     SystemNavigator.pop();
   }
 
-  void _dismiss() {
-    AlarmService.instance.dismiss(widget.alarm.id);
+  Future<void> _dismiss() async {
+    await AlarmService.stop(widget.alarmId);
     _closeAlarm();
   }
 
-  void _snooze() {
-    AlarmService.instance.snooze(widget.alarm);
+  /// 5 dakika ertele: alarmi durdur, yeni alarmi 5 dk sonraya kur.
+  Future<void> _snooze() async {
+    await AlarmService.stop(widget.alarmId);
+    await AlarmService.setAlarmAt(
+      id: widget.alarmId,
+      when: DateTime.now().add(const Duration(minutes: 5)),
+      title: widget.title,
+      body: widget.body,
+    );
     _closeAlarm();
   }
 
-  void _shiftFinish() {
-    // Çıkış akışı (foto+konum) için uygulamada KAL, arka plana atma.
-    AlarmService.instance.dismiss(widget.alarm.id);
-    AlarmService.onShiftFinishRequested?.call(widget.alarm.refId ?? 0);
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
+  Future<void> _shiftFinish() async {
+    await AlarmService.stop(widget.alarmId);
+    if (!mounted) return;
+    // Cikis ekranina yonlendir (uygulamada kal).
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ShiftScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isShift = widget.alarm.kind == AlarmKind.shiftCheckout;
+    final isShift = widget.isShift;
     final accent = isShift ? AppTheme.coral : AppTheme.primary;
 
     return PopScope(
@@ -201,18 +219,18 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 32),
                   child: Text(
-                    widget.alarm.title,
+                    widget.title,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontSize: 22, fontWeight: FontWeight.w700),
                   ),
                 ),
-                if (widget.alarm.body.isNotEmpty) ...[
+                if (widget.body.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40),
                     child: Text(
-                      widget.alarm.body,
+                      widget.body,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                           fontSize: 14, color: AppTheme.textSecondary),

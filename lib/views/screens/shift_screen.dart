@@ -4,7 +4,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
-import '../../core/services/alarm_service.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -23,25 +22,6 @@ class ShiftScreen extends ConsumerStatefulWidget {
 
 class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // Alarm "Çıkış Yap" aksiyonu → otomatik çıkış akışı.
-    AlarmService.onShiftFinishRequested = (shiftId) async {
-      if (!mounted) return;
-      final open = await ref.read(shiftRepositoryProvider).getOpenShift();
-      if (open != null && open.id == shiftId) {
-        await _clockOut(open);
-      }
-    };
-  }
-
-  @override
-  void dispose() {
-    AlarmService.onShiftFinishRequested = null;
-    super.dispose();
-  }
 
   Future<Position?> _getLocation() async {
     try {

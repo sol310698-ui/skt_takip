@@ -105,31 +105,39 @@ class ScheduleService {
   }
 
   // ════════════════════════════════════════════════════════════════════
-  //  ALARM KURMA — flutter_local_notifications zonedSchedule + fullScreen
-  //  (android_alarm_manager_plus KULLANILMIYOR; zonedSchedule sistem
-  //   tarafından zamanlanır, ayrı isolate/callback gerektirmez, güvenilir.)
+  //  ALARM KURMA — "alarm" paketi (native, kilit ekraninda calisir)
+  //  Haftalik tekrar paket tarafindan desteklenmedigi icin, alarm
+  //  caldiginda main.dart bir sonraki haftaya yeniden kurar.
   // ════════════════════════════════════════════════════════════════════
 
   static int alarmId(int entryId) => 700000 + entryId;
   static int shiftAlarmId(int shiftId) => 800000 + shiftId;
 
-  /// Haftalık tekrarlı alarm kur — her hafta o gün/saat çalar.
+  /// Bir sonraki [weekday] gununun [hour]:[minute] anini hesaplar.
+  static DateTime nextOccurrence(int weekday, int hour, int minute) {
+    final now = DateTime.now();
+    var d = DateTime(now.year, now.month, now.day, hour, minute);
+    while (d.weekday != weekday || d.isBefore(now)) {
+      d = d.add(const Duration(days: 1));
+      d = DateTime(d.year, d.month, d.day, hour, minute);
+    }
+    return d;
+  }
+
+  /// Haftalik alarmi kur (bir sonraki o gun/saate).
   Future<void> setAlarm(ScheduleEntry e) async {
     if (e.id == null) return;
-    await AlarmService.instance.scheduleWeekly(
+    final when = nextOccurrence(e.weekday, e.hour, e.minute);
+    await AlarmService.setAlarmAt(
       id: alarmId(e.id!),
-      weekday: e.weekday,
-      hour: e.hour,
-      minute: e.minute,
-      title: e.label ?? 'Mesai Zamanı',
-      body: '${weekdayNames[e.weekday - 1]} • ${e.timeStr}',
-      kind: AlarmKind.schedule,
-      refId: e.id!,
+      when: when,
+      title: e.label ?? 'Mesai Zamani',
+      body: '${weekdayNames[e.weekday - 1]} - ${e.timeStr}',
     );
   }
 
   Future<void> cancelAlarm(int entryId) async {
-    await AlarmService.instance.cancelScheduled(alarmId(entryId));
+    await AlarmService.stop(alarmId(entryId));
   }
 
   Future<void> setAllAlarms(List<ScheduleEntry> entries) async {
@@ -138,35 +146,46 @@ class ScheduleService {
     }
   }
 
-  /// Test: 10 saniye sonra alarm çalar (teşhis için).
+  /// Test: 10 saniye sonra alarm calar.
   Future<void> testAlarmIn10s() async {
-    await AlarmService.instance.scheduleOnceAfter(
+    await AlarmService.setAlarmAt(
       id: 999999,
-      delay: const Duration(seconds: 10),
-      title: 'Test Alarmı ✓',
-      body: 'Alarm sistemi çalışıyor!',
-      kind: AlarmKind.schedule,
+      when: DateTime.now().add(const Duration(seconds: 10)),
+      title: 'Test Alarmi',
+      body: 'Alarm sistemi calisiyor!',
     );
   }
 
-  // ── Mesai çıkış alarmı (giriş + 9 saat) ──────────────────────────────
+  // ── Mesai cikis alarmi (giris + 9 saat) ──────────────────────────────
   Future<void> setShiftCheckoutAlarm({
     required int shiftId,
     required DateTime clockIn,
   }) async {
     final when = clockIn.add(const Duration(hours: 9));
     if (when.isBefore(DateTime.now())) return;
-    await AlarmService.instance.scheduleAt(
+    await AlarmService.setAlarmAt(
       id: shiftAlarmId(shiftId),
       when: when,
-      title: 'Mesai Çıkışı',
-      body: 'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
-      kind: AlarmKind.shiftCheckout,
-      refId: shiftId,
+      title: 'Mesai Cikisi',
+      body: 'Cikis yapmayi unutma! Mesain bitti gibi gorunuyor.',
     );
   }
 
   Future<void> cancelShiftCheckoutAlarm(int shiftId) async {
-    await AlarmService.instance.cancelScheduled(shiftAlarmId(shiftId));
+    await AlarmService.stop(shiftAlarmId(shiftId));
+  }
+
+  /// Alarm caldiginda haftalik tekrar icin yeniden kur.
+  /// (Sadece schedule alarmlari icin; mesai alarmi tek seferlik.)
+  Future<void> rescheduleIfWeekly(int firedAlarmId) async {
+    if (firedAlarmId < 700000 || firedAlarmId >= 800000) return;
+    final entryId = firedAlarmId - 700000;
+    final all = await getAll();
+    for (final e in all) {
+      if (e.id == entryId && e.enabled) {
+        await setAlarm(e);
+        return;
+      }
+    }
   }
 }

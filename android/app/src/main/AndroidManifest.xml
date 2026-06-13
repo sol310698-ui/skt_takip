@@ -20,16 +20,15 @@
 
     <!-- Bildirimler (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Tam zamanlı alarm (zonedSchedule exact) -->
-    <!-- SCHEDULE_EXACT_ALARM: kullanıcı onaylı, "Alarmlar ve hatırlatıcılar"
-         listesinde görünür. USE_EXACT_ALARM kaldırıldı çünkü o izin varken
-         Samsung uygulamayı onay listesinden gizliyordu. -->
+    <!-- "alarm" paketi gereksinimleri (kilit ekrani alarmi) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Kilit ekranında tam ekran alarm + ekranı uyandırma -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
 
     <application

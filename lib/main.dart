@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,11 +9,12 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/schedule_service.dart';
 import 'core/theme/app_theme.dart';
 import 'views/screens/alarm_ring_screen.dart';
 import 'views/screens/main_shell.dart';
 
-/// Global navigator — alarm çaldığında ekranı açmak için.
+/// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
@@ -23,18 +25,13 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.light,
   ));
 
+  // Alarm paketini baslat (kilit ekrani alarmi icin).
+  await AlarmService.init();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
-  // Servisleri arka planda başlat.
+  // Bildirim servisini arka planda baslat.
   NotificationService.instance.init();
-  AlarmService.instance.init();
-  // İlk frame sonrası: uygulama bir alarmla açıldıysa ekranı göster.
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    await AlarmService.instance.init();
-    await Future.delayed(const Duration(milliseconds: 300));
-    await AlarmService.instance.checkLaunchedByAlarm();
-  });
 }
 
 class SktTakipApp extends StatefulWidget {
@@ -45,25 +42,43 @@ class SktTakipApp extends StatefulWidget {
 }
 
 class _SktTakipAppState extends State<SktTakipApp> {
-  StreamSubscription<RingingAlarm>? _alarmSub;
+  StreamSubscription? _ringSub;
 
   @override
   void initState() {
     super.initState();
-    // Alarm çaldığında tam ekran alarm ekranını aç.
-    _alarmSub = AlarmService.instance.onAlarmRing.listen((alarm) {
-      final nav = navigatorKey.currentState;
-      if (nav == null) return;
-      nav.push(MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => AlarmRingScreen(alarm: alarm),
-      ));
+    // Alarm caldiginda: kendi alarm ekranimizi ac + haftalik tekrar kur.
+    _ringSub = Alarm.ringing.listen((alarmSet) {
+      for (final alarm in alarmSet.alarms) {
+        _onAlarmRing(alarm.id, alarm.notificationSettings.title,
+            alarm.notificationSettings.body);
+      }
     });
+  }
+
+  void _onAlarmRing(int id, String title, String body) {
+    // Haftalik program alarmiysa bir sonraki haftaya yeniden kur.
+    ScheduleService.instance.rescheduleIfWeekly(id);
+
+    // Kendi modern alarm ekranimizi goster.
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    final isShift = id >= 800000 && id < 900000;
+    nav.push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => AlarmRingScreen(
+        alarmId: id,
+        title: title,
+        body: body,
+        isShift: isShift,
+        shiftId: isShift ? id - 800000 : null,
+      ),
+    ));
   }
 
   @override
   void dispose() {
-    _alarmSub?.cancel();
+    _ringSub?.cancel();
     super.dispose();
   }
 
