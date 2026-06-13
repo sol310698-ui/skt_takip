@@ -51,18 +51,24 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
 
   void _dismiss() {
     AlarmService.instance.dismiss(widget.alarm.id);
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   void _snooze() {
     AlarmService.instance.snooze(widget.alarm);
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   void _shiftFinish() {
     AlarmService.instance.dismiss(widget.alarm.id);
     AlarmService.onShiftFinishRequested?.call(widget.alarm.refId ?? 0);
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -309,7 +315,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
                           });
                         },
                         onHorizontalDragEnd: (_) {
-                          if (_slideValue > 0.85) {
+                          if (_slideValue > 0.7) {
                             _dismiss();
                           } else {
                             setState(() => _slideValue = 0);

@@ -84,6 +84,38 @@ class AlarmService {
     _initialized = true;
   }
 
+  /// Uygulama bir alarm bildirimi/fullScreenIntent ile açıldıysa,
+  /// alarm ekranını göstermek için stream'e ekler. init sonrası çağrılır.
+  Future<void> checkLaunchedByAlarm() async {
+    await init();
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details?.didNotificationLaunchApp ?? false) {
+      final payload = details!.notificationResponse?.payload;
+      final alarm = _parsePayload(payload);
+      if (alarm != null) {
+        // Ses+titreşim hâlâ çalıyor olmalı; ekranı aç.
+        _ringController.add(alarm);
+      }
+    }
+  }
+
+  RingingAlarm? _parsePayload(String? payload) {
+    if (payload == null) return null;
+    final parts = payload.split(':');
+    if (parts.length < 2) return null;
+    final id = int.tryParse(parts[1]) ?? 0;
+    final refId = parts.length > 2 ? int.tryParse(parts[2]) : null;
+    return RingingAlarm(
+      id: id,
+      title: parts[0] == 'shiftCheckout' ? 'Mesai Çıkışı' : 'Alarm',
+      body: '',
+      kind: parts[0] == 'shiftCheckout'
+          ? AlarmKind.shiftCheckout
+          : AlarmKind.schedule,
+      refId: refId,
+    );
+  }
+
   /// Tam ekran alarm bildirimi göster + ses + titreşim başlat.
   Future<void> fireAlarm(RingingAlarm alarm) async {
     await init();

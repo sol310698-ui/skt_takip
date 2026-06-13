@@ -29,6 +29,12 @@ Future<void> main() async {
   // Servisleri arka planda başlat.
   NotificationService.instance.init();
   AlarmService.instance.init();
+  // İlk frame sonrası: uygulama bir alarmla açıldıysa ekranı göster.
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await AlarmService.instance.init();
+    await Future.delayed(const Duration(milliseconds: 300));
+    await AlarmService.instance.checkLaunchedByAlarm();
+  });
 }
 
 class SktTakipApp extends StatefulWidget {
