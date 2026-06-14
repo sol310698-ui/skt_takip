@@ -105,8 +105,10 @@ class _ScannerScreenState extends State<ScannerScreen>
   Future<void> _capture() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized || _capturing) return;
+    if (c.value.isTakingPicture) return;
     setState(() => _capturing = true);
     try {
+      // Flas durumunu koru, net cekim icin odaklan.
       final shot = await c.takePicture();
       final bytes = await shot.readAsBytes();
       final cropped = await _cropToFrame(bytes);
