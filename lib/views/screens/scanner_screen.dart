@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -109,12 +110,14 @@ class _ScannerScreenState extends State<ScannerScreen>
       final shot = await c.takePicture();
       final bytes = await shot.readAsBytes();
       if (!mounted) return;
+      final cropped = await _cropCenterBand(bytes);
+      if (!mounted) return;
       setState(() => _capturing = false);
 
       // Tam ekran sayfa: yatay foto + tarih girisi.
       final result = await Navigator.of(context).push<DateTime>(
         MaterialPageRoute(
-          builder: (_) => _PhotoDateScreen(photo: bytes),
+          builder: (_) => _PhotoDateScreen(photo: cropped ?? bytes),
         ),
       );
       if (!mounted) return;
@@ -124,6 +127,36 @@ class _ScannerScreenState extends State<ScannerScreen>
       // Iptal: kamera zaten canli, ekstra is gerekmez.
     } catch (_) {
       if (mounted) setState(() => _capturing = false);
+    }
+  }
+
+  /// Cekilen foto'nun MERKEZ yatay bandini kirpar (cerceveye denk gelen yer).
+  /// Cerceve ekranda yatay genis bir bant; foto'nun ortasini alir.
+  Future<Uint8List?> _cropCenterBand(Uint8List jpeg) async {
+    try {
+      final decoded = img.decodeImage(jpeg);
+      if (decoded == null) return null;
+      // EXIF yonelimini duzelt (telefon foto'lari donuk gelebilir).
+      final oriented = img.bakeOrientation(decoded);
+      final w = oriented.width;
+      final h = oriented.height;
+
+      // Cerceve orani: ekranda genislik %96, yukseklik genisligin %50'si.
+      // Foto'da: tam genislik, ortada o orana denk yukseklikte bant.
+      // Biraz pay birak (tarih + ust/alt satir icin).
+      final bandH = (w * 0.62).round().clamp(1, h); // yatay bant yuksekligi
+      final top = ((h - bandH) / 2).round().clamp(0, h - 1);
+
+      final cropped = img.copyCrop(
+        oriented,
+        x: 0,
+        y: top,
+        width: w,
+        height: bandH,
+      );
+      return Uint8List.fromList(img.encodeJpg(cropped, quality: 92));
+    } catch (_) {
+      return null;
     }
   }
 
