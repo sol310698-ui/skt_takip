@@ -62,8 +62,8 @@ class AlarmService {
     final settings = AlarmSettings(
       id: id,
       dateTime: when,
-      // alarm.mp3 eklendiyse onu, yoksa mevcut beep sesini kullan.
-      assetAudioPath: 'assets/sounds/beep_product.wav',
+      // Gercek alarm sesi.
+      assetAudioPath: 'assets/sounds/alarm.mp3',
       loopAudio: true,
       vibrate: true,
       warningNotificationOnKill: false,
