@@ -34,6 +34,10 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _torchOn = false;
   final GlobalKey _previewKey = GlobalKey();
 
+  // Foto cekilince uygulanacak otomatik zoom — secim hafizada kalir.
+  static double _preferredZoom = 2.0;
+  static const List<double> _zoomLevels = [1, 2, 3, 4];
+
   @override
   void initState() {
     super.initState();
@@ -119,10 +123,11 @@ class _ScannerScreenState extends State<ScannerScreen>
       _controller = null;
       if (mounted) setState(() {});
 
-      // Tam ekran sayfa: yatay foto + tarih girisi.
+      // Tam ekran sayfa: yatay foto + tarih girisi (secili zoom ile).
       final result = await Navigator.of(context).push<DateTime>(
         MaterialPageRoute(
-          builder: (_) => _PhotoDateScreen(photo: cropped ?? bytes),
+          builder: (_) =>
+              _PhotoDateScreen(photo: cropped ?? bytes, initialZoom: _preferredZoom),
         ),
       );
       if (!mounted) return;
@@ -265,6 +270,57 @@ class _ScannerScreenState extends State<ScannerScreen>
                         fontSize: 15,
                         fontWeight: FontWeight.w700),
                   ),
+                ),
+              ),
+            ),
+
+          // ── Sol ust: otomatik zoom secici (foto cekilince uygulanir) ──
+          if (ready)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 2),
+                      child: Icon(Icons.zoom_in_rounded,
+                          color: Colors.white70, size: 18),
+                    ),
+                    ..._zoomLevels.map((z) {
+                      final active = _preferredZoom == z;
+                      return GestureDetector(
+                        onTap: () => setState(() => _preferredZoom = z),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 2),
+                          width: 38,
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: active
+                                ? AppTheme.primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            '${z.toInt()}x',
+                            style: TextStyle(
+                              color: active ? Colors.white : Colors.white60,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),
@@ -664,7 +720,8 @@ class _DateInputFormatter extends TextInputFormatter {
 /// ════════════════════════════════════════════════════════════════════
 class _PhotoDateScreen extends StatefulWidget {
   final Uint8List photo;
-  const _PhotoDateScreen({required this.photo});
+  final double initialZoom;
+  const _PhotoDateScreen({required this.photo, this.initialZoom = 1.0});
 
   @override
   State<_PhotoDateScreen> createState() => _PhotoDateScreenState();
@@ -676,7 +733,15 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
   DateTime? _parsed;
   bool _entering = false; // false: foto+Devam, true: tarih girisi
   double _zoom = 1.0;
+  Size _viewport = Size.zero;
   static const List<double> _zoomLevels = [1, 2, 3, 4];
+
+  @override
+  void initState() {
+    super.initState();
+    _zoom = widget.initialZoom;
+    // Otomatik zoom, viewport boyutu hazir olunca LayoutBuilder'da uygulanir.
+  }
 
   @override
   void dispose() {
@@ -685,10 +750,19 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
     super.dispose();
   }
 
-  void _setZoom(double z) {
+  /// Zoom'u gorselin MERKEZINE odakli uygular.
+  void _applyZoom(double z) {
     setState(() => _zoom = z);
-    // Merkezden zoom uygula.
-    _tc.value = Matrix4.identity()..scale(z);
+    if (_viewport == Size.zero) {
+      _tc.value = Matrix4.identity()..scale(z);
+      return;
+    }
+    // Merkez nokta etrafinda olcekle: translate(-merkez*(z-1)), scale(z).
+    final cx = _viewport.width / 2;
+    final cy = _viewport.height / 2;
+    _tc.value = Matrix4.identity()
+      ..translate(-cx * (z - 1), -cy * (z - 1))
+      ..scale(z);
   }
 
   void _parse() {
@@ -724,7 +798,7 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
               children: _zoomLevels.map((z) {
                 final active = _zoom == z;
                 return GestureDetector(
-                  onTap: () => _setZoom(z),
+                  onTap: () => _applyZoom(z),
                   child: Container(
                     margin: const EdgeInsets.symmetric(horizontal: 3),
                     padding: const EdgeInsets.symmetric(
@@ -760,24 +834,39 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
               padding: const EdgeInsets.all(8),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child: InteractiveViewer(
-                  transformationController: _tc,
-                  minScale: 1,
-                  maxScale: 6,
-                  onInteractionEnd: (_) {
-                    // Pinch ile degisen zoom'u butonlara yansit.
-                    final s = _tc.value.getMaxScaleOnAxis();
-                    if ((s - _zoom).abs() > 0.05) {
-                      setState(() => _zoom = s);
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final newSize =
+                        Size(constraints.maxWidth, constraints.maxHeight);
+                    if (newSize != _viewport) {
+                      _viewport = newSize;
+                      // Boyut hazir olunca otomatik zoom'u uygula.
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (_zoom > 1.0 &&
+                            _tc.value.getMaxScaleOnAxis() == 1.0) {
+                          _applyZoom(_zoom);
+                        }
+                      });
                     }
+                    return InteractiveViewer(
+                      transformationController: _tc,
+                      minScale: 1,
+                      maxScale: 6,
+                      onInteractionEnd: (_) {
+                        final s = _tc.value.getMaxScaleOnAxis();
+                        if ((s - _zoom).abs() > 0.05) {
+                          setState(() => _zoom = s);
+                        }
+                      },
+                      child: RotatedBox(
+                        quarterTurns: 3, // alt kisim sola (saat tersi 90°)
+                        child: Image.memory(
+                          widget.photo,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    );
                   },
-                  child: RotatedBox(
-                    quarterTurns: 3, // alt kisim sola (saat tersi 90°)
-                    child: Image.memory(
-                      widget.photo,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
                 ),
               ),
             ),
