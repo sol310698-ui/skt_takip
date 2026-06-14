@@ -2,81 +2,24 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/date_utils.dart' as du;
 
-/// Canli OCR islem hizi profilleri.
-/// throttleMs dusuk + boxDivider buyuk = daha hizli/tepkisel ama daha cok
-/// CPU/pil. Kullanici sag ustteki ayardan secer.
-enum _ScanSpeed {
-  fast,
-  normal,
-  battery;
-
-  /// Iki isleme arasi minimum sure (ms). Dusuk = daha sik = daha hizli.
-  int get throttleMs {
-    switch (this) {
-      case _ScanSpeed.fast:    return 250;
-      case _ScanSpeed.normal:  return 450;
-      case _ScanSpeed.battery: return 700;
-    }
-  }
-
-  /// Oylama icin tutulan kare sayisi. Az = daha az is.
-  int get maxRecentTexts {
-    switch (this) {
-      case _ScanSpeed.fast:    return 3;
-      case _ScanSpeed.normal:  return 4;
-      case _ScanSpeed.battery: return 5;
-    }
-  }
-
-  /// Tarama kutusu yuksekligi boleni. Buyuk = dar serit = az piksel = hizli.
-  double get boxDivider {
-    switch (this) {
-      case _ScanSpeed.fast:    return 3.5;
-      case _ScanSpeed.normal:  return 3.0;
-      case _ScanSpeed.battery: return 3.0;
-    }
-  }
-
-  String get label {
-    switch (this) {
-      case _ScanSpeed.fast:    return 'Hızlı';
-      case _ScanSpeed.normal:  return 'Normal';
-      case _ScanSpeed.battery: return 'Pil Dostu';
-    }
-  }
-
-  String get hint {
-    switch (this) {
-      case _ScanSpeed.fast:    return 'En tepkisel · daha çok pil';
-      case _ScanSpeed.normal:  return 'Dengeli (önerilen)';
-      case _ScanSpeed.battery: return 'Yavaş · pil tasarrufu';
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case _ScanSpeed.fast:    return Icons.bolt_rounded;
-      case _ScanSpeed.normal:  return Icons.speed_rounded;
-      case _ScanSpeed.battery: return Icons.battery_saver_rounded;
-    }
-  }
-}
-
-/// Canli SKT tarama. Karasizlik cozumu:
-/// - Acilista once kamera iznini al + kisa isitma gecikmesi (kasma fix)
-/// - Her yeni taramada ValueKey degistir (eski veri/state sifirlanir)
-/// - Throttle (buffer dolmasin)
-/// - Cift dogrulama (yanlis pozitif/eski veri azalt)
+/// ════════════════════════════════════════════════════════════════════
+///  SKT TARA — basit, gorme dostu manuel tarih okuma ekrani.
+///
+///  Akis: kamera canli onizleme -> kullanici tarihi cerceveye getirir ->
+///  "Fotograf Cek" -> cerceve ici kirpilir, buyutulur -> kullanici tarihi
+///  elle girer. Otomatik OCR YOK (donma/karmaşa kaynagiydi).
+///
+///  Kamera yonetimi tamamen "camera" paketi ile, net yasam dongusu:
+///  initState -> init, dispose -> birak, app arka plan -> duraklat/devam.
+/// ════════════════════════════════════════════════════════════════════
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
 
@@ -84,398 +27,249 @@ class ScannerScreen extends StatefulWidget {
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
-  // Her sifirlamada degisir -> ScalableOCR tamamen yeniden kurulur (stale fix)
-  int _scanSession = 0;
-
-  bool _ready = false;
-
-  DateTime? _detected;
-  bool _done = false;
-
-  // Tarih okundugunda kamera bolgesinin yakalanmis goruntusu (kanit).
-  final GlobalKey _captureKey = GlobalKey();
-  Uint8List? _capturedFrame;
-
-  DateTime _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
-
-  // Islem hizi - kullanici sag ustteki ayardan secer.
-  // throttle dusuk = daha sik isleme = daha hizli ama daha cok CPU/pil.
-  _ScanSpeed _speed = _ScanSpeed.normal;
-  int get _throttleMs => _speed.throttleMs;
+class _ScannerScreenState extends State<ScannerScreen>
+    with WidgetsBindingObserver {
+  CameraController? _controller;
+  Future<void>? _initFuture;
+  bool _capturing = false;
+  bool _torchOn = false;
+  final GlobalKey _previewKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _prepare();
-  }
-
-  /// Kamera hazirlanmasi icin kisa gecikme, sonra OCR baslatilir.
-  Future<void> _prepare() async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (mounted) setState(() => _ready = true);
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
   }
 
   @override
   void dispose() {
-    // ScalableOCR kendi kamera kaynagini, agactan kaldirilinca birakir.
-    // _ready=false yaparak widget'in kesin sokuldugunden emin ol.
-    _ready = false;
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
     super.dispose();
   }
 
-  // Son karelerin metinlerini biriktir (coklu kare oylamasi icin)
-  final List<String> _recentTexts = [];
-  int get _maxRecentTexts => _speed.maxRecentTexts;
-
-  // Sifirlamadan beri islenen kare sayisi (adaptif esik icin).
-  int _framesSinceReset = 0;
-
-  void _onScannedText(String value) {
-    if (_done) return;
-
-    final now = DateTime.now();
-    if (now.difference(_lastProcess).inMilliseconds < _throttleMs) return;
-    _lastProcess = now;
-
-    if (value.trim().isEmpty) return;
-    _framesSinceReset++;
-
-    // Son kareleri biriktir.
-    _recentTexts.add(value);
-    if (_recentTexts.length > _maxRecentTexts) {
-      _recentTexts.removeAt(0);
-    }
-
-    // 1) Tek karede cok guclu bir aday varsa hemen kabul et.
-    final single = du.DateUtils.parseAllCandidates(value);
-    if (single.isNotEmpty && single.first.score >= 80) {
-      _accept(single.first.date);
-      return;
-    }
-
-    // 2) Coklu kareden oylama + ADAPTIF esik:
-    // Ilk karelerde katiyiz (yanlis kabul olmasin); etiket zor okunuyorsa
-    // (kare sayisi artiyor ama kabul yok) esigi kademeli dusur.
-    // Dusuk esikler YALNIZCA gelecekteki tarihler icin gecerli —
-    // gecmis tarihler (muhtemel uretim tarihi) hep yuksek esik ister.
-    final best = du.DateUtils.bestCandidateFromMultiple(_recentTexts);
-    if (best == null) return;
-
-    final isFuture = du.DateUtils.daysUntil(best.date) >= 0;
-    final int need;
-    if (_framesSinceReset <= 3) {
-      need = 100; // baslangic: katı
-    } else if (_framesSinceReset <= 7) {
-      need = isFuture ? 75 : 100; // zorlaniyor: biraz esnet
-    } else {
-      need = isFuture ? 55 : 90; // cok zorlaniyor: gelecek tarihe guven
-    }
-
-    if (best.score >= need) {
-      _accept(best.date);
+  // Uygulama arka plana gidince kamerayi birak, donunce yeniden kur.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      c.dispose();
+      _controller = null;
+      if (mounted) setState(() {});
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
     }
   }
 
-  void _accept(DateTime date) {
-    // Kameranin hala ekranda oldugu bu anda frame'i yakala,
-    // SONRA done=true yaparak kamerayi kapat.
-    // (Eski: fire-and-forget cagri, widget kapaninca boundary null doner.)
-    _captureAndAccept(date);
-  }
-
-  Future<void> _captureAndAccept(DateTime date) async {
-    // Frame'i onceden yakala (kamera hala goruntuleniyor).
-    await _captureFrame();
-    if (!mounted) return;
-    setState(() {
-      _detected = date;
-      _done = true;
-    });
-  }
-
-  /// RepaintBoundary'den o anki kamera bolgesini yakalar, mavi tarama
-  /// kutusunun ic bolgesini KIRPAR ve buyutur (gorme dostu okuma icin).
-  Future<void> _captureFrame() async {
+  Future<void> _initCamera() async {
     try {
-      final boundary = _captureKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null) return;
-      const pr = 2.5; // yuksek cozunurluk yakala (buyutunce net kalsin)
-      final full = await boundary.toImage(pixelRatio: pr);
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
+      // Arka kamerayi sec.
+      final back = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
+      final controller = CameraController(
+        back,
+        ResolutionPreset.high,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+      _initFuture = controller.initialize();
+      await _initFuture;
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+    } catch (_) {
+      // Kamera acilamadi — kullanici elle girebilir.
+    }
+  }
 
-      final fw = full.width.toDouble();
-      final fh = full.height.toDouble();
+  Future<void> _toggleTorch() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    try {
+      _torchOn = !_torchOn;
+      await c.setFlashMode(_torchOn ? FlashMode.torch : FlashMode.off);
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
 
-      // Mavi kutunun widget icindeki oranlari:
-      //  - yatay: kenarlardan %5'er off => orta %90
-      //  - dikey: kutu yuksekligi = ekranYuksekligi / boxDivider,
-      //           widget ortasinda konumlu.
-      final screenH = MediaQuery.of(context).size.height;
-      final widgetH = boundary.size.height; // ScalableOCR widget yuksekligi
-      final boxH = screenH / _speed.boxDivider;
-      // Kutu yuksekligi oraninu widget'a gore hesapla, biraz pay birak.
-      var vFrac = (boxH / widgetH).clamp(0.12, 0.6);
-      // Biraz dikey pay ekle (ust/alt yazi kesilmesin).
-      vFrac = (vFrac * 1.6).clamp(0.12, 0.8);
+  /// Fotograf cek: cerceve ici bolgeyi kirp, buyut, manuel giris penceresi ac.
+  Future<void> _capture() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || _capturing) return;
+    setState(() => _capturing = true);
+    try {
+      final shot = await c.takePicture();
+      final bytes = await shot.readAsBytes();
+      final cropped = await _cropToFrame(bytes);
+      if (!mounted) return;
+      setState(() => _capturing = false);
 
-      final cropW = fw * 0.9; // yatay %90
-      final cropH = fh * vFrac;
-      final cropL = fw * 0.05;
-      final cropT = (fh - cropH) / 2; // dikey ortala
+      final result = await showModalBottomSheet<DateTime>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _ManualCaptureSheet(frame: cropped ?? bytes),
+      );
+      if (!mounted) return;
+      if (result != null) {
+        Navigator.of(context).pop(result);
+      }
+      // Iptal: kamera zaten canli, ekstra is gerekmez.
+    } catch (_) {
+      if (mounted) setState(() => _capturing = false);
+    }
+  }
 
-      // Kirpilan bolgeyi yeni bir image'a ciz.
+  /// Cekilen tam foto'dan, ekrandaki cerceveye denk gelen orta bandi kirpar.
+  /// Cerceve: yatay %90, dikey orta ~%30 (tarih satiri icin yeterli).
+  Future<Uint8List?> _cropToFrame(Uint8List jpeg) async {
+    try {
+      final codec = await ui.instantiateImageCodec(jpeg);
+      final frame = await codec.getNextFrame();
+      final img = frame.image;
+      final w = img.width.toDouble();
+      final h = img.height.toDouble();
+
+      // Cerceve oranlari (onizlemedeki kutuyla uyumlu).
+      const hFrac = 0.9; // yatay %90
+      const vFrac = 0.32; // dikey %32 orta bant
+      final cropW = w * hFrac;
+      final cropH = h * vFrac;
+      final cropL = (w - cropW) / 2;
+      final cropT = (h - cropH) / 2;
+
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
       final src = Rect.fromLTWH(cropL, cropT, cropW, cropH);
       final dst = Rect.fromLTWH(0, 0, cropW, cropH);
-      canvas.drawImageRect(full, src, dst, Paint());
-      final picture = recorder.endRecording();
-      final cropped =
-          await picture.toImage(cropW.round(), cropH.round());
-
-      final byteData =
-          await cropped.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData != null && mounted) {
-        setState(() => _capturedFrame = byteData.buffer.asUint8List());
-      }
+      canvas.drawImageRect(img, src, dst, Paint());
+      final pic = recorder.endRecording();
+      final out = await pic.toImage(cropW.round(), cropH.round());
+      final data = await out.toByteData(format: ui.ImageByteFormat.png);
+      return data?.buffer.asUint8List();
     } catch (_) {
-      // Yakalama basarisiz olursa sessizce gec; pencere foto'suz acilir.
+      return null;
     }
   }
 
-  void _confirm() => Navigator.of(context).pop(_detected);
   void _manual() => Navigator.of(context).pop(DateTime(1900));
 
-  /// Islem hizini degistir ve OCR'i yeni ayarla temiz yeniden kur.
-  Future<void> _changeSpeed(_ScanSpeed s) async {
-    if (s == _speed) return;
-    setState(() {
-      _speed = s;
-      _recentTexts.clear();
-      _framesSinceReset = 0;
-      _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
-      _ready = false;       // kamerayi kaldir
-      _scanSession++;       // ScalableOCR'i yeni boxHeight ile yeniden kur
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem hızı: ${s.label}'),
-          duration: const Duration(milliseconds: 900),
-        ),
-      );
-    }
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) setState(() => _ready = true);
-  }
-
-  /// Fotografi cek ve elle gir: cerceveki alanin fotosunu yakalar,
-  /// buyuk gosterip kullanicidan tarihi manuel ister (gorme dostu akis).
-  Future<void> _captureForManual() async {
-    await _captureFrame();
-    if (!mounted) return;
-    final result = await showModalBottomSheet<DateTime>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ManualCaptureSheet(frame: _capturedFrame),
-    );
-    if (!mounted) return;
-    if (result != null) {
-      Navigator.of(context).pop(result);
-    } else {
-      // Iptal: kamera/OCR donmus olabilir -> yeniden kur.
-      setState(() {
-        _capturedFrame = null;
-        _scanSession++;
-      });
-    }
-  }
-
-  /// AI ile oku - 3. kademe. Su an arayuz hazir, baglanti sonra kurulacak.
-  /// Fotograf cekilir, "AI'a gonderiliyor" akisi gosterilir (placeholder).
   Future<void> _openAi() async {
-    final picked = await showModalBottomSheet<DateTime>(
+    final result = await showModalBottomSheet<DateTime>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _AiScanSheet(),
     );
-    if (picked != null && mounted) {
-      Navigator.of(context).pop(picked);
-    }
-  }
-
-  Future<void> _retry() async {
-    // Kamerayi tamamen kapat, kisa bekle, temiz yeniden kur.
-    setState(() {
-      _detected = null;
-      _done = false;
-      _capturedFrame = null; // yakalanan kareyi temizle
-      _lastProcess = DateTime.fromMillisecondsSinceEpoch(0);
-      _recentTexts.clear(); // eski kare metinlerini temizle
-      _framesSinceReset = 0;
-      _ready = false; // kamerayi kaldir (gri kalmayi onler)
-      _scanSession++; // ScalableOCR'i tamamen sifirla (eski veri temizlenir)
-    });
-    // Kamera donaniminin serbest kalmasi icin bekle, sonra yeniden kur.
-    await Future.delayed(const Duration(milliseconds: 350));
-    if (mounted) setState(() => _ready = true);
+    if (result != null && mounted) Navigator.of(context).pop(result);
   }
 
   @override
   Widget build(BuildContext context) {
+    final c = _controller;
+    final ready = c != null && c.value.isInitialized;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        elevation: 0,
         title: const Text('SKT Tara'),
         actions: [
-          PopupMenuButton<_ScanSpeed>(
-            icon: const Icon(Icons.tune_rounded),
-            tooltip: 'İşlem Hızı',
-            color: AppTheme.surfaceHigh,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
-            onSelected: _changeSpeed,
-            itemBuilder: (_) => _ScanSpeed.values.map((s) {
-              final selected = s == _speed;
-              return PopupMenuItem<_ScanSpeed>(
-                value: s,
-                child: Row(
-                  children: [
-                    Icon(s.icon,
-                        size: 18,
-                        color: selected
-                            ? AppTheme.primary
-                            : AppTheme.textSecondary),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(s.label,
-                              style: TextStyle(
-                                  fontWeight: selected
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  color: selected
-                                      ? AppTheme.primary
-                                      : AppTheme.textPrimary)),
-                          Text(s.hint,
-                              style: const TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.textTertiary)),
-                        ],
-                      ),
-                    ),
-                    if (selected)
-                      const Icon(Icons.check_rounded,
-                          size: 16, color: AppTheme.primary),
-                  ],
-                ),
-              );
-            }).toList(),
+          IconButton(
+            icon: Icon(_torchOn
+                ? Icons.flash_on_rounded
+                : Icons.flash_off_rounded),
+            onPressed: ready ? _toggleTorch : null,
+            tooltip: 'Flaş',
           ),
         ],
       ),
-      extendBodyBehindAppBar: true,
       body: Stack(
-        fit: StackFit.expand,
         children: [
-          // Hazir degilse yukleniyor
-          if (!_ready)
+          // ── Kamera onizleme veya yukleniyor ──
+          if (ready)
+            Positioned.fill(
+              child: _CameraPreviewFitted(controller: c),
+            )
+          else
             const Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircularProgressIndicator(color: AppTheme.primary),
-                  SizedBox(height: 12),
+                  SizedBox(height: 16),
                   Text('Kamera hazırlanıyor...',
                       style: TextStyle(color: Colors.white70)),
                 ],
               ),
-            )
-          // Hazir: OCR kamerasi
-          else
+            ),
+
+          // ── Tarama cercevesi (gorsel rehber) ──
+          if (ready)
             Center(
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Kamera + OCR. paintbox saydam -> tespit kutulari ve
-                  // cerceve YAKALANAN foto'ya karismaz.
-                  RepaintBoundary(
-                    key: _captureKey,
-                    child: ScalableOCR(
-                      key: ValueKey('ocr_$_scanSession'),
-                      paintboxCustom: Paint()
-                        ..style = PaintingStyle.stroke
-                        ..strokeWidth = 0.0
-                        ..color = const Color(0x00000000), // tamamen saydam
-                      boxLeftOff: 5,
-                      boxBottomOff: 2.5,
-                      boxRightOff: 5,
-                      boxTopOff: 2.5,
-                      boxHeight: MediaQuery.of(context).size.height /
-                          _speed.boxDivider,
-                      getScannedText: _onScannedText,
-                    ),
-                  ),
-                  // Kendi cercevemiz — sadece ekranda gorunur, foto'ya girmez
-                  // (RepaintBoundary'nin disinda).
-                  IgnorePointer(
-                    child: Container(
-                      width: MediaQuery.of(context).size.width * 0.9,
-                      height: MediaQuery.of(context).size.height /
-                          _speed.boxDivider,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                            color: AppTheme.primary.withOpacity(0.8),
-                            width: 3),
-                        borderRadius: BorderRadius.circular(12),
+              child: IgnorePointer(
+                child: Container(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  height: MediaQuery.of(context).size.width * 0.9 * 0.45,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: AppTheme.primary.withOpacity(0.9), width: 3),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.35),
+                        blurRadius: 0,
+                        spreadRadius: 2000,
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          if (_ready) _buildHint(),
-          if (_ready && !_done) _buildActionBar(),
-          if (_done) _buildResultSheet(),
+
+          // ── Ust ipucu ──
+          if (ready)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.13,
+              left: 24,
+              right: 24,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary,
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: const Text(
+                    'Son kullanma tarihini çerçeveye getirin',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── Alt aksiyon cubugu ──
+          if (ready) _buildActionBar(),
         ],
       ),
     );
   }
 
-  Widget _buildHint() {
-    if (_done) return const SizedBox.shrink();
-    return Positioned(
-      top: MediaQuery.of(context).size.height * 0.14,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          margin: const EdgeInsets.symmetric(horizontal: 40),
-          decoration: BoxDecoration(
-            color: AppTheme.primary.withOpacity(0.92),
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: const Text(
-            'Son kullanma tarihini çerçeveye getirin',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 15),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Alt sabit aksiyon cubugu: kademeli tarama secenekleri (manuel gecis).
   Widget _buildActionBar() {
     return Align(
       alignment: Alignment.bottomCenter,
@@ -491,41 +285,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Otomatik okumuyor mu?',
-                style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 10),
               Row(
                 children: [
-                  // 2. kademe: foto cek + elle gir (gorme dostu)
+                  // Foto cek + elle gir (gorme dostu ana akis)
                   Expanded(
+                    flex: 3,
                     child: FilledButton.icon(
-                      onPressed: _captureForManual,
+                      onPressed: _capturing ? null : _capture,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      icon: const Icon(Icons.photo_camera_rounded, size: 18),
-                      label: const Text('Fotoğraf Çek',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      icon: _capturing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.photo_camera_rounded, size: 20),
+                      label: Text(_capturing ? 'Çekiliyor...' : 'Fotoğraf Çek',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w800)),
                     ),
                   ),
                   const SizedBox(width: 10),
-                  // 3. kademe: AI ile oku
+                  // AI ile oku
                   Expanded(
+                    flex: 2,
                     child: FilledButton.icon(
                       onPressed: _openAi,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.accent.withOpacity(0.2),
                         foregroundColor: AppTheme.accent,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
                       icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                      label: const Text('AI ile Oku',
+                      label: const Text('AI',
                           style: TextStyle(fontWeight: FontWeight.w700)),
                     ),
                   ),
@@ -545,91 +341,34 @@ class _ScannerScreenState extends State<ScannerScreen> {
       ),
     );
   }
+}
 
-  Widget _buildResultSheet() {
-    final dateStr = DateFormat('dd.MM.yyyy').format(_detected!);
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Yakalanan kamera karesi - kullanici tarihi gozle dogrulasin.
-            if (_capturedFrame != null) ...[
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppTheme.rMd),
-                  border: Border.all(
-                      color: AppTheme.statusSafe.withOpacity(0.4),
-                      width: 1.5),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppTheme.rMd),
-                  child: Image.memory(
-                    _capturedFrame!,
-                    width: double.infinity,
-                    fit: BoxFit.contain, // krop yok, tam goruntur
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text('Okunan görüntü — tarihi doğrulayın',
-                  style: TextStyle(
-                      color: AppTheme.textTertiary, fontSize: 12)),
-              const SizedBox(height: 14),
-            ],
-            Icon(
-              _capturedFrame != null
-                  ? Icons.fact_check_rounded
-                  : Icons.check_circle_rounded,
-              color: AppTheme.statusSafe,
-              size: _capturedFrame != null ? 36 : 52,
-            ),
-            const SizedBox(height: 8),
-            const Text('Tarih Bulundu',
-                style: TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 14)),
-            const SizedBox(height: 4),
-            Text(dateStr,
-                style: const TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w900,
-                    color: AppTheme.statusSafe)),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _retry,
-                    child: const Text('Tekrar Tara'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _confirm,
-                    child: const Text('Devam Et'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+/// Kamera onizlemesini ekrani dolduracak sekilde (cover) gosterir.
+class _CameraPreviewFitted extends StatelessWidget {
+  final CameraController controller;
+  const _CameraPreviewFitted({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    // Kamera en-boy oranini koruyarak ekrani doldur (FittedBox cover).
+    return ClipRect(
+      child: OverflowBox(
+        maxWidth: double.infinity,
+        maxHeight: double.infinity,
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: size.width,
+            height: size.width * controller.value.aspectRatio,
+            child: CameraPreview(controller),
+          ),
         ),
       ),
     );
   }
 }
 
-/// 3. kademe: "AI ile Oku" kayan penceresi.
-/// Su an arayuz hazir; gercek AI cagrisi henuz baglanmadi.
-/// Akis: fotograf cek -> "AI'a gonderiliyor" gorunumu -> (placeholder)
-/// sonuc / elle giris. AI baglaninca sadece _sendToAi doldurulacak.
 enum _AiState { idle, captured, sending, done, failed }
 
 class _AiScanSheet extends StatefulWidget {
