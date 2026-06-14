@@ -408,6 +408,19 @@ class PriceChangeService {
     return PriceChangeItem.fromMap(rows.first);
   }
 
+  /// Bir barkodu TUM oturumlarda arar — fiyat degisim gecmisi icin.
+  /// Sonuc en yeni once siralanir (degistirilme/eklenme tarihine gore).
+  Future<List<PriceChangeItem>> lookupBarcodeHistory(String barcode) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(
+      AppConstants.priceChangeTable,
+      where: 'barcode = ?',
+      whereArgs: [barcode.trim()],
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(PriceChangeItem.fromMap).toList();
+  }
+
   /// Kalemi degistirildi isaretle; kanit fotografini KALICI klasore tasir.
   Future<void> markChanged(int id, String tempPhotoPath) async {
     final permanent = await persistPhoto(tempPhotoPath, 'proof_$id');
