@@ -4,13 +4,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_scalable_ocr/flutter_scalable_ocr.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
-import 'precise_scan_screen.dart';
 
 /// Canli OCR islem hizi profilleri.
 /// throttleMs dusuk + boxDivider buyuk = daha hizli/tepkisel ama daha cok
@@ -237,10 +237,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (mounted) setState(() => _ready = true);
   }
 
-  /// Detayli (foto-cek + on isleme) moda gec. Sonuc gelirse onu dondur.
-  Future<void> _openPrecise() async {
-    final result = await Navigator.of(context).push<DateTime>(
-      MaterialPageRoute(builder: (_) => const PreciseScanScreen()),
+  /// Fotografi cek ve elle gir: cerceveki alanin fotosunu yakalar,
+  /// buyuk gosterip kullanicidan tarihi manuel ister (gorme dostu akis).
+  Future<void> _captureForManual() async {
+    await _captureFrame();
+    if (!mounted) return;
+    final result = await showModalBottomSheet<DateTime>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ManualCaptureSheet(frame: _capturedFrame),
     );
     if (result != null && mounted) {
       Navigator.of(context).pop(result);
@@ -433,17 +439,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  // 2. kademe: detayli tarama (foto-cek + on isleme)
+                  // 2. kademe: foto cek + elle gir (gorme dostu)
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _openPrecise,
+                      onPressed: _captureForManual,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      icon: const Icon(Icons.center_focus_strong_rounded,
-                          size: 18),
-                      label: const Text('Detaylı Tara',
+                      icon: const Icon(Icons.photo_camera_rounded, size: 18),
+                      label: const Text('Fotoğraf Çek',
                           style: TextStyle(fontWeight: FontWeight.w700)),
                     ),
                   ),
@@ -818,5 +823,228 @@ class _AiScanSheetState extends State<_AiScanSheet> {
           ],
         );
     }
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  FOTOĞRAF ÇEK + ELLE GİR — gorme dostu manuel tarih girisi.
+///  Buyuk foto onizleme + buyuk rakam girisi + otomatik nokta.
+/// ════════════════════════════════════════════════════════════════════
+class _ManualCaptureSheet extends StatefulWidget {
+  final Uint8List? frame;
+  const _ManualCaptureSheet({this.frame});
+
+  @override
+  State<_ManualCaptureSheet> createState() => _ManualCaptureSheetState();
+}
+
+class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
+  final _ctrl = TextEditingController();
+  DateTime? _parsed;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _parse() {
+    final txt = _ctrl.text.trim();
+    DateTime? d;
+    try {
+      final p = txt.split('.');
+      if (p.length == 3 && p[2].length == 4) {
+        d = DateTime(
+            int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+      }
+    } catch (_) {}
+    setState(() => _parsed = d);
+  }
+
+  void _confirm() {
+    if (_parsed != null) Navigator.of(context).pop(_parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Tutamac
+              Container(
+                width: 44,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: AppTheme.hairline,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+
+              // Buyuk foto onizleme — kullanici gozuyle okusun
+              if (widget.frame != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.memory(
+                    widget.frame!,
+                    width: double.infinity,
+                    height: 220,
+                    fit: BoxFit.cover,
+                  ),
+                )
+              else
+                Container(
+                  height: 120,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Text('Fotoğraf alınamadı',
+                      style: TextStyle(color: AppTheme.textTertiary)),
+                ),
+              const SizedBox(height: 20),
+
+              const Text(
+                'Fotoğraftaki tarihi gir',
+                style: TextStyle(
+                    fontSize: 19, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Gün · Ay · Yıl  (sadece rakam yaz)',
+                style: TextStyle(
+                    color: AppTheme.textSecondary, fontSize: 14),
+              ),
+              const SizedBox(height: 18),
+
+              // Buyuk tarih girisi — gorme dostu
+              TextField(
+                controller: _ctrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [_DateInputFormatter()],
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2,
+                ),
+                onChanged: (_) => _parse(),
+                decoration: InputDecoration(
+                  hintText: 'GG.AA.YYYY',
+                  hintStyle: TextStyle(
+                    fontSize: 30,
+                    color: AppTheme.textTertiary.withOpacity(0.5),
+                    letterSpacing: 2,
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.surfaceAlt,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 18),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(
+                        color: AppTheme.primary, width: 2),
+                  ),
+                ),
+              ),
+
+              // Gecerli tarih onizleme
+              const SizedBox(height: 14),
+              AnimatedOpacity(
+                opacity: _parsed != null ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle_rounded,
+                        color: AppTheme.statusSafe, size: 22),
+                    const SizedBox(width: 8),
+                    Text(
+                      _parsed != null
+                          ? DateFormat('d MMMM yyyy', 'tr').format(_parsed!)
+                          : '',
+                      style: const TextStyle(
+                        color: AppTheme.statusSafe,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Buyuk onay butonu
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _parsed != null ? _confirm : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.statusSafe,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'Onayla',
+                    style: TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Vazgeç',
+                    style: TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 15)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Kullanici sadece rakam girer, otomatik "gg.aa.yyyy" formatina sokar.
+class _DateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final trimmed = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final buf = StringBuffer();
+    for (int i = 0; i < trimmed.length; i++) {
+      if (i == 2 || i == 4) buf.write('.');
+      buf.write(trimmed[i]);
+    }
+    final text = buf.toString();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
   }
 }

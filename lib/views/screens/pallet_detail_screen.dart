@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
@@ -1410,7 +1411,8 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   Expanded(
                     child: TextField(
                       controller: _expiryCtrl,
-                      keyboardType: TextInputType.datetime,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [_DateInputFormatter()],
                       onChanged: (_) => _parseExpiry(),
                       onSubmitted: (_) => _parseExpiry(),
                       decoration: InputDecoration(
@@ -1694,6 +1696,29 @@ class _TransferSheetState extends State<_TransferSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Kullanici sadece rakam girer, otomatik "gg.aa.yyyy" formatina sokar.
+/// Ornek: "15062026" -> "15.06.2026". Klavyede nokta gerekmez.
+class _DateInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    // Sadece rakamlari al, en fazla 8 hane (ggaayyyy).
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final trimmed = digits.length > 8 ? digits.substring(0, 8) : digits;
+
+    final buf = StringBuffer();
+    for (int i = 0; i < trimmed.length; i++) {
+      if (i == 2 || i == 4) buf.write('.');
+      buf.write(trimmed[i]);
+    }
+    final text = buf.toString();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
     );
   }
 }

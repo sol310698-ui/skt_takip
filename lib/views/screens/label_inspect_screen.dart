@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
+import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
 /// Etiket Inceleme: tek etiket okut -> icindeki HER SEYI goster.
@@ -193,12 +194,19 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                 child: Row(
                   children: [
                     if (off?.imageUrl != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppTheme.rSm),
-                        child: CachedImage(
-                          url: off!.imageUrl!,
-                          width: 64,
-                          height: 64,
+                      GestureDetector(
+                        onTap: () => openImageZoom(
+                          context,
+                          networkUrl: off!.imageUrl!,
+                          title: off.name ?? 'Ürün Görseli',
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(AppTheme.rSm),
+                          child: CachedImage(
+                            url: off!.imageUrl!,
+                            width: 64,
+                            height: 64,
+                          ),
                         ),
                       )
                     else
