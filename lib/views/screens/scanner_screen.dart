@@ -194,15 +194,48 @@ class _ScannerScreenState extends State<ScannerScreen> {
     });
   }
 
-  /// RepaintBoundary'den o anki kamera bolgesinin PNG goruntusunu alir.
+  /// RepaintBoundary'den o anki kamera bolgesini yakalar, mavi tarama
+  /// kutusunun ic bolgesini KIRPAR ve buyutur (gorme dostu okuma icin).
   Future<void> _captureFrame() async {
     try {
       final boundary = _captureKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) return;
-      final image = await boundary.toImage(pixelRatio: 1.5);
+      const pr = 2.5; // yuksek cozunurluk yakala (buyutunce net kalsin)
+      final full = await boundary.toImage(pixelRatio: pr);
+
+      final fw = full.width.toDouble();
+      final fh = full.height.toDouble();
+
+      // Mavi kutunun widget icindeki oranlari:
+      //  - yatay: kenarlardan %5'er off => orta %90
+      //  - dikey: kutu yuksekligi = ekranYuksekligi / boxDivider,
+      //           widget ortasinda konumlu.
+      final screenH = MediaQuery.of(context).size.height;
+      final widgetH = boundary.size.height; // ScalableOCR widget yuksekligi
+      final boxH = screenH / _speed.boxDivider;
+      // Kutu yuksekligi oraninu widget'a gore hesapla, biraz pay birak.
+      var vFrac = (boxH / widgetH).clamp(0.12, 0.6);
+      // Biraz dikey pay ekle (ust/alt yazi kesilmesin).
+      vFrac = (vFrac * 1.6).clamp(0.12, 0.8);
+
+      final cropW = fw * 0.9; // yatay %90
+      final cropH = fh * vFrac;
+      final cropL = fw * 0.05;
+      final cropT = (fh - cropH) / 2; // dikey ortala
+
+      // Kirpilan bolgeyi yeni bir image'a ciz.
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final src = Rect.fromLTWH(cropL, cropT, cropW, cropH);
+      final dst = Rect.fromLTWH(0, 0, cropW, cropH);
+      canvas.drawImageRect(full, src, dst, Paint());
+      final picture = recorder.endRecording();
+      final cropped =
+          await picture.toImage(cropW.round(), cropH.round());
+
       final byteData =
-          await image.toByteData(format: ui.ImageByteFormat.png);
+          await cropped.toByteData(format: ui.ImageByteFormat.png);
       if (byteData != null && mounted) {
         setState(() => _capturedFrame = byteData.buffer.asUint8List());
       }
@@ -248,8 +281,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _ManualCaptureSheet(frame: _capturedFrame),
     );
-    if (result != null && mounted) {
+    if (!mounted) return;
+    if (result != null) {
       Navigator.of(context).pop(result);
+    } else {
+      // Iptal: kamera/OCR donmus olabilir -> yeniden kur.
+      setState(() {
+        _capturedFrame = null;
+        _scanSession++;
+      });
     }
   }
 
@@ -360,22 +400,44 @@ class _ScannerScreenState extends State<ScannerScreen> {
           // Hazir: OCR kamerasi
           else
             Center(
-              child: RepaintBoundary(
-                key: _captureKey,
-                child: ScalableOCR(
-                  key: ValueKey('ocr_$_scanSession'),
-                  paintboxCustom: Paint()
-                    ..style = PaintingStyle.stroke
-                    ..strokeWidth = 3.0
-                    ..color = AppTheme.primary.withOpacity(0.6),
-                  boxLeftOff: 5,
-                  boxBottomOff: 2.5,
-                  boxRightOff: 5,
-                  boxTopOff: 2.5,
-                  boxHeight: MediaQuery.of(context).size.height /
-                      _speed.boxDivider,
-                  getScannedText: _onScannedText,
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Kamera + OCR. paintbox saydam -> tespit kutulari ve
+                  // cerceve YAKALANAN foto'ya karismaz.
+                  RepaintBoundary(
+                    key: _captureKey,
+                    child: ScalableOCR(
+                      key: ValueKey('ocr_$_scanSession'),
+                      paintboxCustom: Paint()
+                        ..style = PaintingStyle.stroke
+                        ..strokeWidth = 0.0
+                        ..color = const Color(0x00000000), // tamamen saydam
+                      boxLeftOff: 5,
+                      boxBottomOff: 2.5,
+                      boxRightOff: 5,
+                      boxTopOff: 2.5,
+                      boxHeight: MediaQuery.of(context).size.height /
+                          _speed.boxDivider,
+                      getScannedText: _onScannedText,
+                    ),
+                  ),
+                  // Kendi cercevemiz — sadece ekranda gorunur, foto'ya girmez
+                  // (RepaintBoundary'nin disinda).
+                  IgnorePointer(
+                    child: Container(
+                      width: MediaQuery.of(context).size.width * 0.9,
+                      height: MediaQuery.of(context).size.height /
+                          _speed.boxDivider,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: AppTheme.primary.withOpacity(0.8),
+                            width: 3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           if (_ready) _buildHint(),
@@ -892,15 +954,24 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                 ),
               ),
 
-              // Buyuk foto onizleme — kullanici gozuyle okusun
+              // Buyuk foto onizleme — kirpilmis tarih bolgesi
               if (widget.frame != null)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.memory(
-                    widget.frame!,
-                    width: double.infinity,
-                    height: 220,
-                    fit: BoxFit.cover,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: AppTheme.primary.withOpacity(0.5), width: 2),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      widget.frame!,
+                      width: double.infinity,
+                      fit: BoxFit.fitWidth,
+                    ),
                   ),
                 )
               else
