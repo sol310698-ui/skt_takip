@@ -1,6 +1,6 @@
-import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/alarm_service.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
@@ -138,27 +138,45 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   }
 
   Future<void> _openFullScreenIntentSettings() async {
-    try {
-      final intent = AndroidIntent(
-        action: 'android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT',
-        data: 'package:com.example.skt_takip',
-        flags: <int>[268435456], // FLAG_ACTIVITY_NEW_TASK
-      );
-      await intent.launch();
-    } catch (_) {
-      // Eski cihazlarda bu ayar yok — uygulama ayarlarını aç.
-      try {
-        final intent = AndroidIntent(
-          action: 'android.settings.APPLICATION_DETAILS_SETTINGS',
-          data: 'package:com.example.skt_takip',
-          flags: <int>[268435456],
-        );
-        await intent.launch();
-      } catch (_) {}
-    }
+    // Native kanal (Android 14+ icin dogru ayar sayfasi).
+    await AlarmService.openFullScreenIntentSettings();
   }
 
   Future<void> _testAlarm() async {
+    // Once tam ekran izni var mi kontrol et.
+    final canFsi = await AlarmService.canUseFullScreenIntent();
+    if (!mounted) return;
+
+    if (!canFsi) {
+      // Izin yok — kullaniciyi uyar ve ayara yonlendir.
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Tam Ekran İzni Gerekli'),
+          content: const Text(
+            'Alarmın kilit ekranının üzerinde tam ekran açılması için '
+            '"Tam ekran bildirimler" iznini vermen gerekiyor.\n\n'
+            'Açılan ayarda SKT Takip için bu izni AÇIK yap, sonra '
+            'tekrar test et.',
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Vazgeç')),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openFullScreenIntentSettings();
+              },
+              child: const Text('İzni Aç'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Izin var — test alarmini kur.
     await ScheduleService.instance.testAlarmIn10s();
     if (!mounted) return;
     showDialog(
@@ -169,9 +187,8 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
           '10 saniye sonra alarm çalacak.\n\n'
           'Şimdi ekranı KİLİTLE ve bekle. Alarm kilit ekranının '
           'üzerine tam ekran gelmeli.\n\n'
-          'Kilit ekranında AÇILMAZSA, "Tam Ekran İzni" butonuna basıp '
-          'bu uygulama için izni aç. Ayrıca pil ayarından '
-          '"Kısıtlanmamış" seç.',
+          'Açılmazsa pil ayarından "Kısıtlanmamış" seç ve Samsung '
+          'cihazlarda "Otomatik başlatma"yı aç.',
         ),
         actions: [
           TextButton(

@@ -1,5 +1,6 @@
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -9,9 +10,28 @@ import 'package:permission_handler/permission_handler.dart';
 class AlarmService {
   AlarmService._();
 
+  static const _fsChannel = MethodChannel('skt_takip/fullscreen');
+
   /// Uygulama acilisinda cagrilir.
   static Future<void> init() async {
     await Alarm.init();
+  }
+
+  /// Android 14+ tam ekran intent izni var mi? (Kilit ekrani alarmi icin sart.)
+  static Future<bool> canUseFullScreenIntent() async {
+    try {
+      final r = await _fsChannel.invokeMethod<bool>('canUseFullScreenIntent');
+      return r ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Tam ekran intent izni ayar sayfasini ac (Android 14+).
+  static Future<void> openFullScreenIntentSettings() async {
+    try {
+      await _fsChannel.invokeMethod('openFullScreenIntentSettings');
+    } catch (_) {}
   }
 
   /// Gerekli izinleri ister: bildirim + tam zamanli alarm.
