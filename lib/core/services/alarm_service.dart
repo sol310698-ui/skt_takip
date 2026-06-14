@@ -1,5 +1,6 @@
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  Alarm servisi — "alarm" paketi sarmalayicisi.
@@ -11,6 +12,24 @@ class AlarmService {
   /// Uygulama acilisinda cagrilir.
   static Future<void> init() async {
     await Alarm.init();
+  }
+
+  /// Gerekli izinleri ister: bildirim + tam zamanli alarm.
+  /// Alarmin kilit ekraninda tam ekran acilmasi icin sart.
+  static Future<void> requestPermissions() async {
+    // Bildirim izni (Android 13+).
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+    // Tam zamanli alarm izni (Android 12+).
+    if (await Permission.scheduleExactAlarm.isDenied) {
+      await Permission.scheduleExactAlarm.request();
+    }
+  }
+
+  /// Tam zamanli alarm izni verilmis mi?
+  static Future<bool> hasExactAlarmPermission() async {
+    return await Permission.scheduleExactAlarm.isGranted;
   }
 
   /// Belirli bir tarihte alarm kur.

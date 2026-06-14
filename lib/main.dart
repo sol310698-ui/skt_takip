@@ -27,6 +27,8 @@ Future<void> main() async {
 
   // Alarm paketini baslat (kilit ekrani alarmi icin).
   await AlarmService.init();
+  // Gerekli izinleri iste (bildirim + tam zamanli alarm).
+  await AlarmService.requestPermissions();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
