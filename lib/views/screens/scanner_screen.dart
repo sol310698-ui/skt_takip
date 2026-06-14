@@ -114,6 +114,11 @@ class _ScannerScreenState extends State<ScannerScreen>
       if (!mounted) return;
       setState(() => _capturing = false);
 
+      // Foto ekrani acilirken kamerayi kapat (kaynak/pil tasarrufu).
+      await _controller?.dispose();
+      _controller = null;
+      if (mounted) setState(() {});
+
       // Tam ekran sayfa: yatay foto + tarih girisi.
       final result = await Navigator.of(context).push<DateTime>(
         MaterialPageRoute(
@@ -123,8 +128,10 @@ class _ScannerScreenState extends State<ScannerScreen>
       if (!mounted) return;
       if (result != null) {
         Navigator.of(context).pop(result);
+      } else {
+        // Iptal: foto ekranindan dönüldü, kamerayi yeniden baslat.
+        await _initCamera();
       }
-      // Iptal: kamera zaten canli, ekstra is gerekmez.
     } catch (_) {
       if (mounted) setState(() => _capturing = false);
     }
@@ -665,13 +672,23 @@ class _PhotoDateScreen extends StatefulWidget {
 
 class _PhotoDateScreenState extends State<_PhotoDateScreen> {
   final _ctrl = TextEditingController();
+  final TransformationController _tc = TransformationController();
   DateTime? _parsed;
   bool _entering = false; // false: foto+Devam, true: tarih girisi
+  double _zoom = 1.0;
+  static const List<double> _zoomLevels = [1, 2, 3, 4];
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _tc.dispose();
     super.dispose();
+  }
+
+  void _setZoom(double z) {
+    setState(() => _zoom = z);
+    // Merkezden zoom uygula.
+    _tc.value = Matrix4.identity()..scale(z);
   }
 
   void _parse() {
@@ -699,6 +716,39 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Tarihi Gir'),
+        actions: [
+          // Sag ustte zoom secici (1x / 2x / 3x / 4x)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              children: _zoomLevels.map((z) {
+                final active = _zoom == z;
+                return GestureDetector(
+                  onTap: () => _setZoom(z),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? AppTheme.primary
+                          : Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${z.toInt()}x',
+                      style: TextStyle(
+                        color: active ? Colors.white : Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -711,8 +761,16 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: InteractiveViewer(
+                  transformationController: _tc,
                   minScale: 1,
                   maxScale: 6,
+                  onInteractionEnd: (_) {
+                    // Pinch ile degisen zoom'u butonlara yansit.
+                    final s = _tc.value.getMaxScaleOnAxis();
+                    if ((s - _zoom).abs() > 0.05) {
+                      setState(() => _zoom = s);
+                    }
+                  },
                   child: RotatedBox(
                     quarterTurns: 3, // alt kisim sola (saat tersi 90°)
                     child: Image.memory(
