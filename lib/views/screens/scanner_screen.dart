@@ -696,7 +696,7 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                 ),
               ),
 
-              // Buyuk foto onizleme — kirpilmis tarih bolgesi (yakinlastirilabilir)
+              // Foto onizleme — 90° dik cevrilmis, buyuk, yakinlastirilabilir
               if (widget.frame != null)
                 Container(
                   width: double.infinity,
@@ -709,18 +709,18 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minHeight: 150,
-                        maxHeight: 280,
-                      ),
+                    child: SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.42,
+                      width: double.infinity,
                       child: InteractiveViewer(
                         minScale: 1,
-                        maxScale: 5,
-                        child: Image.memory(
-                          widget.frame!,
-                          width: double.infinity,
-                          fit: BoxFit.contain,
+                        maxScale: 6,
+                        child: RotatedBox(
+                          quarterTurns: 1, // 90° dik
+                          child: Image.memory(
+                            widget.frame!,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
                     ),
@@ -738,35 +738,14 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                       style: TextStyle(color: AppTheme.textTertiary)),
                 ),
               if (widget.frame != null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.zoom_in_rounded,
-                        size: 16, color: AppTheme.textTertiary),
-                    SizedBox(width: 5),
-                    Text('İki parmakla büyütebilirsin',
-                        style: TextStyle(
-                            color: AppTheme.textTertiary, fontSize: 12.5)),
-                  ],
-                ),
+                const SizedBox(height: 6),
+                const Text('İki parmakla büyütebilirsin',
+                    style: TextStyle(
+                        color: AppTheme.textTertiary, fontSize: 12)),
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
-              const Text(
-                'Fotoğraftaki tarihi gir',
-                style: TextStyle(
-                    fontSize: 19, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Gün · Ay · Yıl  (sadece rakam yaz)',
-                style: TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 14),
-              ),
-              const SizedBox(height: 18),
-
-              // Buyuk tarih girisi — gorme dostu
+              // Kompakt tarih girisi (kullanici ne yazdigini biliyor)
               TextField(
                 controller: _ctrl,
                 autofocus: true,
@@ -774,32 +753,33 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                 inputFormatters: [_DateInputFormatter()],
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 2,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
                 ),
                 onChanged: (_) => _parse(),
                 decoration: InputDecoration(
                   hintText: 'GG.AA.YYYY',
                   hintStyle: TextStyle(
-                    fontSize: 30,
+                    fontSize: 20,
                     color: AppTheme.textTertiary.withOpacity(0.5),
-                    letterSpacing: 2,
+                    letterSpacing: 1.5,
                   ),
                   filled: true,
                   fillColor: AppTheme.surfaceAlt,
+                  isDense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(vertical: 18),
+                      const EdgeInsets.symmetric(vertical: 12),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide.none,
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: const BorderSide(
                         color: AppTheme.primary, width: 2),
                   ),
@@ -807,7 +787,7 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
               ),
 
               // Gecerli tarih onizleme
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               AnimatedOpacity(
                 opacity: _parsed != null ? 1 : 0,
                 duration: const Duration(milliseconds: 200),
@@ -815,48 +795,48 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(Icons.check_circle_rounded,
-                        color: AppTheme.statusSafe, size: 22),
-                    const SizedBox(width: 8),
+                        color: AppTheme.statusSafe, size: 18),
+                    const SizedBox(width: 6),
                     Text(
                       _parsed != null
                           ? DateFormat('d MMMM yyyy', 'tr').format(_parsed!)
                           : '',
                       style: const TextStyle(
                         color: AppTheme.statusSafe,
-                        fontSize: 17,
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
-              // Buyuk onay butonu
+              // Kompakt onay butonu
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _parsed != null ? _confirm : null,
                   style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.statusSafe,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                   child: const Text(
                     'Onayla',
                     style: TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w800),
+                        fontSize: 16, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Vazgeç',
                     style: TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 15)),
+                        color: AppTheme.textSecondary, fontSize: 14)),
               ),
             ],
           ),
