@@ -142,8 +142,9 @@ class _ScannerScreenState extends State<ScannerScreen>
       final h = img.height.toDouble();
 
       // Cerceve oranlari (onizlemedeki kutuyla uyumlu).
-      const hFrac = 0.9; // yatay %90
-      const vFrac = 0.32; // dikey %32 orta bant
+      // Cerceve oranlari — dar tut ki tarih buyuk gorunsun.
+      const hFrac = 0.8; // yatay %80
+      const vFrac = 0.22; // dikey %22 (dar bant = daha buyuk tarih)
       final cropW = w * hFrac;
       final cropH = h * vFrac;
       final cropL = (w - cropW) / 2;
@@ -221,8 +222,8 @@ class _ScannerScreenState extends State<ScannerScreen>
             Center(
               child: IgnorePointer(
                 child: Container(
-                  width: MediaQuery.of(context).size.width * 0.9,
-                  height: MediaQuery.of(context).size.width * 0.9 * 0.45,
+                  width: MediaQuery.of(context).size.width * 0.96,
+                  height: MediaQuery.of(context).size.width * 0.96 * 0.5,
                   decoration: BoxDecoration(
                     border: Border.all(
                         color: AppTheme.primary.withOpacity(0.9), width: 3),
@@ -695,7 +696,7 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                 ),
               ),
 
-              // Buyuk foto onizleme — kirpilmis tarih bolgesi
+              // Buyuk foto onizleme — kirpilmis tarih bolgesi (yakinlastirilabilir)
               if (widget.frame != null)
                 Container(
                   width: double.infinity,
@@ -708,10 +709,20 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: Image.memory(
-                      widget.frame!,
-                      width: double.infinity,
-                      fit: BoxFit.fitWidth,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: 150,
+                        maxHeight: 280,
+                      ),
+                      child: InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 5,
+                        child: Image.memory(
+                          widget.frame!,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
                     ),
                   ),
                 )
@@ -726,6 +737,20 @@ class _ManualCaptureSheetState extends State<_ManualCaptureSheet> {
                   child: const Text('Fotoğraf alınamadı',
                       style: TextStyle(color: AppTheme.textTertiary)),
                 ),
+              if (widget.frame != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.zoom_in_rounded,
+                        size: 16, color: AppTheme.textTertiary),
+                    SizedBox(width: 5),
+                    Text('İki parmakla büyütebilirsin',
+                        style: TextStyle(
+                            color: AppTheme.textTertiary, fontSize: 12.5)),
+                  ],
+                ),
+              ],
               const SizedBox(height: 20),
 
               const Text(
