@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -58,7 +57,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     super.initState();
     _index = widget.initialIndex.clamp(0, widget.items.length - 1);
     _pageController = PageController(initialPage: _index);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    // Immersive modu acilis animasyonu bitince uygula (jank olmasin).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    });
   }
 
   @override
@@ -94,21 +96,24 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          // ── Bulanik buyutulmus arka plan (derinlik efekti) ──
+          // ── Arka plan: hafif soluk + koyu (blur yok, performansli) ──
           Positioned.fill(
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 400),
+              duration: const Duration(milliseconds: 350),
               child: Container(
                 key: ValueKey(_index),
                 decoration: BoxDecoration(
                   image: DecorationImage(
-                    image: item.provider,
+                    image: ResizeImage(
+                      item.provider,
+                      width: 120, // arka plan icin minik cozunurluk yeter
+                    ),
                     fit: BoxFit.cover,
+                    colorFilter: ColorFilter.mode(
+                      Colors.black.withOpacity(0.7),
+                      BlendMode.darken,
+                    ),
                   ),
-                ),
-                child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-                  child: Container(color: Colors.black.withOpacity(0.55)),
                 ),
               ),
             ),
@@ -437,15 +442,21 @@ class _ZoomablePhotoState extends State<_ZoomablePhoto>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+    final dpr = MediaQuery.of(context).devicePixelRatio;
     // Surukleme miktarina gore kucult + soluklas.
     final dragScale = (1 - (_dragDy.abs() / size.height) * 0.4).clamp(0.6, 1.0);
     final dragOpacity =
         (1 - (_dragDy.abs() / (size.height * 0.5))).clamp(0.0, 1.0);
 
+    // Devasa orijinal foto yerine ekran cozunurlugunde decode et.
+    // Zoom 5x icin ekran genisliginin ~2 kati yeterli netlik verir.
+    final decodeWidth = (size.width * dpr * 2).round();
+
     Widget image = Image(
-      image: widget.item.provider,
+      image: ResizeImage(widget.item.provider, width: decodeWidth),
       fit: BoxFit.contain,
       gaplessPlayback: true,
+      filterQuality: FilterQuality.medium,
       errorBuilder: (_, __, ___) => const Center(
         child: Icon(Icons.broken_image_rounded,
             color: Colors.white38, size: 72),
@@ -550,23 +561,16 @@ PageRouteBuilder _buildRoute({
   return PageRouteBuilder(
     opaque: false,
     barrierColor: Colors.black87,
-    transitionDuration: const Duration(milliseconds: 280),
-    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (_, __, ___) => PhotoViewerScreen(
       items: items,
       initialIndex: initialIndex,
       heroTag: heroTag,
     ),
     transitionsBuilder: (_, anim, __, child) {
-      return FadeTransition(
-        opacity: anim,
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.92, end: 1.0).animate(
-            CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
-          ),
-          child: child,
-        ),
-      );
+      // Sadece fade — hafif ve takilmasiz acilis.
+      return FadeTransition(opacity: anim, child: child);
     },
   );
 }
