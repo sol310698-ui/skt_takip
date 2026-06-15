@@ -1,7 +1,9 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/alarm_service.dart';
 import '../../core/services/schedule_service.dart';
+import '../../core/services/skt_alarm_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 
@@ -16,6 +18,10 @@ class WorkScheduleScreen extends StatefulWidget {
 class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   Map<int, List<ScheduleEntry>> _grouped = {};
   bool _loading = true;
+  bool _batteryOptimized = false; // true: pil optimizasyonu ACIK (sorun)
+  bool _sktAlarmOn = false;
+  int _sktHour = 19;
+  int _sktMinute = 0;
 
   @override
   void initState() {
@@ -25,11 +31,50 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
 
   Future<void> _load() async {
     final g = await ScheduleService.instance.getGrouped();
+    final batteryOk = await AlarmService.isBatteryOptimizationDisabled();
+    final sktOn = await SktAlarmSettings.instance.isEnabled();
+    final sktH = await SktAlarmSettings.instance.getHour();
+    final sktM = await SktAlarmSettings.instance.getMinute();
     if (!mounted) return;
     setState(() {
       _grouped = g;
+      _batteryOptimized = !batteryOk;
+      _sktAlarmOn = sktOn;
+      _sktHour = sktH;
+      _sktMinute = sktM;
       _loading = false;
     });
+  }
+
+  Future<void> _toggleSktAlarm(bool on) async {
+    await SktAlarmSettings.instance.setEnabled(on);
+    if (on) {
+      await ScheduleService.instance
+          .setSktDisposalAlarm(hour: _sktHour, minute: _sktMinute);
+    } else {
+      await ScheduleService.instance.cancelSktDisposalAlarm();
+    }
+    await _load();
+  }
+
+  Future<void> _pickSktTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: _sktHour, minute: _sktMinute),
+    );
+    if (picked == null) return;
+    await SktAlarmSettings.instance.setTime(picked.hour, picked.minute);
+    // Acik ise yeni saate gore yeniden kur.
+    if (_sktAlarmOn) {
+      await ScheduleService.instance
+          .setSktDisposalAlarm(hour: picked.hour, minute: picked.minute);
+    }
+    await _load();
+  }
+
+  Future<void> _fixBattery() async {
+    await AlarmService.requestDisableBatteryOptimization();
+    await _load();
   }
 
   int get _totalEntries =>
@@ -45,29 +90,86 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       helpText: '${ScheduleService.weekdayNames[weekday - 1]} için saat',
     );
     if (time == null) return;
+    if (!mounted) return;
 
     final labelCtrl = TextEditingController();
+    String? soundPath;
+    String? soundName;
+
     final saveLabel = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-            '${ScheduleService.weekdayNames[weekday - 1]} • ${time.format(context)}'),
-        content: TextField(
-          controller: labelCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Not (opsiyonel)',
-            hintText: 'örn. Sabah vardiyası',
-            prefixIcon: Icon(Icons.label_outline_rounded),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          title: Text(
+              '${ScheduleService.weekdayNames[weekday - 1]} • ${time.format(context)}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: labelCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Not (opsiyonel)',
+                  hintText: 'örn. Sabah vardiyası',
+                  prefixIcon: Icon(Icons.label_outline_rounded),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Alarm sesi secici
+              InkWell(
+                onTap: () async {
+                  final picked = await _pickSound();
+                  if (picked != null) {
+                    setSt(() {
+                      soundPath = picked.$1;
+                      soundName = picked.$2;
+                    });
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        soundPath == null
+                            ? Icons.music_note_outlined
+                            : Icons.music_note_rounded,
+                        color: soundPath == null
+                            ? AppTheme.textSecondary
+                            : AppTheme.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          soundName ?? 'Alarm sesi: Varsayılan',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded,
+                          size: 18, color: AppTheme.textTertiary),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('İptal')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Ekle')),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('İptal')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Ekle')),
-        ],
       ),
     );
     if (saveLabel != true) return;
@@ -77,6 +179,8 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       hour: time.hour,
       minute: time.minute,
       label: labelCtrl.text.trim().isEmpty ? null : labelCtrl.text.trim(),
+      soundPath: soundPath,
+      soundName: soundName,
     );
     final newId = await ScheduleService.instance.add(entry);
     // Eklenince alarmı otomatik kur.
@@ -87,6 +191,8 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       minute: entry.minute,
       label: entry.label,
       enabled: true,
+      soundPath: entry.soundPath,
+      soundName: entry.soundName,
     );
     await ScheduleService.instance.setAlarm(saved);
     await _load();
@@ -98,6 +204,26 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
           backgroundColor: AppTheme.statusSafe,
         ),
       );
+    }
+  }
+
+  /// Telefondan ses dosyasi sec. (yol, gosterim_adi) doner; iptalde null.
+  Future<(String, String)?> _pickSound() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+      );
+      if (result == null || result.files.isEmpty) return null;
+      final f = result.files.first;
+      if (f.path == null) return null;
+      return (f.path!, f.name);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ses dosyası seçilemedi')),
+        );
+      }
+      return null;
     }
   }
 
@@ -299,23 +425,149 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed:
-                          _enabledEntries == 0 ? null : _setAllAlarms,
-                      icon: const Icon(Icons.alarm_add_rounded),
-                      label: const Text('Tüm Alarmları Kur'),
-                      style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.primary,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12)),
+
+                // ── Pil optimizasyonu uyarisi (alarm susmasini onler) ──
+                if (_batteryOptimized)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.statusExpired.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: AppTheme.statusExpired.withOpacity(0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.battery_alert_rounded,
+                                color: AppTheme.statusExpired, size: 24),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Alarm susabilir!',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.statusExpired),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Pil optimizasyonu açık. Telefon uykudayken alarm '
+                          '1-2 saniye çalıp susabilir. Güvenilir alarm için '
+                          'pil optimizasyonunu KAPAT.',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppTheme.textSecondary,
+                              height: 1.4),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _fixBattery,
+                            icon: const Icon(Icons.settings_rounded, size: 18),
+                            label: const Text('Pil Optimizasyonunu Kapat'),
+                            style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.statusExpired,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 11)),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+
+                // ── SKT İmha Alarmı (her gun aksam) ──
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  padding: const EdgeInsets.all(16),
+                  decoration: AppTheme.card(accentColor: AppTheme.statusExpired),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: AppTheme.statusExpired.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.delete_sweep_rounded,
+                                color: AppTheme.statusExpired, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('SKT İmha Alarmı',
+                                    style: TextStyle(
+                                        fontSize: 15.5,
+                                        fontWeight: FontWeight.w800)),
+                                SizedBox(height: 2),
+                                Text(
+                                    'Her gün, süresi geçen ürünleri hatırlatır',
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: AppTheme.textSecondary)),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _sktAlarmOn,
+                            activeColor: AppTheme.statusExpired,
+                            onChanged: _toggleSktAlarm,
+                          ),
+                        ],
+                      ),
+                      if (_sktAlarmOn) ...[
+                        const SizedBox(height: 10),
+                        InkWell(
+                          onTap: _pickSktTime,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceAlt,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.schedule_rounded,
+                                    size: 20, color: AppTheme.textSecondary),
+                                const SizedBox(width: 12),
+                                const Text('Alarm saati',
+                                    style: TextStyle(fontSize: 14)),
+                                const Spacer(),
+                                Text(
+                                  '${_sktHour.toString().padLeft(2, '0')}:'
+                                  '${_sktMinute.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.primary),
+                                ),
+                                const SizedBox(width: 6),
+                                const Icon(Icons.edit_rounded,
+                                    size: 15, color: AppTheme.textTertiary),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
+
                 const SizedBox(height: 4),
                 Expanded(
                   child: ListView.builder(

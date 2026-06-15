@@ -6,7 +6,7 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 13; // v13: palet resmi (image_path)
+  static const int dbVersion = 14; // v14: alarm ses dosyasi (sound_path)
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';

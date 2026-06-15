@@ -30,7 +30,7 @@ android {
     defaultConfig {
         applicationId = "com.example.skt_takip"
         minSdk = 23
-        targetSdk = 33
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true

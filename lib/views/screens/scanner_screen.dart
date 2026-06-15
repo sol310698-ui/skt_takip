@@ -859,7 +859,7 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
                         }
                       },
                       child: RotatedBox(
-                        quarterTurns: 3, // alt kisim sola (saat tersi 90°)
+                        quarterTurns: 3, // 270° dondur
                         child: Image.memory(
                           widget.photo,
                           fit: BoxFit.contain,

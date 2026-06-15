@@ -94,6 +94,13 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.whPalletTable} ADD COLUMN image_path TEXT');
     }
+    if (oldVersion < 14) {
+      // Haftalik alarmlara ses dosyasi (telefondaki muzik) baglama.
+      await db.execute(
+          'ALTER TABLE ${AppConstants.workScheduleTable} ADD COLUMN sound_path TEXT');
+      await db.execute(
+          'ALTER TABLE ${AppConstants.workScheduleTable} ADD COLUMN sound_name TEXT');
+    }
   }
 
   Future<void> _createScheduleTable(Database db) async {
@@ -104,7 +111,9 @@ class DatabaseService {
         hour INTEGER NOT NULL,
         minute INTEGER NOT NULL,
         label TEXT,
-        enabled INTEGER NOT NULL DEFAULT 1
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sound_path TEXT,
+        sound_name TEXT
       )
     ''');
   }

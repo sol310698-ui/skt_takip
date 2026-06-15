@@ -10,9 +10,11 @@ import 'core/constants/app_constants.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
+import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
 import 'views/screens/alarm_ring_screen.dart';
 import 'views/screens/main_shell.dart';
+import 'views/screens/skt_disposal_alarm_screen.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -25,15 +27,36 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.light,
   ));
 
+  // Uygulamayi yalnizca DIKEY moda kilitle (yatay moda asla gecmesin).
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+
   // Alarm paketini baslat (kilit ekrani alarmi icin).
   await AlarmService.init();
   // Gerekli izinleri iste (bildirim + tam zamanli alarm).
   await AlarmService.requestPermissions();
 
+  // SKT imha alarmi acik ise, gunluk zincirin kopmamasi icin her
+  // uygulama acilisinda bir sonraki olusuma yeniden kur (sessizce).
+  _ensureSktDisposalAlarm();
+
   runApp(const ProviderScope(child: SktTakipApp()));
 
   // Bildirim servisini arka planda baslat.
   NotificationService.instance.init();
+}
+
+/// SKT imha alarmi etkinse, bir sonraki gun/saate kurulu oldugundan emin ol.
+Future<void> _ensureSktDisposalAlarm() async {
+  try {
+    final on = await SktAlarmSettings.instance.isEnabled();
+    if (!on) return;
+    final h = await SktAlarmSettings.instance.getHour();
+    final m = await SktAlarmSettings.instance.getMinute();
+    await ScheduleService.instance.setSktDisposalAlarm(hour: h, minute: m);
+  } catch (_) {}
 }
 
 class SktTakipApp extends StatefulWidget {
@@ -62,9 +85,25 @@ class _SktTakipAppState extends State<SktTakipApp> {
     // Haftalik program alarmiysa bir sonraki haftaya yeniden kur.
     ScheduleService.instance.rescheduleIfWeekly(id);
 
-    // Kendi modern alarm ekranimizi goster.
     final nav = navigatorKey.currentState;
     if (nav == null) return;
+
+    // SKT imha alarmi (sabit ID) -> ozel ekran.
+    if (id == ScheduleService.sktDisposalAlarmId) {
+      nav.push(MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => SktDisposalAlarmScreen(
+          alarmId: id,
+          onGoToList: () {
+            // SKT listesine (ana ekran) yonlendir.
+            navigatorKey.currentState?.popUntil((r) => r.isFirst);
+          },
+        ),
+      ));
+      return;
+    }
+
+    // Kendi modern alarm ekranimizi goster.
     final isShift = id >= 800000 && id < 900000;
     nav.push(MaterialPageRoute(
       fullscreenDialog: true,

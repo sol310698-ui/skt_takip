@@ -10,6 +10,8 @@ class ScheduleEntry {
   final int minute;
   final String? label;
   final bool enabled;
+  final String? soundPath; // telefondaki muzik dosyasi yolu (null = varsayilan)
+  final String? soundName;  // gosterim adi (orn. "Sabah.mp3")
 
   const ScheduleEntry({
     this.id,
@@ -18,6 +20,8 @@ class ScheduleEntry {
     required this.minute,
     this.label,
     this.enabled = true,
+    this.soundPath,
+    this.soundName,
   });
 
   String get timeStr =>
@@ -30,6 +34,8 @@ class ScheduleEntry {
         minute: m['minute'] as int,
         label: m['label'] as String?,
         enabled: (m['enabled'] as int? ?? 1) == 1,
+        soundPath: m['sound_path'] as String?,
+        soundName: m['sound_name'] as String?,
       );
 
   Map<String, Object?> toMap() => {
@@ -39,6 +45,8 @@ class ScheduleEntry {
         'minute': minute,
         'label': label,
         'enabled': enabled ? 1 : 0,
+        'sound_path': soundPath,
+        'sound_name': soundName,
       };
 
   ScheduleEntry copyWith({
@@ -46,6 +54,8 @@ class ScheduleEntry {
     int? minute,
     String? label,
     bool? enabled,
+    String? soundPath,
+    String? soundName,
   }) =>
       ScheduleEntry(
         id: id,
@@ -54,6 +64,8 @@ class ScheduleEntry {
         minute: minute ?? this.minute,
         label: label ?? this.label,
         enabled: enabled ?? this.enabled,
+        soundPath: soundPath ?? this.soundPath,
+        soundName: soundName ?? this.soundName,
       );
 }
 
@@ -133,6 +145,7 @@ class ScheduleService {
       when: when,
       title: e.label ?? 'Mesai Zamani',
       body: '${weekdayNames[e.weekday - 1]} - ${e.timeStr}',
+      audioPath: e.soundPath, // telefondaki muzik (null = varsayilan alarm)
     );
   }
 
@@ -173,6 +186,43 @@ class ScheduleService {
 
   Future<void> cancelShiftCheckoutAlarm(int shiftId) async {
     await AlarmService.stop(shiftAlarmId(shiftId));
+  }
+
+  // ── SKT IMHA alarmi (her gun aksam, suresi gecmis urunler icin) ──────
+  // Sabit ID; gunluk tekrar eden tek alarm.
+  static const int sktDisposalAlarmId = 850000;
+
+  /// Gunluk SKT imha alarmini [hour]:[minute] icin kur (bir sonraki olusum).
+  Future<void> setSktDisposalAlarm({int hour = 19, int minute = 0}) async {
+    final now = DateTime.now();
+    var when = DateTime(now.year, now.month, now.day, hour, minute);
+    if (!when.isAfter(now)) {
+      when = when.add(const Duration(days: 1)); // bugun gecmisse yarina
+    }
+    await AlarmService.setAlarmAt(
+      id: sktDisposalAlarmId,
+      when: when,
+      title: 'SKT Kontrolü',
+      body: 'Süresi geçen ürünleri imha/iadeye al',
+    );
+  }
+
+  Future<void> cancelSktDisposalAlarm() async {
+    await AlarmService.stop(sktDisposalAlarmId);
+  }
+
+  /// SKT imha alarmi caldiginda ertesi gune yeniden kur (gunluk tekrar).
+  Future<void> rescheduleSktDisposal({int hour = 19, int minute = 0}) async {
+    final now = DateTime.now();
+    final when =
+        DateTime(now.year, now.month, now.day, hour, minute)
+            .add(const Duration(days: 1));
+    await AlarmService.setAlarmAt(
+      id: sktDisposalAlarmId,
+      when: when,
+      title: 'SKT Kontrolü',
+      body: 'Süresi geçen ürünleri imha/iadeye al',
+    );
   }
 
   /// Alarm caldiginda haftalik tekrar icin yeniden kur.

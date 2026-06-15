@@ -45,6 +45,21 @@ class AlarmService {
     if (await Permission.scheduleExactAlarm.isDenied) {
       await Permission.scheduleExactAlarm.request();
     }
+    // Pil optimizasyonundan muafiyet — telefon uykudayken alarmin
+    // susturulmamasi icin KRITIK.
+    if (await Permission.ignoreBatteryOptimizations.isDenied) {
+      await Permission.ignoreBatteryOptimizations.request();
+    }
+  }
+
+  /// Pil optimizasyonu muafiyeti verilmis mi?
+  static Future<bool> isBatteryOptimizationDisabled() async {
+    return await Permission.ignoreBatteryOptimizations.isGranted;
+  }
+
+  /// Pil optimizasyonu muafiyeti iste (ayar ekranini acar).
+  static Future<void> requestDisableBatteryOptimization() async {
+    await Permission.ignoreBatteryOptimizations.request();
   }
 
   /// Tam zamanli alarm izni verilmis mi?
@@ -58,16 +73,20 @@ class AlarmService {
     required DateTime when,
     required String title,
     required String body,
+    String? audioPath, // null -> cihaz varsayilan ALARM sesi; aksi halde dosya/asset yolu
   }) async {
     final settings = AlarmSettings(
       id: id,
       dateTime: when,
-      // Gercek alarm sesi.
-      assetAudioPath: 'assets/sounds/alarm.mp3',
+      // audioPath verilmisse onu (telefondaki muzik dosyasi), yoksa
+      // paketle gelen alarm.mp3; o da yoksa paket cihaz alarm sesine doner.
+      assetAudioPath: audioPath ?? 'assets/sounds/alarm.mp3',
       loopAudio: true,
       vibrate: true,
       warningNotificationOnKill: false,
       androidFullScreenIntent: true, // kilit ekraninda tam ekran
+      // Alarm STREAM_ALARM'da calar (medya degil). volumeEnforced ile
+      // ses kisik/sessiz olsa bile alarm seviyesi garanti edilir.
       volumeSettings: VolumeSettings.fade(
         volume: 0.9,
         fadeDuration: const Duration(seconds: 3),
