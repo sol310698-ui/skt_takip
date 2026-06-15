@@ -437,6 +437,34 @@ class PriceChangeService {
     );
   }
 
+  /// Fotosuz "degistirildi" isaretle (kanit foto opsiyonel).
+  Future<void> markChangedNoPhoto(int id) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.priceChangeTable,
+      {
+        'changed': 1,
+        'changed_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Isareti geri al (degistirilmedi yap).
+  Future<void> unmarkChanged(int id) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.priceChangeTable,
+      {
+        'changed': 0,
+        'changed_at': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> completeSession(int sessionId) async {
     final db = await DatabaseService.instance.database;
     await db.update(

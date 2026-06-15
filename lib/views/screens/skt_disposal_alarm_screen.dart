@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/services/alarm_service.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/skt_alarm_settings.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/date_utils.dart' as du;
 import '../../data/datasources/product_local_datasource.dart';
 import '../../data/models/product.dart';
 
@@ -49,7 +48,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
       final active = await ds.getActive();
       // Suresi gecmis (expired) olanlar.
       final expired = active
-          .where((p) => p.status == du.ExpiryStatus.expired)
+          .where((p) => p.status == ExpiryStatus.expired)
           .toList()
         ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
       if (!mounted) return;

@@ -16,6 +16,7 @@ import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
 import 'price_change_review_screen.dart';
+import 'price_review_guide_screen.dart';
 import 'web_search_screen.dart';
 
 /// Tek fiyat degisim oturumunun detayi.
@@ -457,6 +458,18 @@ class _PriceChangeSessionScreenState
   }
 
   // ─────────────────────────── Kanit galerisi ────────────────────────
+  // Gorme dostu rehber moduna gec (tek tek, buyuk gosterim).
+  Future<void> _openGuide() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PriceReviewGuideScreen(sessionId: widget.sessionId),
+      ),
+    );
+    // Donunce listeyi tazele (rehberde isaretlemeler yapilmis olabilir).
+    if (mounted) _load();
+  }
+
   void _openEvidence() {
     final proofs = _items
         .where((i) => i.photoPath != null)
@@ -585,6 +598,11 @@ class _PriceChangeSessionScreenState
             _completed ? AppTheme.statusSafe : AppTheme.primary,
         foregroundColor: _completed ? Colors.black : Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.visibility_rounded),
+            tooltip: 'Rehberle Gör (büyük görünüm)',
+            onPressed: _items.isEmpty ? null : _openGuide,
+          ),
           IconButton(
             icon: const Icon(Icons.photo_library_rounded),
             tooltip: 'Kanıtlar',
