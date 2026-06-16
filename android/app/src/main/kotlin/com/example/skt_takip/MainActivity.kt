@@ -1,6 +1,5 @@
 package com.example.skt_takip
 
-import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -21,13 +20,12 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         // Alarm ekraninin kilit ekrani UZERINDE gorunmesi ve ekrani
         // uyandirmasi icin (sessiz/kisik/kilitli fark etmez).
+        // ONEMLI: Kilidi KALDIRMAYIZ (requestDismissKeyguard sesi kesiyordu);
+        // sadece kilit ekraninin UZERINE cizeriz (showWhenLocked).
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            // Kilit ekranini gecici olarak kaldir (guvenli olmayan kilitlerde).
-            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            km.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
