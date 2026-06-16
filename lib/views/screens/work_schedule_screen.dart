@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/alarm_service.dart';
 import '../../core/services/schedule_service.dart';
@@ -22,6 +26,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   bool _sktAlarmOn = false;
   int _sktHour = 19;
   int _sktMinute = 0;
+  String? _soundName; // genel alarm sesi adi (null = varsayilan)
 
   @override
   void initState() {
@@ -35,6 +40,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     final sktOn = await SktAlarmSettings.instance.isEnabled();
     final sktH = await SktAlarmSettings.instance.getHour();
     final sktM = await SktAlarmSettings.instance.getMinute();
+    final soundName = await SktAlarmSettings.instance.getSoundName();
     if (!mounted) return;
     setState(() {
       _grouped = g;
@@ -42,8 +48,42 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       _sktAlarmOn = sktOn;
       _sktHour = sktH;
       _sktMinute = sktM;
+      _soundName = soundName;
       _loading = false;
     });
+  }
+
+  /// Genel alarm sesini sec (TUM alarmlar bu sesi kullanir).
+  Future<void> _pickGlobalSound() async {
+    final picked = await _pickSound();
+    if (picked == null) return;
+    await SktAlarmSettings.instance.setSound(picked.$1, picked.$2);
+    // Mevcut tum alarmlari yeni sesle yeniden kur.
+    await ScheduleService.instance.refreshAllAlarms();
+    if (_sktAlarmOn) {
+      await ScheduleService.instance
+          .setSktDisposalAlarm(hour: _sktHour, minute: _sktMinute);
+    }
+    await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Alarm sesi ayarlandı: ${picked.$2}'),
+          backgroundColor: AppTheme.statusSafe,
+        ),
+      );
+    }
+  }
+
+  /// Alarm sesini varsayilana dondur.
+  Future<void> _resetGlobalSound() async {
+    await SktAlarmSettings.instance.clearSound();
+    await ScheduleService.instance.refreshAllAlarms();
+    if (_sktAlarmOn) {
+      await ScheduleService.instance
+          .setSktDisposalAlarm(hour: _sktHour, minute: _sktMinute);
+    }
+    await _load();
   }
 
   Future<void> _toggleSktAlarm(bool on) async {
@@ -93,83 +133,28 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     if (!mounted) return;
 
     final labelCtrl = TextEditingController();
-    String? soundPath;
-    String? soundName;
 
     final saveLabel = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSt) => AlertDialog(
-          title: Text(
-              '${ScheduleService.weekdayNames[weekday - 1]} • ${time.format(context)}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: labelCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Not (opsiyonel)',
-                  hintText: 'örn. Sabah vardiyası',
-                  prefixIcon: Icon(Icons.label_outline_rounded),
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Alarm sesi secici
-              InkWell(
-                onTap: () async {
-                  final picked = await _pickSound();
-                  if (picked != null) {
-                    setSt(() {
-                      soundPath = picked.$1;
-                      soundName = picked.$2;
-                    });
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceAlt,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        soundPath == null
-                            ? Icons.music_note_outlined
-                            : Icons.music_note_rounded,
-                        color: soundPath == null
-                            ? AppTheme.textSecondary
-                            : AppTheme.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          soundName ?? 'Alarm sesi: Varsayılan',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right_rounded,
-                          size: 18, color: AppTheme.textTertiary),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+      builder: (ctx) => AlertDialog(
+        title: Text(
+            '${ScheduleService.weekdayNames[weekday - 1]} • ${time.format(context)}'),
+        content: TextField(
+          controller: labelCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Not (opsiyonel)',
+            hintText: 'örn. Sabah vardiyası',
+            prefixIcon: Icon(Icons.label_outline_rounded),
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('İptal')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Ekle')),
-          ],
         ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Ekle')),
+        ],
       ),
     );
     if (saveLabel != true) return;
@@ -179,11 +164,9 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       hour: time.hour,
       minute: time.minute,
       label: labelCtrl.text.trim().isEmpty ? null : labelCtrl.text.trim(),
-      soundPath: soundPath,
-      soundName: soundName,
     );
     final newId = await ScheduleService.instance.add(entry);
-    // Eklenince alarmı otomatik kur.
+    // Eklenince alarmı otomatik kur (genel alarm sesiyle).
     final saved = ScheduleEntry(
       id: newId,
       weekday: entry.weekday,
@@ -191,8 +174,6 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       minute: entry.minute,
       label: entry.label,
       enabled: true,
-      soundPath: entry.soundPath,
-      soundName: entry.soundName,
     );
     await ScheduleService.instance.setAlarm(saved);
     await _load();
@@ -208,15 +189,33 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   }
 
   /// Telefondan ses dosyasi sec. (yol, gosterim_adi) doner; iptalde null.
+  /// KRITIK: Secilen dosya uygulamanin KALICI klasorune kopyalanir. Cunku
+  /// file_picker'in verdigi gecici yol, alarm gunler sonra caldiginda
+  /// sistem tarafindan silinmis olabilir -> ses calmaz. Kopya kalici kalir.
   Future<(String, String)?> _pickSound() async {
     try {
+      // Android 13+ icin ses okuma izni.
+      if (await Permission.audio.isDenied) {
+        await Permission.audio.request();
+      }
       final result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
       );
       if (result == null || result.files.isEmpty) return null;
       final f = result.files.first;
       if (f.path == null) return null;
-      return (f.path!, f.name);
+
+      // Uygulamanin kalici klasorune kopyala.
+      final dir = await getApplicationDocumentsDirectory();
+      final soundsDir = Directory('${dir.path}/alarm_sounds');
+      if (!soundsDir.existsSync()) soundsDir.createSync(recursive: true);
+      // Dosya adini koru ama benzersiz yap.
+      final ext = f.name.contains('.') ? f.name.split('.').last : 'mp3';
+      final dst =
+          '${soundsDir.path}/snd_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      await File(f.path!).copy(dst);
+
+      return (dst, f.name);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -482,6 +481,70 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                       ],
                     ),
                   ),
+
+                // ── Genel Alarm Sesi (TUM alarmlar icin tek ses) ──
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  padding: const EdgeInsets.all(16),
+                  decoration: AppTheme.card(accentColor: AppTheme.primary),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          _soundName == null
+                              ? Icons.music_note_outlined
+                              : Icons.music_note_rounded,
+                          color: AppTheme.primary,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Alarm Sesi',
+                                style: TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            Text(
+                              _soundName ?? 'Varsayılan alarm sesi',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppTheme.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_soundName != null)
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          tooltip: 'Varsayılana dön',
+                          color: AppTheme.textSecondary,
+                          onPressed: _resetGlobalSound,
+                        ),
+                      FilledButton(
+                        onPressed: _pickGlobalSound,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                        ),
+                        child: const Text('Seç',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                ),
 
                 // ── SKT İmha Alarmı (her gun aksam) ──
                 Container(

@@ -137,6 +137,7 @@ class ScheduleService {
   }
 
   /// Haftalik alarmi kur (bir sonraki o gun/saate).
+  /// Ses: kullanicinin sectigi GENEL alarm sesi (AlarmService otomatik okur).
   Future<void> setAlarm(ScheduleEntry e) async {
     if (e.id == null) return;
     final when = nextOccurrence(e.weekday, e.hour, e.minute);
@@ -145,7 +146,6 @@ class ScheduleService {
       when: when,
       title: e.label ?? 'Mesai Zamani',
       body: '${weekdayNames[e.weekday - 1]} - ${e.timeStr}',
-      audioPath: e.soundPath, // telefondaki muzik (null = varsayilan alarm)
     );
   }
 
@@ -155,6 +155,15 @@ class ScheduleService {
 
   Future<void> setAllAlarms(List<ScheduleEntry> entries) async {
     for (final e in entries.where((x) => x.enabled)) {
+      await setAlarm(e);
+    }
+  }
+
+  /// Tum aktif haftalik alarmlari DB'den okuyup yeniden kur.
+  /// (Genel alarm sesi degisince hepsini yeni sesle yenilemek icin.)
+  Future<void> refreshAllAlarms() async {
+    final all = await getAll();
+    for (final e in all.where((x) => x.enabled)) {
       await setAlarm(e);
     }
   }

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'skt_alarm_settings.dart';
+
 /// ════════════════════════════════════════════════════════════════════
 ///  Alarm servisi — "alarm" paketi sarmalayicisi.
 ///  Native taraf kilit ekrani, ses, titresim, tam ekran intent'i yonetir.
@@ -34,7 +36,7 @@ class AlarmService {
     } catch (_) {}
   }
 
-  /// Gerekli izinleri ister: bildirim + tam zamanli alarm.
+  /// Gerekli izinleri ister: bildirim + tam zamanli alarm + tam ekran intent.
   /// Alarmin kilit ekraninda tam ekran acilmasi icin sart.
   static Future<void> requestPermissions() async {
     // Bildirim izni (Android 13+).
@@ -49,6 +51,13 @@ class AlarmService {
     // susturulmamasi icin KRITIK.
     if (await Permission.ignoreBatteryOptimizations.isDenied) {
       await Permission.ignoreBatteryOptimizations.request();
+    }
+    // KRITIK (Android 14+): Tam ekran intent izni reddedildiyse, sistem
+    // alarmi sessizce normal bildirime dusurur ve kilit ekraninda ACILMAZ.
+    // Izin yoksa kullaniciyi ayar sayfasina yonlendir.
+    final canFsi = await canUseFullScreenIntent();
+    if (!canFsi) {
+      await openFullScreenIntentSettings();
     }
   }
 
@@ -68,28 +77,33 @@ class AlarmService {
   }
 
   /// Belirli bir tarihte alarm kur.
+  /// audioPath verilmezse, kullanicinin sectigi GENEL alarm sesi kullanilir.
   static Future<void> setAlarmAt({
     required int id,
     required DateTime when,
     required String title,
     required String body,
-    String? audioPath, // null -> cihaz varsayilan ALARM sesi; aksi halde dosya/asset yolu
+    String? audioPath, // null -> genel ayardaki ses (o da yoksa varsayilan)
   }) async {
+    // Genel alarm sesini ayardan oku (tum alarmlar ayni sesi kullanir).
+    final globalSound = await SktAlarmSettings.instance.getSoundPath();
+    final effectivePath = audioPath ?? globalSound;
     final settings = AlarmSettings(
       id: id,
       dateTime: when,
-      // audioPath verilmisse onu (telefondaki muzik dosyasi), yoksa
-      // paketle gelen alarm.mp3; o da yoksa paket cihaz alarm sesine doner.
-      assetAudioPath: audioPath ?? 'assets/sounds/alarm.mp3',
+      // Once parametre, sonra genel ayar sesi, o da yoksa paketle gelen
+      // alarm.mp3 (o da yoksa paket cihaz alarm sesine doner).
+      assetAudioPath: effectivePath ?? 'assets/sounds/alarm.mp3',
       loopAudio: true,
       vibrate: true,
       warningNotificationOnKill: false,
       androidFullScreenIntent: true, // kilit ekraninda tam ekran
-      // Alarm STREAM_ALARM'da calar (medya degil). volumeEnforced ile
-      // ses kisik/sessiz olsa bile alarm seviyesi garanti edilir.
-      volumeSettings: VolumeSettings.fade(
-        volume: 0.9,
-        fadeDuration: const Duration(seconds: 3),
+      // KRITIK: Alarm STREAM_ALARM'da calar (medya degil). fixed + tam ses
+      // + volumeEnforced ile, telefon sessizde/kisikta olsa bile alarm
+      // duyulur sesle calar. Medya yonlendirme (androidAudioConfiguration)
+      // KULLANILMIYOR -> ses medya kanalina dusup susmaz.
+      volumeSettings: VolumeSettings.fixed(
+        volume: 1.0,
         volumeEnforced: true,
       ),
       notificationSettings: NotificationSettings(
