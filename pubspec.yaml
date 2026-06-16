@@ -35,7 +35,7 @@ dependencies:
   http: ^1.2.2
   flutter_secure_storage: ^9.2.2
   cached_network_image: ^3.4.1
-  alarm: ^5.1.5
+  alarm: ^5.4.1
   audioplayers: ^6.1.0
   vibration: ^2.0.0
   pdf: ^3.10.8

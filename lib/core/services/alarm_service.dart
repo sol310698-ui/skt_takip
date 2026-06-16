@@ -96,7 +96,7 @@ class AlarmService {
       assetAudioPath: effectivePath ?? 'assets/sounds/alarm.mp3',
       loopAudio: true,
       vibrate: true,
-      warningNotificationOnKill: false,
+      warningNotificationOnKill: true, // uygulama oldurulurse kullaniciyi uyar
       androidFullScreenIntent: true, // kilit ekraninda tam ekran
       // KRITIK: Alarm STREAM_ALARM'da calar (medya degil). fixed + tam ses
       // + volumeEnforced ile, telefon sessizde/kisikta olsa bile alarm

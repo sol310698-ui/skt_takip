@@ -33,6 +33,9 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
+    <!-- "alarm" paketinin Samsung/Xiaomi/Oppo gibi OEM cihazlarda
+         full-screen intent + arka plan baslatma icin gerekli gordugu izin -->
+    <uses-permission android:name="android.permission.auto_start_flutter" />
 
     <application
         android:label="SKT Takip"
@@ -56,6 +59,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- "alarm" paketi: uygulama oldurulurse kullaniciyi uyaran servis -->
+        <service
+            android:name="com.gdelataillade.alarm.services.NotificationOnKillService"
+            android:exported="false" />
 
         <!-- flutter_local_notifications zamanlanmış bildirim alıcıları -->
         <receiver
