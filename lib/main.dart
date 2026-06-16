@@ -19,6 +19,12 @@ import 'views/screens/skt_disposal_alarm_screen.dart';
 /// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+/// Soguk baslatmada yakalanan ama henuz gosterilemeyen alarm.
+int? _pendingAlarmId;
+String _pendingTitle = '';
+String _pendingBody = '';
+StreamSubscription? _globalRingSub;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr', null);
@@ -37,6 +43,19 @@ Future<void> main() async {
   await AlarmService.init();
   // Gerekli izinleri iste (bildirim + tam zamanli alarm).
   await AlarmService.requestPermissions();
+
+  // ÖNEMLİ: Alarm dinleyicisini runApp'ten ÖNCE kur. Boylece uygulama
+  // alarm tarafindan soguk baslatildiginda bile ilk event yakalanir.
+  // Yakalanan alarm _pendingAlarmId'ye yazilir; arayuz hazir olunca acilir.
+  _globalRingSub = Alarm.ringing.listen((alarmSet) {
+    for (final alarm in alarmSet.alarms) {
+      _pendingAlarmId = alarm.id;
+      _pendingTitle = alarm.notificationSettings.title;
+      _pendingBody = alarm.notificationSettings.body;
+      // Arayuz aciksa hemen goster.
+      _tryShowPendingAlarm();
+    }
+  });
 
   // SKT imha alarmi acik ise, gunluk zincirin kopmamasi icin her
   // uygulama acilisinda bir sonraki olusuma yeniden kur (sessizce).
@@ -59,6 +78,49 @@ Future<void> _ensureSktDisposalAlarm() async {
   } catch (_) {}
 }
 
+/// Bekleyen alarm varsa ve arayuz hazirsa, dogru alarm ekranini ac.
+void _tryShowPendingAlarm() {
+  final id = _pendingAlarmId;
+  if (id == null) return;
+  final nav = navigatorKey.currentState;
+  if (nav == null) return; // arayuz henuz hazir degil; sonra denenecek
+
+  // Tuketildi olarak isaretle (tekrar acilmasin).
+  _pendingAlarmId = null;
+  final title = _pendingTitle;
+  final body = _pendingBody;
+
+  // Haftalik program alarmiysa bir sonraki haftaya yeniden kur.
+  ScheduleService.instance.rescheduleIfWeekly(id);
+
+  // SKT imha alarmi (sabit ID) -> ozel ekran.
+  if (id == ScheduleService.sktDisposalAlarmId) {
+    nav.push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => SktDisposalAlarmScreen(
+        alarmId: id,
+        onGoToList: () {
+          navigatorKey.currentState?.popUntil((r) => r.isFirst);
+        },
+      ),
+    ));
+    return;
+  }
+
+  // Haftalik / mesai alarmi -> modern alarm ekrani.
+  final isShift = id >= 800000 && id < 900000;
+  nav.push(MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => AlarmRingScreen(
+      alarmId: id,
+      title: title,
+      body: body,
+      isShift: isShift,
+      shiftId: isShift ? id - 800000 : null,
+    ),
+  ));
+}
+
 class SktTakipApp extends StatefulWidget {
   const SktTakipApp({super.key});
 
@@ -66,60 +128,31 @@ class SktTakipApp extends StatefulWidget {
   State<SktTakipApp> createState() => _SktTakipAppState();
 }
 
-class _SktTakipAppState extends State<SktTakipApp> {
-  StreamSubscription? _ringSub;
-
+class _SktTakipAppState extends State<SktTakipApp>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    // Alarm caldiginda: kendi alarm ekranimizi ac + haftalik tekrar kur.
-    _ringSub = Alarm.ringing.listen((alarmSet) {
-      for (final alarm in alarmSet.alarms) {
-        _onAlarmRing(alarm.id, alarm.notificationSettings.title,
-            alarm.notificationSettings.body);
-      }
+    WidgetsBinding.instance.addObserver(this);
+    // Ilk frame cizildikten sonra (navigator hazir olunca) bekleyen
+    // alarmi kontrol et. Uygulama alarm tarafindan soguk baslatildiysa
+    // _pendingAlarmId dolu olur ve dogru alarm ekrani acilir.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tryShowPendingAlarm();
     });
   }
 
-  void _onAlarmRing(int id, String title, String body) {
-    // Haftalik program alarmiysa bir sonraki haftaya yeniden kur.
-    ScheduleService.instance.rescheduleIfWeekly(id);
-
-    final nav = navigatorKey.currentState;
-    if (nav == null) return;
-
-    // SKT imha alarmi (sabit ID) -> ozel ekran.
-    if (id == ScheduleService.sktDisposalAlarmId) {
-      nav.push(MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => SktDisposalAlarmScreen(
-          alarmId: id,
-          onGoToList: () {
-            // SKT listesine (ana ekran) yonlendir.
-            navigatorKey.currentState?.popUntil((r) => r.isFirst);
-          },
-        ),
-      ));
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Uygulama one geldiginde bekleyen alarm varsa goster.
+    if (state == AppLifecycleState.resumed) {
+      _tryShowPendingAlarm();
     }
-
-    // Kendi modern alarm ekranimizi goster.
-    final isShift = id >= 800000 && id < 900000;
-    nav.push(MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => AlarmRingScreen(
-        alarmId: id,
-        title: title,
-        body: body,
-        isShift: isShift,
-        shiftId: isShift ? id - 800000 : null,
-      ),
-    ));
   }
 
   @override
   void dispose() {
-    _ringSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
