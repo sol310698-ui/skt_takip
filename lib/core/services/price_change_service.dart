@@ -503,4 +503,28 @@ class PriceChangeService {
     await db.delete(AppConstants.priceChangeTable,
         where: 'id = ?', whereArgs: [id]);
   }
+
+  /// Yanlis OCR edilen urunu duzenle (ad, fiyatlar, reyon, barkod).
+  Future<void> updateItem(
+    int id, {
+    String? productName,
+    String? barcode,
+    double? oldPrice,
+    double? newPrice,
+    String? aisle,
+  }) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.priceChangeTable,
+      {
+        'product_name': productName,
+        'barcode': barcode,
+        'old_price': oldPrice,
+        'new_price': newPrice,
+        'aisle': aisle,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }

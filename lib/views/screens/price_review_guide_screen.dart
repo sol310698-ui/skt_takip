@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/price_change_service.dart';
@@ -72,10 +73,20 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     if (_busy) return;
     final item = _items[_index];
     if (item.id == null) return;
+
+    // Foto ZORUNLU: kamerayi ac, etiket kanitini cek.
+    final picker = ImagePicker();
+    final XFile? shot = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 70,
+      maxWidth: 1600,
+    );
+    if (shot == null) return; // kullanici vazgecti -> isaretleme
+
     setState(() => _busy = true);
-    await PriceChangeService.instance.markChangedNoPhoto(item.id!);
-    // Listeyi guncelle.
-    _items[_index] = item.copyWith(changed: true);
+    // Fotoyu kalici sakla + degistirildi isaretle.
+    await PriceChangeService.instance.markChanged(item.id!, shot.path);
+    _items[_index] = item.copyWith(changed: true, photoPath: shot.path);
     setState(() => _busy = false);
     _nextOrFinish();
   }
@@ -415,8 +426,8 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      icon: const Icon(Icons.check_circle_rounded, size: 22),
-                      label: const Text('Çekildi / İşaretle',
+                      icon: const Icon(Icons.camera_alt_rounded, size: 22),
+                      label: const Text('Fotoğraf Çek ve İşaretle',
                           style: TextStyle(
                               fontSize: 17, fontWeight: FontWeight.w800)),
                     ),

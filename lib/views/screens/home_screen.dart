@@ -10,6 +10,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
+import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
@@ -103,29 +104,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       floatingActionButtonLocation:
           FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Etiket inceleme (fiyat+tarih+barkod+OFF)
-          FloatingActionButton.extended(
-            heroTag: 'home_label',
-            onPressed: _openLabelInspect,
-            backgroundColor: AppTheme.accent,
-            foregroundColor: Colors.black,
-            icon: const Icon(Icons.document_scanner_rounded),
-            label: const Text('Tara',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+      floatingActionButton: SpeedDialFab(
+        actions: [
+          SpeedDialAction(
+            icon: Icons.document_scanner_rounded,
+            label: 'Etiket Tara',
+            color: AppTheme.accent,
+            onTap: _openLabelInspect,
           ),
-          const SizedBox(height: 10),
-          // SKT tarih tarama -> urun kaydet
-          FloatingActionButton(
-            heroTag: 'home_skt',
-            onPressed: _openScanner,
-            backgroundColor: AppTheme.primary,
-            foregroundColor: Colors.white,
-            tooltip: 'SKT Tara',
-            child: const Icon(Icons.event_available_rounded),
+          SpeedDialAction(
+            icon: Icons.event_available_rounded,
+            label: 'SKT Tara',
+            color: AppTheme.primary,
+            onTap: _openScanner,
           ),
         ],
       ),

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
 import 'barcode_entry_screen.dart';
@@ -99,27 +100,19 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // Manuel ekleme
-          FloatingActionButton.small(
-            heroTag: 'bc_add',
-            onPressed: _openAddEntry,
-            backgroundColor: AppTheme.accent,
-            foregroundColor: Colors.black,
-            child: const Icon(Icons.add_rounded),
+      floatingActionButton: SpeedDialFab(
+        actions: [
+          SpeedDialAction(
+            icon: Icons.add_rounded,
+            label: 'Manuel Ekle',
+            color: AppTheme.accent,
+            onTap: _openAddEntry,
           ),
-          const SizedBox(height: 10),
-          // Tarayarak ekleme
-          FloatingActionButton.extended(
-            heroTag: 'bc_scan',
-            onPressed: _openScan,
-            backgroundColor: AppTheme.primary,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Tara'),
+          SpeedDialAction(
+            icon: Icons.qr_code_scanner,
+            label: 'Tarayarak Ekle',
+            color: AppTheme.primary,
+            onTap: _openScan,
           ),
         ],
       ),

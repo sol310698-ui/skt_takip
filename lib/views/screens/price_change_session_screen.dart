@@ -458,6 +458,17 @@ class _PriceChangeSessionScreenState
   }
 
   // ─────────────────────────── Kanit galerisi ────────────────────────
+  // Yanlis OCR edilen urunu duzenle (uzun basinca acilir).
+  Future<void> _openEditItem(PriceChangeItem item) async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditItemSheet(item: item),
+    );
+    if (changed == true && mounted) _load();
+  }
+
   // Gorme dostu rehber moduna gec (tek tek, buyuk gosterim).
   Future<void> _openGuide() async {
     await Navigator.push(
@@ -861,6 +872,7 @@ class _PriceChangeSessionScreenState
         final item = _items[i];
         return InkWell(
           borderRadius: BorderRadius.circular(AppTheme.rLg),
+          onLongPress: () => _openEditItem(item),
           onTap: () {
             // Degistirilmis -> kanit fotografi; degilse -> internette ara.
             if (item.changed && item.photoPath != null) {
@@ -988,6 +1000,238 @@ class _PriceChangeSessionScreenState
         const SizedBox(height: 6),
         Expanded(child: _buildItemList()),
       ],
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  DÜZENLEME SHEET — yanlis OCR edilen urunu duzelt (animasyonlu).
+// ════════════════════════════════════════════════════════════════════
+class _EditItemSheet extends StatefulWidget {
+  final PriceChangeItem item;
+  const _EditItemSheet({required this.item});
+
+  @override
+  State<_EditItemSheet> createState() => _EditItemSheetState();
+}
+
+class _EditItemSheetState extends State<_EditItemSheet>
+    with SingleTickerProviderStateMixin {
+  late final TextEditingController _name;
+  late final TextEditingController _barcode;
+  late final TextEditingController _oldPrice;
+  late final TextEditingController _newPrice;
+  late final TextEditingController _aisle;
+  late final AnimationController _anim;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final it = widget.item;
+    _name = TextEditingController(text: it.productName ?? '');
+    _barcode = TextEditingController(text: it.barcode);
+    _oldPrice =
+        TextEditingController(text: it.oldPrice?.toStringAsFixed(2) ?? '');
+    _newPrice =
+        TextEditingController(text: it.newPrice?.toStringAsFixed(2) ?? '');
+    _aisle = TextEditingController(text: it.aisle ?? '');
+    _anim = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 320));
+    _fade = CurvedAnimation(parent: _anim, curve: Curves.easeOut);
+    _slide = Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _anim, curve: Curves.easeOutCubic));
+    _anim.forward();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _barcode.dispose();
+    _oldPrice.dispose();
+    _newPrice.dispose();
+    _aisle.dispose();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (widget.item.id == null) return;
+    setState(() => _busy = true);
+    await PriceChangeService.instance.updateItem(
+      widget.item.id!,
+      productName: _name.text.trim().isEmpty ? null : _name.text.trim(),
+      barcode: _barcode.text.trim(),
+      oldPrice: double.tryParse(_oldPrice.text.replaceAll(',', '.')),
+      newPrice: double.tryParse(_newPrice.text.replaceAll(',', '.')),
+      aisle: _aisle.text.trim().isEmpty ? null : _aisle.text.trim(),
+    );
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  Future<void> _delete() async {
+    if (widget.item.id == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Text('Ürünü sil'),
+        content: const Text('Bu ürün listeden silinsin mi?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.statusExpired),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await PriceChangeService.instance.deleteItem(widget.item.id!);
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: Container(
+          margin: EdgeInsets.only(bottom: bottomInset),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          decoration: const BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    decoration: BoxDecoration(
+                      color: AppTheme.hairline,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.edit_rounded,
+                          color: AppTheme.primary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text('Ürünü Düzenle',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                _field('Ürün adı', _name, Icons.label_outline_rounded),
+                const SizedBox(height: 12),
+                _field('Barkod', _barcode, Icons.qr_code_rounded,
+                    keyboard: TextInputType.number),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _field('Eski fiyat', _oldPrice,
+                          Icons.sell_outlined,
+                          keyboard: const TextInputType.numberWithOptions(
+                              decimal: true)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _field('Yeni fiyat', _newPrice,
+                          Icons.local_offer_rounded,
+                          keyboard: const TextInputType.numberWithOptions(
+                              decimal: true)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _field('Reyon', _aisle, Icons.shelves),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: _busy ? null : _delete,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      color: AppTheme.statusExpired,
+                      style: IconButton.styleFrom(
+                        backgroundColor:
+                            AppTheme.statusExpired.withOpacity(0.12),
+                        padding: const EdgeInsets.all(14),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _busy ? null : _save,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.check_rounded, size: 20),
+                        label: const Text('Kaydet',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _field(String label, TextEditingController c, IconData icon,
+      {TextInputType? keyboard}) {
+    return TextField(
+      controller: c,
+      keyboardType: keyboard,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 20),
+        filled: true,
+        fillColor: AppTheme.surfaceAlt,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
     );
   }
 }
