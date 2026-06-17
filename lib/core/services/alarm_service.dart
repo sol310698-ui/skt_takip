@@ -37,6 +37,20 @@ class AlarmService {
     } catch (_) {}
   }
 
+  /// Kalici on plan servisini baslat (uygulamayi swipe-kill'e karsi tutar).
+  static Future<void> startKeepAlive() async {
+    try {
+      await _fsChannel.invokeMethod('startKeepAlive');
+    } catch (_) {}
+  }
+
+  /// Kalici on plan servisini durdur.
+  static Future<void> stopKeepAlive() async {
+    try {
+      await _fsChannel.invokeMethod('stopKeepAlive');
+    } catch (_) {}
+  }
+
   /// Gerekli izinleri ister: bildirim + tam zamanli alarm + tam ekran intent.
   /// Alarmin kilit ekraninda tam ekran acilmasi icin sart.
   static Future<void> requestPermissions() async {

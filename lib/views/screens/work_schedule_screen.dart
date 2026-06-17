@@ -27,6 +27,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   int _sktHour = 19;
   int _sktMinute = 0;
   String? _soundName; // genel alarm sesi adi (null = varsayilan)
+  bool _keepAliveOn = false; // kalici servis (swipe-kill korumasi)
 
   @override
   void initState() {
@@ -41,6 +42,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     final sktH = await SktAlarmSettings.instance.getHour();
     final sktM = await SktAlarmSettings.instance.getMinute();
     final soundName = await SktAlarmSettings.instance.getSoundName();
+    final keepAlive = await SktAlarmSettings.instance.isKeepAliveOn();
     if (!mounted) return;
     setState(() {
       _grouped = g;
@@ -49,8 +51,20 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       _sktHour = sktH;
       _sktMinute = sktM;
       _soundName = soundName;
+      _keepAliveOn = keepAlive;
       _loading = false;
     });
+  }
+
+  /// Kalici servis (swipe-kill korumasi) ac/kapat.
+  Future<void> _toggleKeepAlive(bool value) async {
+    await SktAlarmSettings.instance.setKeepAlive(value);
+    if (value) {
+      await AlarmService.startKeepAlive();
+    } else {
+      await AlarmService.stopKeepAlive();
+    }
+    await _load();
   }
 
   /// Genel alarm sesini sec (TUM alarmlar bu sesi kullanir).
@@ -541,6 +555,53 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                         ),
                         child: const Text('Seç',
                             style: TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Kalici Servis (swipe-kill korumasi) ──
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  padding: const EdgeInsets.all(16),
+                  decoration: AppTheme.card(accentColor: AppTheme.accent),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: AppTheme.accent.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.shield_rounded,
+                                color: AppTheme.accent, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text('Arka Planda Aktif Tut',
+                                style: TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w800)),
+                          ),
+                          Switch(
+                            value: _keepAliveOn,
+                            onChanged: _toggleKeepAlive,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _keepAliveOn
+                            ? 'Uygulama kalıcı bir bildirimle arka planda çalışıyor. Bu, alarmların telefonu kullanmadığında bile güvenilir çalmasına yardım eder (biraz pil kullanır).'
+                            : 'Alarmlar bazen uygulama kapalıyken çalmıyorsa bunu aç. Kalıcı bir bildirim gösterir ama alarmları daha güvenilir yapar.',
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.textSecondary,
+                            height: 1.4),
                       ),
                     ],
                   ),

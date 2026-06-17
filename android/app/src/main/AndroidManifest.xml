@@ -30,6 +30,7 @@
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
@@ -60,10 +61,35 @@
             </intent-filter>
         </activity>
 
+        <!-- Kalici on plan servisi: uygulamayi swipe-kill'e karsi ayakta tutar.
+             Alarmlarin guvenilir calismasi icin. Kullanici acip kapatabilir. -->
+        <service
+            android:name=".KeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Uygulamayi alarmlar icin aktif tutar" />
+        </service>
+
         <!-- "alarm" paketi: uygulama oldurulurse kullaniciyi uyaran servis -->
         <service
             android:name="com.gdelataillade.alarm.services.NotificationOnKillService"
             android:exported="false" />
+
+        <!-- Reboot sonrasi alarmlarin yeniden kurulmasi icin (Durum A).
+             "alarm" paketinin boot mekanizmasini uyandirir. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- flutter_local_notifications zamanlanmış bildirim alıcıları -->
         <receiver

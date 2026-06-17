@@ -54,4 +54,16 @@ class SktAlarmSettings {
     await _storage.delete(key: _kSoundPath);
     await _storage.delete(key: _kSoundName);
   }
+
+  // ── Kalici servis (swipe-kill korumasi) tercihi ──
+  static const _kKeepAlive = 'alarm_keepalive';
+
+  /// Kalici on plan servisi acik mi? (Varsayilan: kapali.)
+  Future<bool> isKeepAliveOn() async {
+    final v = await _storage.read(key: _kKeepAlive);
+    return v == 'true';
+  }
+
+  Future<void> setKeepAlive(bool value) =>
+      _storage.write(key: _kKeepAlive, value: value ? 'true' : 'false');
 }

@@ -149,7 +149,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
               // Baslik + kayit sayisi yan yana (alan kazanmak icin).
               Expanded(
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.lastBaseline,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     const Text('Barkod Listesi',

@@ -74,6 +74,11 @@ Future<void> main() async {
   // SKT imha alarmi acik ise, gunluk zincirin kopmamasi icin her
   // uygulama acilisinda bir sonraki olusuma yeniden kur (sessizce).
   _ensureSktDisposalAlarm();
+  // Reboot sonrasi guvence: tum aktif haftalik alarmlari yeniden kur.
+  // (Uygulama acildiginda alarmlarin kurulu oldugundan emin oluruz.)
+  _ensureWeeklyAlarms();
+  // Kullanici kalici servisi actiysa baslat (swipe-kill korumasi).
+  _ensureKeepAlive();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
@@ -87,8 +92,23 @@ Future<void> _ensureSktDisposalAlarm() async {
     final on = await SktAlarmSettings.instance.isEnabled();
     if (!on) return;
     final h = await SktAlarmSettings.instance.getHour();
-    final m = await SktAlarmSettings.instance.getMinute();
-    await ScheduleService.instance.setSktDisposalAlarm(hour: h, minute: m);
+    final m = await SktAlarmSettings.instance.getMinute();    await ScheduleService.instance.setSktDisposalAlarm(hour: h, minute: m);
+  } catch (_) {}
+}
+
+/// Tum aktif haftalik alarmlari yeniden kur (reboot/acilis guvencesi).
+Future<void> _ensureWeeklyAlarms() async {
+  try {
+    await ScheduleService.instance.refreshAllAlarms();
+  } catch (_) {}
+}
+
+/// Kullanici kalici servisi (swipe-kill korumasi) actiysa baslat.
+Future<void> _ensureKeepAlive() async {
+  try {
+    if (await SktAlarmSettings.instance.isKeepAliveOn()) {
+      await AlarmService.startKeepAlive();
+    }
   } catch (_) {}
 }
 

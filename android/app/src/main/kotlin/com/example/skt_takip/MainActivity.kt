@@ -58,6 +58,19 @@ class MainActivity : FlutterActivity() {
                         openFullScreenIntentSettings()
                         result.success(true)
                     }
+                    "startKeepAlive" -> {
+                        val svc = Intent(this, KeepAliveService::class.java)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(svc)
+                        } else {
+                            startService(svc)
+                        }
+                        result.success(true)
+                    }
+                    "stopKeepAlive" -> {
+                        stopService(Intent(this, KeepAliveService::class.java))
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
