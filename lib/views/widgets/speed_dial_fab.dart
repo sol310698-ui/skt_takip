@@ -19,9 +19,7 @@ class SpeedDialAction {
 /// ════════════════════════════════════════════════════════════════════
 ///  Animasyonlu Speed-Dial FAB.
 ///  Tek (+) butonu; basinca yukari dogru etiketli aksiyonlar acilir.
-///  - (+) ikonu 45° doner (x'e donusur)
-///  - Aksiyonlar sirayla fade + scale + slide ile belirir
-///  - Arka plan hafifce kararir (disari dokununca kapanir)
+///  Karartma katmani Overlay ile cizilir (yerlesim tasmaz).
 /// ════════════════════════════════════════════════════════════════════
 class SpeedDialFab extends StatefulWidget {
   final List<SpeedDialAction> actions;
@@ -42,111 +40,121 @@ class SpeedDialFab extends StatefulWidget {
 class _SpeedDialFabState extends State<SpeedDialFab>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  OverlayEntry? _overlay;
   bool _open = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 280));
+        vsync: this, duration: const Duration(milliseconds: 260));
   }
 
   @override
   void dispose() {
+    _removeOverlay();
     _ctrl.dispose();
     super.dispose();
   }
 
   void _toggle() {
-    setState(() => _open = !_open);
     if (_open) {
-      _ctrl.forward();
+      _close();
     } else {
-      _ctrl.reverse();
+      _openMenu();
     }
   }
 
+  void _openMenu() {
+    _overlay = _buildOverlay();
+    Overlay.of(context).insert(_overlay!);
+    setState(() => _open = true);
+    _ctrl.forward();
+  }
+
   void _close() {
-    if (!_open) return;
+    _ctrl.reverse().then((_) => _removeOverlay());
     setState(() => _open = false);
-    _ctrl.reverse();
+  }
+
+  void _removeOverlay() {
+    _overlay?.remove();
+    _overlay = null;
+  }
+
+  OverlayEntry _buildOverlay() {
+    return OverlayEntry(
+      builder: (ctx) {
+        return Stack(
+          children: [
+            // Karartma (disari dokununca kapatir).
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _close,
+                behavior: HitTestBehavior.opaque,
+                child: AnimatedBuilder(
+                  animation: _ctrl,
+                  builder: (_, __) => Container(
+                    color: Colors.black.withOpacity(0.5 * _ctrl.value),
+                  ),
+                ),
+              ),
+            ),
+            // Aksiyonlar (sag altta, ana FAB'in hemen ustunde).
+            Positioned(
+              right: 16,
+              bottom: 16 + 56 + 16, // padding + FAB yuksekligi + bosluk
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(widget.actions.length, (i) {
+                  final action = widget.actions[i];
+                  final start = i / (widget.actions.length * 2 + 1);
+                  final anim = CurvedAnimation(
+                    parent: _ctrl,
+                    curve: Interval(start, 1.0, curve: Curves.easeOutBack),
+                  );
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: FadeTransition(
+                      opacity: anim,
+                      child: ScaleTransition(
+                        scale: anim,
+                        alignment: Alignment.centerRight,
+                        child: _actionRow(action),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final bg = widget.backgroundColor ?? AppTheme.primary;
-    return Stack(
-      alignment: Alignment.bottomRight,
-      children: [
-        // Arka plan karartma (acikken, disari dokununca kapatir).
-        if (_open)
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _close,
-              child: AnimatedBuilder(
-                animation: _ctrl,
-                builder: (_, __) => Container(
-                  color: Colors.black.withOpacity(0.45 * _ctrl.value),
-                ),
-              ),
-            ),
-          ),
-        // Aksiyonlar + ana buton
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // Aksiyon ogeleri (yukaridan asagiya, sondan basa animasyon).
-              ...List.generate(widget.actions.length, (i) {
-                final action = widget.actions[i];
-                // Her oge biraz gecikmeli belirir.
-                final start = i / (widget.actions.length * 2);
-                final anim = CurvedAnimation(
-                  parent: _ctrl,
-                  curve: Interval(start, 1.0, curve: Curves.easeOutBack),
-                );
-                return SizeTransition(
-                  sizeFactor: CurvedAnimation(
-                      parent: _ctrl, curve: Curves.easeOut),
-                  axisAlignment: 1.0,
-                  child: FadeTransition(
-                    opacity: anim,
-                    child: ScaleTransition(
-                      scale: anim,
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: _actionRow(action),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-              // Ana (+) buton
-              FloatingActionButton(
-                heroTag: 'speeddial_main',
-                onPressed: _toggle,
-                backgroundColor: bg,
-                foregroundColor: Colors.white,
-                child: AnimatedBuilder(
-                  animation: _ctrl,
-                  builder: (_, __) => Transform.rotate(
-                    angle: _ctrl.value * 0.785398, // 45°
-                    child: Icon(widget.icon),
-                  ),
-                ),
-              ),
-            ],
-          ),
+    // Sadece ana (+) buton; aksiyonlar Overlay'de.
+    return FloatingActionButton(
+      heroTag: 'speeddial_main',
+      onPressed: _toggle,
+      backgroundColor: bg,
+      foregroundColor: Colors.white,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) => Transform.rotate(
+          angle: _ctrl.value * 0.785398, // 45° -> x
+          child: Icon(widget.icon),
         ),
-      ],
+      ),
     );
   }
 
   Widget _actionRow(SpeedDialAction action) {
-    final color = action.color ?? AppTheme.surface;
+    final color = action.color ?? AppTheme.primary;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -158,7 +166,7 @@ class _SpeedDialFabState extends State<SpeedDialFab>
             borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withOpacity(0.3),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),

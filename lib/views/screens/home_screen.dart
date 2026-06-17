@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -28,10 +29,30 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
   bool _exporting = false;
+  bool _searchVisible = true; // asagi kaydirinca gizlenir
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    final dir = _scrollCtrl.position.userScrollDirection;
+    // Asagi kaydiriliyor -> arama cubugunu gizle; yukari -> goster.
+    if (dir == ScrollDirection.reverse && _searchVisible) {
+      setState(() => _searchVisible = false);
+    } else if (dir == ScrollDirection.forward && !_searchVisible) {
+      setState(() => _searchVisible = true);
+    }
+  }
 
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -42,9 +63,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final filtered = ref.watch(filteredProductsProvider);
 
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
+      body: Column(
           children: [
             _buildBanner(),
             Expanded(
@@ -69,6 +88,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onRefresh: () =>
                         ref.read(productListProvider.notifier).refresh(),
                     child: ListView.builder(
+                      controller: _scrollCtrl,
                       padding: const EdgeInsets.only(top: 4, bottom: 100),
                       itemCount: _buildSectionedItems(filtered).length + 2,
                       itemBuilder: (context, i) {
@@ -101,7 +121,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-      ),
       floatingActionButtonLocation:
           FloatingActionButtonLocation.endFloat,
       floatingActionButton: SpeedDialFab(
@@ -124,8 +143,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildBanner() {
+    final topInset = MediaQuery.of(context).padding.top;
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 20),
       decoration: const BoxDecoration(
         gradient: AppTheme.bannerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
@@ -165,35 +185,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) =>
-                      ref.read(searchQueryProvider.notifier).state = v,
-                  decoration: const InputDecoration(
-                    hintText: 'Ürün veya barkod ara...',
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Material(
-                color: Colors.white.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: _scanBarcodeForSearch,
-                  child: const Padding(
-                    padding: EdgeInsets.all(14),
-                    child: Icon(Icons.qr_code_scanner,
-                        color: Colors.white, size: 24),
-                  ),
-                ),
-              ),
-            ],
+          // Arama cubugu: asagi kaydirinca gizlenir (AnimatedSize ile).
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _searchVisible
+                ? Column(
+                    children: [
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _searchCtrl,
+                              onChanged: (v) => ref
+                                  .read(searchQueryProvider.notifier)
+                                  .state = v,
+                              decoration: const InputDecoration(
+                                hintText: 'Ürün veya barkod ara...',
+                                prefixIcon: Icon(Icons.search),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Material(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: _scanBarcodeForSearch,
+                              child: const Padding(
+                                padding: EdgeInsets.all(14),
+                                child: Icon(Icons.qr_code_scanner,
+                                    color: Colors.white, size: 24),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
           ),
         ],
       ),
