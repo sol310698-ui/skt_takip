@@ -117,11 +117,9 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
     final shiftsAsync = ref.watch(shiftListProvider);
 
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
+      body: Column(
           children: [
-            _buildHeader(openAsync.valueOrNull),
+            _buildHeader(context, openAsync.valueOrNull),
             Expanded(
               child: shiftsAsync.when(
                 loading: () => const LoadingState(),
@@ -167,15 +165,15 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             ),
           ],
         ),
-      ),
     );
   }
 
-  Widget _buildHeader(ShiftEntry? open) {
+  Widget _buildHeader(BuildContext context, ShiftEntry? open) {
     final isWorking = open != null;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      padding: EdgeInsets.fromLTRB(
+          20, 16 + MediaQuery.of(context).padding.top, 20, 24),
       decoration: BoxDecoration(
         gradient: isWorking
             ? const LinearGradient(

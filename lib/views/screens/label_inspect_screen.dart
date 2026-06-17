@@ -37,6 +37,11 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   String? _localName; // dizin/urunlerden
   BarcodeLookupResult? _off;
 
+  // App bar rengi: bir onceki taranan barkodla karsilastirma.
+  // null = ilk tarama (notr); yesil = ayni barkod; kirmizi = farkli barkod.
+  String? _lastBarcode;
+  Color _appBarColor = AppTheme.primary;
+
   @override
   void initState() {
     super.initState();
@@ -105,11 +110,26 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     }
 
     if (!mounted) return;
+    // App bar rengi: bir onceki taranan barkodla karsilastir.
+    // Ilk tarama -> notr; ayni -> yesil; farkli -> kirmizi.
+    Color barColor;
+    if (code == null) {
+      barColor = AppTheme.primary;
+    } else if (_lastBarcode == null) {
+      barColor = AppTheme.primary; // ilk tarama, notr
+    } else if (_lastBarcode == code) {
+      barColor = AppTheme.statusSafe; // ayni barkod -> yesil
+    } else {
+      barColor = AppTheme.statusExpired; // farkli barkod -> kirmizi
+    }
+
     setState(() {
       _parsed = parsed;
       _localName = localName;
       _off = off;
       _busy = false;
+      _appBarColor = barColor;
+      if (code != null) _lastBarcode = code; // sonraki karsilastirma icin
     });
   }
 
@@ -129,8 +149,14 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         title: const Text('Etiket İnceleme'),
-        backgroundColor: AppTheme.primary,
+        backgroundColor: _appBarColor,
         foregroundColor: Colors.white,
+        // Renk gecisi yumusak olsun (yesil<->kirmizi animasyonlu).
+        flexibleSpace: AnimatedContainer(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(color: _appBarColor),
+        ),
       ),
       body: _parsed == null ? _buildScanner() : _buildResult(),
     );

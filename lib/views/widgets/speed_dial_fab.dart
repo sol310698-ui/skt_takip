@@ -101,9 +101,10 @@ class _SpeedDialFabState extends State<SpeedDialFab>
               ),
             ),
             // Aksiyonlar (sag altta, ana FAB'in hemen ustunde).
+            // FAB 78px yukarida (nav bar ustu) + FAB yuksekligi 56 + bosluk.
             Positioned(
               right: 16,
-              bottom: 16 + 56 + 16, // padding + FAB yuksekligi + bosluk
+              bottom: 78 + 56 + 28 + MediaQuery.of(ctx).padding.bottom,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
@@ -138,16 +139,21 @@ class _SpeedDialFabState extends State<SpeedDialFab>
   Widget build(BuildContext context) {
     final bg = widget.backgroundColor ?? AppTheme.primary;
     // Sadece ana (+) buton; aksiyonlar Overlay'de.
-    return FloatingActionButton(
-      heroTag: 'speeddial_main',
-      onPressed: _toggle,
-      backgroundColor: bg,
-      foregroundColor: Colors.white,
-      child: AnimatedBuilder(
-        animation: _ctrl,
-        builder: (_, __) => Transform.rotate(
-          angle: _ctrl.value * 0.785398, // 45° -> x
-          child: Icon(widget.icon),
+    // Alttan bosluk: MainShell'in 92px nav bar'inin USTUNDE dursun
+    // (ic Scaffold dis nav bar'i bilmedigi icin elle bosluk veriyoruz).
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 78),
+      child: FloatingActionButton(
+        heroTag: 'speeddial_main',
+        onPressed: _toggle,
+        backgroundColor: bg,
+        foregroundColor: Colors.white,
+        child: AnimatedBuilder(
+          animation: _ctrl,
+          builder: (_, __) => Transform.rotate(
+            angle: _ctrl.value * 0.785398, // 45° -> x
+            child: Icon(widget.icon),
+          ),
         ),
       ),
     );

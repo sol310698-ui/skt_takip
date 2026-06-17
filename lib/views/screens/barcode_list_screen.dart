@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -23,14 +24,26 @@ class BarcodeListScreen extends ConsumerStatefulWidget {
 
 class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
   String _query = '';
   List<BarcodeEntry> _all = [];
   bool _loading = true;
+  bool _searchVisible = true; // asagi kaydirinca gizlenir
 
   @override
   void initState() {
     super.initState();
+    _scrollCtrl.addListener(_onScroll);
     _load();
+  }
+
+  void _onScroll() {
+    final dir = _scrollCtrl.position.userScrollDirection;
+    if (dir == ScrollDirection.reverse && _searchVisible) {
+      setState(() => _searchVisible = false);
+    } else if (dir == ScrollDirection.forward && !_searchVisible) {
+      setState(() => _searchVisible = true);
+    }
   }
 
   @override
@@ -44,6 +57,8 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
 
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -73,9 +88,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: Column(
+      body: Column(
           children: [
             _buildHeader(),
             Expanded(
@@ -86,6 +99,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                       : RefreshIndicator(
                           onRefresh: _load,
                           child: ListView.separated(
+                            controller: _scrollCtrl,
                             padding: const EdgeInsets.only(
                                 top: 8, bottom: 100),
                             itemCount: _filtered.length,
@@ -98,7 +112,6 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             ),
           ],
         ),
-      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: SpeedDialFab(
         actions: [
@@ -120,8 +133,9 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   }
 
   Widget _buildHeader() {
+    final topInset = MediaQuery.of(context).padding.top;
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 16),
       decoration: const BoxDecoration(
         gradient: AppTheme.bannerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
@@ -132,11 +146,26 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Barkod Listesi',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800)),
+              // Baslik + kayit sayisi yan yana (alan kazanmak icin).
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.lastBaseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    const Text('Barkod Listesi',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(width: 10),
+                    Text('${_all.length} kayıt',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.75),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
               IconButton(
                 icon: const Icon(Icons.upload_file_outlined,
                     color: Colors.white),
@@ -149,18 +178,23 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text('${_all.length} kayıtlı barkod',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.85), fontSize: 13)),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _searchCtrl,
-            onChanged: (v) => setState(() => _query = v),
-            decoration: const InputDecoration(
-              hintText: 'Barkod veya ürün ara...',
-              prefixIcon: Icon(Icons.search),
-            ),
+          // Arama: asagi kaydirinca gizlenir.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _searchVisible
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (v) => setState(() => _query = v),
+                      decoration: const InputDecoration(
+                        hintText: 'Barkod veya ürün ara...',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
           ),
         ],
       ),

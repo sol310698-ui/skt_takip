@@ -99,6 +99,10 @@ class AlarmService {
       vibrate: true,
       warningNotificationOnKill: true, // uygulama oldurulurse kullaniciyi uyar
       androidFullScreenIntent: true, // kilit ekraninda tam ekran
+      // KRITIK: Bildirime tiklayinca / uygulama task'i degisince alarm
+      // DURMASIN. Boylece bildirimden uygulamaya gecince ses devam eder,
+      // alarm ekrani acilir ve kullanici "Durdur"a basana kadar calar.
+      androidStopAlarmOnTermination: false,
       // KRITIK: Alarm STREAM_ALARM'da calar (medya degil). fixed + tam ses
       // + volumeEnforced ile, telefon sessizde/kisikta olsa bile alarm
       // duyulur sesle calar. Medya yonlendirme (androidAudioConfiguration)
