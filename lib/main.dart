@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_service.dart';
@@ -52,6 +53,11 @@ Future<void> main() async {
   // alarm tarafindan soguk baslatildiginda bile ilk event yakalanir.
   // Yakalanan alarm _pendingAlarmId'ye yazilir; arayuz hazir olunca acilir.
   _globalRingSub = Alarm.ringing.listen((alarmSet) {
+    // KRITIK: Alarm caldigi an CPU/ekrani ZORLA uyanik tut. Doze modunda
+    // islemcinin durup sesi kesmesini engeller. Alarm durdurulunca birakilir.
+    if (alarmSet.alarms.isNotEmpty) {
+      WakelockPlus.enable();
+    }
     for (final alarm in alarmSet.alarms) {
       _pendingAlarmId = alarm.id;
       _pendingTitle = alarm.notificationSettings.title;

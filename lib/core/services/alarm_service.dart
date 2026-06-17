@@ -2,6 +2,7 @@ import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'skt_alarm_settings.dart';
 
@@ -120,10 +121,15 @@ class AlarmService {
   /// Alarmi durdur/iptal et.
   static Future<void> stop(int id) async {
     await Alarm.stop(id);
+    // Kullanici alarmi durdurdu -> CPU/ekran kilidini birak (pil tasarrufu).
+    // (getAlarms zamanlanmis alarmlari da sayar; burada calan alarm
+    //  durduruldugu icin kosulsuz birakmak dogru.)
+    await WakelockPlus.disable();
   }
 
   /// Tum alarmlari durdur.
   static Future<void> stopAll() async {
     await Alarm.stopAll();
+    await WakelockPlus.disable();
   }
 }
