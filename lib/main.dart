@@ -25,6 +25,10 @@ int? _pendingAlarmId;
 String _pendingTitle = '';
 String _pendingBody = '';
 StreamSubscription? _globalRingSub;
+/// Alarm ekrani su an acik mi? (Ust uste activity acilmasini onler.)
+bool _alarmScreenOpen = false;
+/// O an gosterilen alarm ID (ayni alarmi tekrar acmamak icin).
+int? _shownAlarmId;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,8 +99,18 @@ void _tryShowPendingAlarm() {
   final nav = navigatorKey.currentState;
   if (nav == null) return; // arayuz henuz hazir degil; sonra denenecek
 
+  // ── UST USTE ACILMA KORUMASI ──
+  // Zaten bir alarm ekrani aciksa, tekrar acma (activity ust uste binmesin).
+  if (_alarmScreenOpen) {
+    // Ayni alarmsa tuket ve cik; farkli alarmsa beklet (mevcut kapaninca acilir).
+    if (_shownAlarmId == id) _pendingAlarmId = null;
+    return;
+  }
+
   // Tuketildi olarak isaretle (tekrar acilmasin).
   _pendingAlarmId = null;
+  _alarmScreenOpen = true;
+  _shownAlarmId = id;
   final title = _pendingTitle;
   final body = _pendingBody;
 
@@ -105,30 +119,43 @@ void _tryShowPendingAlarm() {
 
   // SKT imha alarmi (sabit ID) -> ozel ekran.
   if (id == ScheduleService.sktDisposalAlarmId) {
-    nav.push(MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => SktDisposalAlarmScreen(
-        alarmId: id,
-        onGoToList: () {
-          navigatorKey.currentState?.popUntil((r) => r.isFirst);
-        },
-      ),
-    ));
+    nav
+        .push(MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => SktDisposalAlarmScreen(
+            alarmId: id,
+            onGoToList: () {
+              navigatorKey.currentState?.popUntil((r) => r.isFirst);
+            },
+          ),
+        ))
+        .then((_) {
+      // Ekran kapandi -> bayraklari sifirla (sonraki alarm acilabilsin).
+      _alarmScreenOpen = false;
+      _shownAlarmId = null;
+      _tryShowPendingAlarm(); // bekleyen baska alarm varsa ac
+    });
     return;
   }
 
   // Haftalik / mesai alarmi -> modern alarm ekrani.
   final isShift = id >= 800000 && id < 900000;
-  nav.push(MaterialPageRoute(
-    fullscreenDialog: true,
-    builder: (_) => AlarmRingScreen(
-      alarmId: id,
-      title: title,
-      body: body,
-      isShift: isShift,
-      shiftId: isShift ? id - 800000 : null,
-    ),
-  ));
+  nav
+      .push(MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => AlarmRingScreen(
+          alarmId: id,
+          title: title,
+          body: body,
+          isShift: isShift,
+          shiftId: isShift ? id - 800000 : null,
+        ),
+      ))
+      .then((_) {
+    _alarmScreenOpen = false;
+    _shownAlarmId = null;
+    _tryShowPendingAlarm();
+  });
 }
 
 class SktTakipApp extends StatefulWidget {

@@ -18,10 +18,22 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyLockScreenFlags()
+    }
+
+    // singleTask modunda activity yeniden kullanilirsa onCreate cagrilmaz,
+    // onNewIntent cagrilir. Kilit ekrani bayraklarini burada da uygula ki
+    // alarm full-screen intent ile geldiginde ekran uyanip kilit ustune ciksin.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyLockScreenFlags()
+    }
+
+    private fun applyLockScreenFlags() {
         // Alarm ekraninin kilit ekrani UZERINDE gorunmesi ve ekrani
         // uyandirmasi icin (sessiz/kisik/kilitli fark etmez).
-        // ONEMLI: Kilidi KALDIRMAYIZ (requestDismissKeyguard sesi kesiyordu);
-        // sadece kilit ekraninin UZERINE cizeriz (showWhenLocked).
+        // Kilidi KALDIRMAYIZ; sadece kilit ekraninin UZERINE cizeriz.
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
