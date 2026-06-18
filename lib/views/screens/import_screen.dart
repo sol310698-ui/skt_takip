@@ -278,7 +278,23 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                         Text(e.barcode,
                             style: const TextStyle(
                                 fontFamily: 'monospace', fontSize: 13)),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 8),
+                        // Stok kodu okunduysa goster (yesil etiket).
+                        if (e.stockCode != null && e.stockCode!.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.statusSafe.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text('#${e.stockCode}',
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.statusSafe)),
+                          ),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(e.productName,
                               maxLines: 1,

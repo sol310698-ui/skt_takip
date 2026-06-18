@@ -22,7 +22,28 @@ class DatabaseService {
       version: AppConstants.dbVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onOpen,
     );
+  }
+
+  /// Her acilista calisir. Kritik sutunlarin varligini garanti eder
+  /// (migration herhangi bir nedenle calismadiysa guvence katmani).
+  Future<void> _onOpen(Database db) async {
+    await _ensureColumn(db, AppConstants.barcodeTable, 'stock_code', 'TEXT');
+  }
+
+  /// Bir tabloda sutun yoksa ekler (varsa sessizce gecer).
+  Future<void> _ensureColumn(
+      Database db, String table, String column, String type) async {
+    try {
+      final cols = await db.rawQuery('PRAGMA table_info($table)');
+      final exists = cols.any((c) => c['name'] == column);
+      if (!exists) {
+        await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+      }
+    } catch (_) {
+      // sessizce gec
+    }
   }
 
   /// Yeni kurulum.
