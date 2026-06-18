@@ -1,6 +1,6 @@
 import '../../core/constants/app_constants.dart';
 import '../../core/services/database_service.dart';
-import '../models/checklist.dart';
+import '../../data/models/checklist.dart';
 
 /// Kontrol listeleri (oturumlu) icin CRUD servisi.
 class ChecklistService {
