@@ -145,20 +145,25 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Etiket İnceleme'),
-        backgroundColor: _appBarColor,
-        foregroundColor: Colors.white,
-        // Renk gecisi yumusak olsun (yesil<->kirmizi animasyonlu).
-        flexibleSpace: AnimatedContainer(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
-          decoration: BoxDecoration(color: _appBarColor),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(_appBarColor),
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: AppBar(
+          title: const Text('Etiket İnceleme'),
+          backgroundColor: _appBarColor,
+          foregroundColor: Colors.white,
+          // Sistem cubugu (saat/pil) AppBar rengiyle ayni olsun.
+          systemOverlayStyle: AppTheme.systemBarForColor(_appBarColor),
+          // Renk gecisi yumusak olsun (yesil<->kirmizi animasyonlu).
+          flexibleSpace: AnimatedContainer(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeInOut,
+            decoration: BoxDecoration(color: _appBarColor),
+          ),
         ),
+        body: _parsed == null ? _buildScanner() : _buildResult(),
       ),
-      body: _parsed == null ? _buildScanner() : _buildResult(),
     );
   }
 

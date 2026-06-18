@@ -9,6 +9,7 @@ import '../../core/services/feedback_service.dart';
 import '../../core/services/shelf_session_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/google_search_button.dart';
 import 'shelf_result_sheet.dart';
@@ -126,14 +127,42 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     });
 
     // Pencere yerel sonucla HEMEN acilir (OFF beklenmez).
-    // Arka planda OFF dener (2s timeout); isim geldiyse snackbar gosterir.
+    // Arka planda OFF dener (2s timeout); isim geldiyse snackbar gosterir
+    // ve dizine kaydeder.
     if (name == null) {
       _lookupOffInBackground(code);
+    } else if (!inDirectory && ScanResult.looksLikeBarcode(code)) {
+      // Isim aktif urunlerden geldi ama barkod dizininde yok:
+      // dizine ekle ki sonradan Excel stok kodu eslesince tamamlanabilsin.
+      _saveToDirectory(code, name, source: BarcodeSource.scan);
     }
 
     // Ürün okundu — sheet göstermeden direkt etiket fazına geç.
     // (Eski akışta "Listeye Kaydet ve Devam" / "Kaydetmeden Devam" vardı, kaldırıldı.)
     setState(() => _phase = _Phase.label);
+  }
+
+  /// Okunan urunu barkod dizinine kaydeder. importAll oncelik mantigi
+  /// sayesinde Excel verisi KORUNUR: dusuk oncelikli (scan/off) bir kayit,
+  /// mevcut Excel kaydinin ad/stok kodunu EZMEZ.
+  Future<void> _saveToDirectory(String barcode, String name,
+      {String? stockCode, BarcodeSource source = BarcodeSource.scan}) async {
+    if (!ScanResult.looksLikeBarcode(barcode) || name.trim().isEmpty) return;
+    try {
+      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
+        BarcodeEntry(
+          barcode: barcode,
+          productName: name.trim(),
+          stockCode: (stockCode != null && stockCode.trim().isNotEmpty)
+              ? stockCode.trim()
+              : null,
+          importedAt: DateTime.now(),
+          source: source,
+        ),
+      ]);
+    } catch (_) {
+      // Kayit hatasi reyon akisini bloke etmesin.
+    }
   }
 
   /// OFF sorgusu tamamen arka planda; kullaniciya kisa snackbar.
@@ -145,6 +174,9 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
           .timeout(const Duration(seconds: 2));
       if (r.found && r.name != null && mounted) {
         setState(() => _productName = r.name);
+        // Internetten bulunan ismi dizine de yaz (en dusuk oncelik: off).
+        // Excel kaydi varsa importAll bunu uygulamaz, Excel verisi korunur.
+        _saveToDirectory(code, r.name!, source: BarcodeSource.off);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Ürün: ${r.name}'),
@@ -369,16 +401,19 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
     final isProduct = _phase == _Phase.product;
     final frameColor = isProduct ? AppTheme.primary : AppTheme.statusSafe;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
-          _buildOverlay(frameColor, isProduct),
-          _buildTopControls(),
-          _buildBottomStatus(),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(Colors.black),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            MobileScanner(controller: _controller, onDetect: _onDetect),
+            _buildOverlay(frameColor, isProduct),
+            _buildTopControls(),
+            _buildBottomStatus(),
+          ],
+        ),
       ),
     );
   }

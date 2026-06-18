@@ -56,37 +56,68 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
 
   Future<void> _edit() async {
     final nameCtrl = TextEditingController(text: _entry.productName);
-    final result = await showDialog<String>(
+    final stockCtrl =
+        TextEditingController(text: _entry.stockCode ?? '');
+    final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Ürün Adını Düzenle'),
-        content: TextField(
-          controller: nameCtrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Ürün adı'),
+        title: const Text('Düzenle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Ürün adı',
+                hintText: 'Ürün adı',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: stockCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Stok kodu (opsiyonel)',
+                hintText: 'Stok kodu',
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('İptal')),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+              onPressed: () => Navigator.pop(ctx, {
+                    'name': nameCtrl.text.trim(),
+                    'stock': stockCtrl.text.trim(),
+                  }),
               child: const Text('Kaydet')),
         ],
       ),
     );
-    if (result == null || result.isEmpty) return;
+    if (result == null) return;
+    final newName = result['name'] ?? '';
+    if (newName.isEmpty) return;
+    final newStock = result['stock'] ?? '';
 
     await ref.read(barcodeDirectoryRepositoryProvider).importAll([
       BarcodeEntry(
         barcode: _entry.barcode,
-        productName: result,
-        stockCode: _entry.stockCode, // stok kodunu KORU (silinmesin)
+        productName: newName,
+        // Bos birakilirsa eski stok kodu importAll tarafindan korunur.
+        stockCode: newStock.isEmpty ? null : newStock,
         importedAt: DateTime.now(),
+        // Elle duzenleme: mevcut kaydin kaynagini KORU ki (esit oncelik)
+        // degisiklik her zaman uygulansin. Boylece bir Excel kaydini elle
+        // duzeltince "excel" onceligi korunur ama ad/stok yine guncellenir.
+        source: _entry.source == BarcodeSource.unknown
+            ? BarcodeSource.manual
+            : _entry.source,
       ),
     ]);
 
-    // REPLACE eski id'yi degistirdi; guncel id'yi DB'den cek (sil icin gerekli).
+    // id artik importAll merge davranisiyla degismez; yine de guncel kaydi cek.
     final fresh = await ref
         .read(barcodeDirectoryRepositoryProvider)
         .findEntryByBarcode(_entry.barcode);
@@ -96,8 +127,8 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         _entry = fresh ??
             BarcodeEntry(
               barcode: _entry.barcode,
-              productName: result,
-              stockCode: _entry.stockCode,
+              productName: newName,
+              stockCode: newStock.isEmpty ? _entry.stockCode : newStock,
               importedAt: DateTime.now(),
             );
         _changed = true;

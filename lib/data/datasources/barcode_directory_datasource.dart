@@ -10,12 +10,31 @@ class BarcodeDirectoryDataSource {
   BarcodeDirectoryDataSource(this._dbService);
 
   /// Barkod ile tam BarcodeEntry dondurur (id dahil, silme icin gerekli).
+  /// SQL tarafinda TRIM kullanilir: Excel'den gelen kayitlarda olusabilecek
+  /// bas/son bosluklarina karsi dayanikli arama.
   Future<BarcodeEntry?> findEntryByBarcode(String barcode) async {
     final db = await _dbService.database;
+    final code = barcode.trim();
+    if (code.isEmpty) return null;
     final rows = await db.query(
       AppConstants.barcodeTable,
-      where: 'barcode = ?',
-      whereArgs: [barcode.trim()],
+      where: 'TRIM(barcode) = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return BarcodeEntry.fromMap(rows.first);
+  }
+
+  /// Stok kodu ile tam BarcodeEntry dondurur (etiket/raf akisinda kullanilir).
+  Future<BarcodeEntry?> findEntryByStockCode(String stockCode) async {
+    final db = await _dbService.database;
+    final code = stockCode.trim();
+    if (code.isEmpty) return null;
+    final rows = await db.query(
+      AppConstants.barcodeTable,
+      where: 'TRIM(stock_code) = ?',
+      whereArgs: [code],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -25,11 +44,13 @@ class BarcodeDirectoryDataSource {
   /// Barkod ile urun adi sorgula.
   Future<String?> findProductName(String barcode) async {
     final db = await _dbService.database;
+    final code = barcode.trim();
+    if (code.isEmpty) return null;
     final rows = await db.query(
       AppConstants.barcodeTable,
       columns: ['product_name'],
-      where: 'barcode = ?',
-      whereArgs: [barcode.trim()],
+      where: 'TRIM(barcode) = ?',
+      whereArgs: [code],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -37,20 +58,82 @@ class BarcodeDirectoryDataSource {
   }
 
   /// Toplu import - varsa uzerine yazar (UPSERT, barkod UNIQUE uzerinden).
-  /// id map'ten cikarilir: REPLACE eski satiri silip yeni autoincrement id
-  /// verecegi icin id'yi elle gondermek tutarsizlik yaratir.
+  ///
+  /// VERI ONCELIGI (kaynak bazli):
+  ///   excel(4) > manual(3) > scan(2) > off/internet(1) > unknown(0)
+  /// Excel'den gelen veriler EN GUVENILIR kabul edilir ve her zaman digerlerinin
+  /// uzerine yazar. Dusuk oncelikli bir kaynak (ornegin internet/off), mevcut
+  /// daha yuksek oncelikli bir kaydin urun adini/stok kodunu EZEMEZ.
+  ///
+  /// Kurallar:
+  ///  - Barkod yoksa: yeni kayit eklenir (kaynak ne ise o).
+  ///  - Barkod varsa:
+  ///     * Gelen kaynak >= mevcut kaynak ise: urun adi + kaynak guncellenir.
+  ///       (Excel her zaman gunceller.)
+  ///     * Gelen kaynak < mevcut kaynak ise: urun adi/kaynak KORUNUR
+  ///       (internet, Excel verisini bozmaz).
+  ///  - Stok kodu: gelen kayitta DOLU ise ve (gelen kaynak >= mevcut kaynak)
+  ///    ise yazilir; aksi halde mevcut stok kodu KORUNUR (asla bos ile silinmez).
   Future<int> importAll(List<BarcodeEntry> entries) async {
     final db = await _dbService.database;
-    final batch = db.batch();
-    for (final e in entries) {
-      final map = e.toMap()..remove('id');
-      batch.insert(
-        AppConstants.barcodeTable,
-        map,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-    await batch.commit(noResult: true);
+    await db.transaction((txn) async {
+      for (final e in entries) {
+        final barcode = e.barcode.trim();
+        if (barcode.isEmpty) continue;
+
+        final incomingStock =
+            (e.stockCode != null && e.stockCode!.trim().isNotEmpty)
+                ? e.stockCode!.trim()
+                : null;
+
+        final existingRows = await txn.query(
+          AppConstants.barcodeTable,
+          where: 'TRIM(barcode) = ?',
+          whereArgs: [barcode],
+          limit: 1,
+        );
+
+        if (existingRows.isEmpty) {
+          // Yeni kayit.
+          await txn.insert(
+            AppConstants.barcodeTable,
+            {
+              'barcode': barcode,
+              'product_name': e.productName,
+              'stock_code': incomingStock,
+              'source': e.source.dbValue,
+              'imported_at': e.importedAt.millisecondsSinceEpoch,
+            },
+          );
+          continue;
+        }
+
+        final existing = BarcodeEntry.fromMap(existingRows.first);
+        final incomingWins = e.source.priority >= existing.source.priority;
+
+        // Urun adi: gelen kaynak en az mevcut kadar guveniliyse degisir.
+        final newName = incomingWins ? e.productName : existing.productName;
+        // Kaynak: yalnizca gelen kazandiysa guncellenir.
+        final newSource = incomingWins ? e.source : existing.source;
+        // Stok kodu: gelen dolu VE kazandiysa yaz; aksi halde eskiyi koru.
+        final newStock =
+            (incomingStock != null && incomingWins)
+                ? incomingStock
+                : existing.stockCode;
+
+        await txn.update(
+          AppConstants.barcodeTable,
+          {
+            'product_name': newName,
+            'stock_code': newStock,
+            'source': newSource.dbValue,
+            'imported_at': e.importedAt.millisecondsSinceEpoch,
+          },
+          where: 'id = ?',
+          whereArgs: [existing.id],
+        );
+      }
+    });
     return entries.length;
   }
 

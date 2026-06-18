@@ -31,6 +31,7 @@ class BarcodeEntryScreen extends ConsumerStatefulWidget {
 class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
   late final TextEditingController _barcodeCtrl;
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _stockCtrl;
   bool _looking = false;
   bool _saving = false;
   String? _lookupInfo;
@@ -43,6 +44,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
     _barcodeCtrl =
         TextEditingController(text: widget.prefillBarcode ?? '');
     _nameCtrl = TextEditingController(text: widget.prefillName ?? '');
+    _stockCtrl = TextEditingController();
     _barcodeCtrl.addListener(_onBarcodeChanged);
 
     // Barkod onceden geldi, isim bossa hemen ara.
@@ -59,6 +61,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
     _barcodeCtrl.removeListener(_onBarcodeChanged);
     _barcodeCtrl.dispose();
     _nameCtrl.dispose();
+    _stockCtrl.dispose();
     super.dispose();
   }
 
@@ -77,11 +80,19 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
     setState(() { _looking = true; _lookupInfo = null; });
 
     String? name;
-    // 1) Yerel dizin
+    // 1) Yerel dizin (stok kodu varsa onu da getir)
     try {
-      name = await ref
+      final entry = await ref
           .read(barcodeDirectoryRepositoryProvider)
-          .findProductName(code);
+          .findEntryByBarcode(code);
+      if (entry != null) {
+        name = entry.productName;
+        if (entry.stockCode != null &&
+            entry.stockCode!.isNotEmpty &&
+            _stockCtrl.text.trim().isEmpty) {
+          _stockCtrl.text = entry.stockCode!;
+        }
+      }
     } catch (_) {}
     // 2) Aktif urunler
     if (name == null) {
@@ -133,6 +144,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
   Future<void> _save() async {
     final barcode = _barcodeCtrl.text.trim();
     final name = _nameCtrl.text.trim();
+    final stock = _stockCtrl.text.trim();
     if (barcode.isEmpty || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Barkod ve ürün adı zorunlu')),
@@ -151,7 +163,9 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
         BarcodeEntry(
           barcode: barcode,
           productName: name,
+          stockCode: stock.isEmpty ? null : stock,
           importedAt: DateTime.now(),
+          source: BarcodeSource.manual,
         ),
       ]);
       if (mounted) {
@@ -252,6 +266,18 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
             decoration: const InputDecoration(
               hintText: 'Ürün adı',
               prefixIcon: Icon(Icons.shopping_bag_outlined),
+            ),
+            textInputAction: TextInputAction.next,
+          ),
+
+          const SizedBox(height: 20),
+          const SectionLabel('Stok Kodu (opsiyonel)'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _stockCtrl,
+            decoration: const InputDecoration(
+              hintText: 'Stok kodu (Excel ile eşleşir)',
+              prefixIcon: Icon(Icons.tag_rounded),
             ),
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _save(),

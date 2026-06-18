@@ -63,6 +63,13 @@ Future<void> main() async {
       WakelockPlus.enable();
     }
     for (final alarm in alarmSet.alarms) {
+      // ── BIR SONRAKI OLUSUMA YENIDEN KUR (UI'dan BAGIMSIZ) ──
+      // Onceden bu, yalnizca alarm ekrani acilinca yapiliyordu. Eger ekran
+      // herhangi bir nedenle acilamazsa (navigator hazir degil, kullanici
+      // bildirimden kapatti vb.) haftalik/gunluk zincir KOPUYORDU. Artik
+      // alarm calar calmaz, ekrandan bagimsiz olarak yeniden kuruyoruz.
+      _rescheduleFiredAlarm(alarm.id);
+
       _pendingAlarmId = alarm.id;
       _pendingTitle = alarm.notificationSettings.title;
       _pendingBody = alarm.notificationSettings.body;
@@ -112,6 +119,27 @@ Future<void> _ensureKeepAlive() async {
   } catch (_) {}
 }
 
+/// Calan alarmi turune gore bir sonraki olusuma yeniden kurar.
+/// UI'dan BAGIMSIZ calisir (alarm ekrani acilmasa bile zincir kopmaz).
+Future<void> _rescheduleFiredAlarm(int firedAlarmId) async {
+  try {
+    if (firedAlarmId == ScheduleService.sktDisposalAlarmId) {
+      // Gunluk SKT imha alarmi: kullanicinin ayarladigi saate ertesi gun.
+      final on = await SktAlarmSettings.instance.isEnabled();
+      if (on) {
+        final h = await SktAlarmSettings.instance.getHour();
+        final m = await SktAlarmSettings.instance.getMinute();
+        await ScheduleService.instance
+            .rescheduleSktDisposal(hour: h, minute: m);
+      }
+    } else if (firedAlarmId >= 700000 && firedAlarmId < 800000) {
+      // Haftalik program alarmi: bir sonraki ayni gun/saate.
+      await ScheduleService.instance.rescheduleIfWeekly(firedAlarmId);
+    }
+    // Mesai cikis alarmi (800000+) tek seferlik; yeniden kurulmaz.
+  } catch (_) {}
+}
+
 /// Bekleyen alarm varsa ve arayuz hazirsa, dogru alarm ekranini ac.
 void _tryShowPendingAlarm() {
   final id = _pendingAlarmId;
@@ -134,8 +162,8 @@ void _tryShowPendingAlarm() {
   final title = _pendingTitle;
   final body = _pendingBody;
 
-  // Haftalik program alarmiysa bir sonraki haftaya yeniden kur.
-  ScheduleService.instance.rescheduleIfWeekly(id);
+  // Not: Haftalik/gunluk yeniden kurulum artik alarm CALAR CALMAZ
+  // (_rescheduleFiredAlarm) yapiliyor; burada tekrar etmiyoruz.
 
   // SKT imha alarmi (sabit ID) -> ozel ekran.
   if (id == ScheduleService.sktDisposalAlarmId) {

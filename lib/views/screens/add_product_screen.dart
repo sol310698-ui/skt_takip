@@ -399,6 +399,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             barcode: product.barcode!,
             productName: product.name,
             importedAt: DateTime.now(),
+            source: BarcodeSource.manual,
           ),
         ]);
       }

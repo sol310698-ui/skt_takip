@@ -74,6 +74,23 @@ class AppTheme {
     end: Alignment.bottomCenter,
   );
 
+  // ─── Sistem cubugu (status bar) ────────────────────────────────────
+  /// Verilen arka plan rengine gore telefonun ust sistem cubugu (saat/pil)
+  /// stilini uretir. Acik renkte koyu ikon, koyu renkte acik ikon secer ki
+  /// saat/pil her zaman okunabilir kalsin. Ekranlar bu stili AnnotatedRegion
+  /// ile sarmalayarak sistem cubugunu AppBar rengiyle ayni yapar.
+  static SystemUiOverlayStyle systemBarForColor(Color bg) {
+    // Rengin algilanan parlakligi (luminance) ile ikon rengini sec.
+    final isLight = bg.computeLuminance() > 0.5;
+    return SystemUiOverlayStyle(
+      statusBarColor: bg,
+      statusBarIconBrightness:
+          isLight ? Brightness.dark : Brightness.light, // Android
+      statusBarBrightness:
+          isLight ? Brightness.light : Brightness.dark, // iOS
+    );
+  }
+
   // ─── Golge tokenleri ───────────────────────────────────────────────
   static List<BoxShadow> get shadowSm => [
         BoxShadow(

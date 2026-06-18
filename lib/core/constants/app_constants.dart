@@ -6,7 +6,7 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 17; // v17: barkod dizinine stok kodu
+  static const int dbVersion = 18; // v18: barkod dizinine kaynak (source) sutunu
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';

@@ -129,6 +129,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
           productName: nameCell,
           stockCode: stockCell.isEmpty ? null : stockCell,
           importedAt: DateTime.now(),
+          source: BarcodeSource.excel,
         ));
       }
 
@@ -224,7 +225,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                 ]),
                 const SizedBox(height: 8),
                 const Text(
-                  'A sütunu: Barkod\nB sütunu: Ürün Adı\n\nBaşlık satırı opsiyonel. Mevcut barkodlar güncellenir.',
+                  'A sütunu: Barkod\nB sütunu: Ürün Adı\nC sütunu: Stok Kodu (opsiyonel)\n\nBaşlık satırı opsiyonel. Excel verileri en güvenilir kaynaktır ve internetten gelen bilgilerin üzerine yazar.',
                   style: TextStyle(
                       color: AppTheme.textSecondary, fontSize: 13),
                 ),

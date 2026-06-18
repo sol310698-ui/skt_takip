@@ -88,42 +88,45 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: _loading
-                  ? const LoadingState()
-                  : _all.isEmpty
-                      ? _buildEmpty()
-                      : RefreshIndicator(
-                          onRefresh: _load,
-                          child: ListView.separated(
-                            controller: _scrollCtrl,
-                            padding: const EdgeInsets.only(
-                                top: 8, bottom: 100),
-                            itemCount: _filtered.length,
-                            separatorBuilder: (_, __) => const Divider(
-                                height: 1, indent: 60),
-                            itemBuilder: (context, i) =>
-                                _tile(_filtered[i]),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(AppTheme.primary),
+      child: Scaffold(
+        body: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _loading
+                    ? const LoadingState()
+                    : _all.isEmpty
+                        ? _buildEmpty()
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            child: ListView.separated(
+                              controller: _scrollCtrl,
+                              padding: const EdgeInsets.only(
+                                  top: 8, bottom: 100),
+                              itemCount: _filtered.length,
+                              separatorBuilder: (_, __) => const Divider(
+                                  height: 1, indent: 60),
+                              itemBuilder: (context, i) =>
+                                  _tile(_filtered[i]),
+                            ),
                           ),
-                        ),
-            ),
-          ],
-        ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 78),
-        child: FloatingActionButton.extended(
-          heroTag: 'bc_add_single',
-          onPressed: _openAddEntry,
-          backgroundColor: AppTheme.primary,
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('Manuel Ekle',
-              style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        floatingActionButton: Padding(
+          padding: const EdgeInsets.only(bottom: 78),
+          child: FloatingActionButton.extended(
+            heroTag: 'bc_add_single',
+            onPressed: _openAddEntry,
+            backgroundColor: AppTheme.primary,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Manuel Ekle',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
         ),
       ),
     );

@@ -60,6 +60,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "startKeepAlive" -> {
+                        setKeepAliveFlag(true)
                         val svc = Intent(this, KeepAliveService::class.java)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(svc)
@@ -69,6 +70,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "stopKeepAlive" -> {
+                        setKeepAliveFlag(false)
                         stopService(Intent(this, KeepAliveService::class.java))
                         result.success(true)
                     }
@@ -109,6 +111,17 @@ class MainActivity : FlutterActivity() {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
             }
+        }
+    }
+
+    // Boot sonrasi BootReceiver'in okuyabilmesi icin kalici servis tercihini
+    // DUZ (sifresiz) SharedPreferences'a yaz. flutter_secure_storage native
+    // taraftan kolay okunamadigi icin ayri bir bayrak tutuyoruz.
+    private fun setKeepAliveFlag(on: Boolean) {
+        try {
+            val sp = getSharedPreferences("skt_native_prefs", Context.MODE_PRIVATE)
+            sp.edit().putBoolean("keep_alive_on", on).apply()
+        } catch (_: Exception) {
         }
     }
 

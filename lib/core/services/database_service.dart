@@ -30,6 +30,7 @@ class DatabaseService {
   /// (migration herhangi bir nedenle calismadiysa guvence katmani).
   Future<void> _onOpen(Database db) async {
     await _ensureColumn(db, AppConstants.barcodeTable, 'stock_code', 'TEXT');
+    await _ensureColumn(db, AppConstants.barcodeTable, 'source', 'TEXT');
   }
 
   /// Bir tabloda sutun yoksa ekler (varsa sessizce gecer).
@@ -141,6 +142,16 @@ class DatabaseService {
       await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_stock_code ON ${AppConstants.barcodeTable} (stock_code)');
     }
+    if (oldVersion < 18) {
+      // Barkod dizinine kaynak (source) sutunu: veri onceligi icin
+      // (excel > manual > scan > off). Mevcut kayitlar bilinmeyen kabul edilir,
+      // ancak stok kodu DOLU olanlar Excel kaynakli sayilir (eski importlar).
+      await db.execute(
+          'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN source TEXT');
+      await db.execute(
+          "UPDATE ${AppConstants.barcodeTable} SET source = 'excel' "
+          "WHERE stock_code IS NOT NULL AND TRIM(stock_code) != ''");
+    }
   }
 
   Future<void> _createChecklistTables(Database db) async {
@@ -215,11 +226,15 @@ class DatabaseService {
         barcode TEXT NOT NULL UNIQUE,
         product_name TEXT NOT NULL,
         stock_code TEXT,
+        source TEXT,
         imported_at INTEGER NOT NULL
       )
     ''');
     await db.execute(
       'CREATE INDEX idx_barcode ON ${AppConstants.barcodeTable} (barcode)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_stock_code ON ${AppConstants.barcodeTable} (stock_code)',
     );
   }
 
