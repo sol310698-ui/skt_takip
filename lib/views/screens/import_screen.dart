@@ -24,6 +24,26 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   String? _fileName;
   int _existingCount = 0;
 
+  /// excel 4.x hucre degerini guvenli sekilde stringe cevirir.
+  /// Sayisal hucreler (IntCellValue/DoubleCellValue) icin gercek sayiyi alir;
+  /// metin ve diger tipler icin onceki calisan davranisi korur.
+  String _cellToString(dynamic cell) {
+    if (cell == null) return '';
+    final v = cell.value;
+    if (v == null) return '';
+    // SAYISAL hucreler: stok kodu/barkod saf sayi olabilir.
+    if (v is IntCellValue) return v.value.toString();
+    if (v is DoubleCellValue) {
+      final d = v.value;
+      if (d == d.truncateToDouble()) return d.toInt().toString();
+      return d.toString();
+    }
+    // Metin ve diger tipler: onceki calisan yontem (.toString()).
+    var s = v.toString().trim();
+    if (s.endsWith('.0')) s = s.substring(0, s.length - 2);
+    return s;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -77,20 +97,11 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
         final row = sheet.rows[i];
         if (row.length < 2) continue;
 
-        final barcodeCell = row[0]?.value?.toString().trim() ?? '';
-        final nameCell = row[1]?.value?.toString().trim() ?? '';
-        // 3. sutun: stok kodu (Excel: Barkod | Urun Adi | Stok Kodu | ...).
-        var stockCell =
-            row.length > 2 ? (row[2]?.value?.toString().trim() ?? '') : '';
-        // Excel sayisal hucreyi "1234.0" gibi okuyabilir -> ".0" son ekini temizle.
-        if (stockCell.endsWith('.0')) {
-          stockCell = stockCell.substring(0, stockCell.length - 2);
-        }
-        // Barkod da ayni sekilde sayisal okunabilir -> temizle.
-        var barcodeClean = barcodeCell;
-        if (barcodeClean.endsWith('.0')) {
-          barcodeClean = barcodeClean.substring(0, barcodeClean.length - 2);
-        }
+        final barcodeCell = _cellToString(row.length > 0 ? row[0] : null);
+        final nameCell = _cellToString(row.length > 1 ? row[1] : null);
+        // 3. sutun: stok kodu (Excel: Barkod | Stok Adi | Stok Kodu | ...).
+        final stockCell = _cellToString(row.length > 2 ? row[2] : null);
+        final barcodeClean = barcodeCell;
 
         // Baslik satirini atla: bilinen anahtar kelimeler VEYA ilk satirda
         // barkod hucresi sayisal degilse (ornegin "Stok Kodu", "Urun No").
