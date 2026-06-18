@@ -81,6 +81,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       BarcodeEntry(
         barcode: _entry.barcode,
         productName: result,
+        stockCode: _entry.stockCode, // stok kodunu KORU (silinmesin)
         importedAt: DateTime.now(),
       ),
     ]);
@@ -96,6 +97,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             BarcodeEntry(
               barcode: _entry.barcode,
               productName: result,
+              stockCode: _entry.stockCode,
               importedAt: DateTime.now(),
             );
         _changed = true;
@@ -260,6 +262,16 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             value: _entry.barcode,
             monospace: true,
           ),
+          // Stok kodu karti (Excel'den geldiyse).
+          if (_entry.stockCode != null && _entry.stockCode!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _infoCard(
+              icon: Icons.tag_rounded,
+              label: 'Stok Kodu',
+              value: _entry.stockCode!,
+              monospace: true,
+            ),
+          ],
           if (_category != null && _category!.isNotEmpty) ...[
             const SizedBox(height: 12),
             _infoCard(
