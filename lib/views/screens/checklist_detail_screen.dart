@@ -30,13 +30,27 @@ class _ChecklistDetailScreenState extends State<ChecklistDetailScreen> {
   }
 
   Future<void> _load() async {
-    final items =
-        await ChecklistService.instance.getItems(widget.checklist.id!);
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      _loading = false;
-    });
+    try {
+      final id = widget.checklist.id;
+      if (id == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      final items = await ChecklistService.instance.getItems(id);
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      // Hata olsa bile donen simge takili kalmasin.
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Liste yüklenemedi: $e')),
+        );
+      }
+    }
   }
 
   int get _doneCount => _items.where((e) => e.done).length;

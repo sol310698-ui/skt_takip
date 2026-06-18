@@ -7,13 +7,11 @@ class ChecklistService {
   ChecklistService._();
   static final ChecklistService instance = ChecklistService._();
 
-  Future<dynamic> get _db async => DatabaseService.instance.database;
-
   // ── Listeler (oturumlar) ──
 
   /// Tum listeleri getir (en yeni guncellenen ustte) + madde sayilari.
   Future<List<ChecklistWithCount>> getAllWithCounts() async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     final lists = await db.query(
       AppConstants.checklistTable,
       orderBy: 'updated_at DESC',
@@ -40,7 +38,7 @@ class ChecklistService {
 
   /// Yeni liste olustur, id dondur.
   Future<int> createList(String title, {int? color}) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     final now = DateTime.now();
     return db.insert(AppConstants.checklistTable, {
       'title': title,
@@ -51,7 +49,7 @@ class ChecklistService {
   }
 
   Future<void> renameList(int id, String title) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.checklistTable,
       {'title': title, 'updated_at': DateTime.now().millisecondsSinceEpoch},
@@ -61,7 +59,7 @@ class ChecklistService {
   }
 
   Future<void> deleteList(int id) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     // Maddeleri de sil (FK ON DELETE CASCADE her cihazda aktif olmayabilir).
     await db.delete(AppConstants.checklistItemTable,
         where: 'checklist_id = ?', whereArgs: [id]);
@@ -72,7 +70,7 @@ class ChecklistService {
   // ── Maddeler ──
 
   Future<List<ChecklistItem>> getItems(int checklistId) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     final rows = await db.query(
       AppConstants.checklistItemTable,
       where: 'checklist_id = ?',
@@ -83,7 +81,7 @@ class ChecklistService {
   }
 
   Future<int> addItem(int checklistId, String text) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     // Sona ekle (en buyuk position + 1).
     final maxPos = await db.rawQuery(
       'SELECT MAX(position) m FROM ${AppConstants.checklistItemTable} WHERE checklist_id = ?',
@@ -100,7 +98,7 @@ class ChecklistService {
   }
 
   Future<void> toggleItem(int itemId, bool done) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.checklistItemTable,
       {'done': done ? 1 : 0},
@@ -110,7 +108,7 @@ class ChecklistService {
   }
 
   Future<void> updateItemText(int itemId, String text) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.checklistItemTable,
       {'text': text},
@@ -120,14 +118,14 @@ class ChecklistService {
   }
 
   Future<void> deleteItem(int itemId) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.delete(AppConstants.checklistItemTable,
         where: 'id = ?', whereArgs: [itemId]);
   }
 
   /// Bir listenin tum maddelerinin isaretini kaldir (yeni gun icin sifirla).
   Future<void> resetItems(int checklistId) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.checklistItemTable,
       {'done': 0},
@@ -138,7 +136,7 @@ class ChecklistService {
   }
 
   Future<void> _touch(int checklistId) async {
-    final db = await _db;
+    final db = await DatabaseService.instance.database;
     await db.update(
       AppConstants.checklistTable,
       {'updated_at': DateTime.now().millisecondsSinceEpoch},
