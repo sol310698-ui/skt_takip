@@ -11,6 +11,9 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_change_service.dart';
+import '../../core/services/database_service.dart';
+import '../../data/datasources/barcode_directory_datasource.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
@@ -42,6 +45,9 @@ class _PriceChangeSessionScreenState
   bool _busy = false;
   PriceChangeItem? _matched;
   String? _scanMessage;
+  // Excel'den okunan, stok kodu dahil barkod dizini kayitlari.
+  // Onay sonrasi dizine (oncelik: excel) yazilir.
+  List<BarcodeEntry> _pendingDirEntries = [];
 
   bool get _completed => _session?.isCompleted ?? false;
 
@@ -55,6 +61,26 @@ class _PriceChangeSessionScreenState
   void dispose() {
     _scanner.dispose();
     super.dispose();
+  }
+
+  /// Excel'den okunan stok kodlu dizin kayitlarini barkod dizinine yazar.
+  /// Yalnizca onaylanan barkodlara ait olanlar yazilir. importAll oncelik
+  /// mantigi geregi BarcodeSource.excel mevcut ad/stok kodunun uzerine yazar.
+  Future<void> _writePendingDirEntries(
+      List<PriceChangeItem> confirmed) async {
+    if (_pendingDirEntries.isEmpty) return;
+    final okBarcodes = confirmed.map((e) => e.barcode.trim()).toSet();
+    final toWrite = _pendingDirEntries
+        .where((e) => okBarcodes.contains(e.barcode.trim()))
+        .toList();
+    _pendingDirEntries = [];
+    if (toWrite.isEmpty) return;
+    try {
+      final ds = BarcodeDirectoryDataSource(DatabaseService.instance);
+      await ds.importAll(toWrite);
+    } catch (_) {
+      // Dizin yazimi fiyat degisim akisini bloke etmesin.
+    }
   }
 
   Future<void> _load({bool startCamera = false}) async {
@@ -184,7 +210,7 @@ class _PriceChangeSessionScreenState
     await _scanner.stop();
 
     final parsed = <PriceChangeItem>[];
-    final dirEntries = <BarcodeEntry>[]; // barkod dizinine de yazilacak (stok kodlu)
+    final dirEntries = <BarcodeEntry>[]; // barkod dizinine yazilacak (stok kodlu)
     try {
       final excel = Excel.decodeBytes(bytes);
       final sheetName = excel.sheets.keys.first;
@@ -264,6 +290,9 @@ class _PriceChangeSessionScreenState
 
     if (!mounted) return;
 
+    // Excel'den okunan stok kodlu kayitlari sakla (onay sonrasi dizine yazilir).
+    _pendingDirEntries = dirEntries;
+
     if (parsed.isEmpty) {
       setState(() => _busy = false);
       await _scanner.start();
@@ -296,6 +325,10 @@ class _PriceChangeSessionScreenState
     // Barkod dizinini zenginlestir: yeni barkod+ad ciftlerini kaydet.
     final enriched =
         await PriceChangeService.instance.enrichDirectory(confirmed);
+    // Stok kodlu kayitlari dizine yaz (Excel oncelikli -> mevcut ad/stok
+    // kodunun uzerine yazar). Onay ekraninda kullanici barkodlari
+    // degistirmis olabilir; sadece onaylanan barkodlara ait olanlari yaz.
+    await _writePendingDirEntries(confirmed);
     await _load();
     if (mounted) {
       setState(() => _busy = false);
