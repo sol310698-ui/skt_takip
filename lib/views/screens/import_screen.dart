@@ -93,28 +93,71 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
       final entries = <BarcodeEntry>[];
       final errors = <String>[];
 
-      for (int i = 0; i < sheet.rows.length; i++) {
-        final row = sheet.rows[i];
-        if (row.length < 2) continue;
+      // ── SUTUN KONUMLARINI BASLIKTAN BUL ──
+      // Excel'de sutun sirasi degisebilir. Ilk satir baslik ise, basliktaki
+      // anahtar kelimelere gore barkod/ad/stok kodu sutununu DINAMIK buluruz.
+      // Baslik yoksa varsayilan sira kullanilir: A=barkod, B=ad, C=stok kodu.
+      int barcodeCol = 0;
+      int nameCol = 1;
+      int stockCol = 2;
+      int startRow = 0;
 
-        final barcodeCell = _cellToString(row.length > 0 ? row[0] : null);
-        final nameCell = _cellToString(row.length > 1 ? row[1] : null);
-        // 3. sutun: stok kodu (Excel: Barkod | Stok Adi | Stok Kodu | ...).
-        final stockCell = _cellToString(row.length > 2 ? row[2] : null);
+      if (sheet.rows.isNotEmpty) {
+        final first = sheet.rows.first;
+        // Basliktaki her hucreyi kucuk harfe cevirip anahtar kelime ara.
+        final headers = <String>[];
+        for (final c in first) {
+          headers.add(_cellToString(c).toLowerCase());
+        }
+        // Bu satir gercekten baslik mi? (barkod hucresi rakam icermiyorsa
+        // veya bilinen baslik kelimeleri varsa.)
+        final looksHeader = headers.any((h) =>
+            h.contains('barkod') ||
+            h.contains('barcode') ||
+            h.contains('stok') ||
+            h.contains('kod') ||
+            h.contains('ürün') ||
+            h.contains('urun') ||
+            h.contains('ad'));
+
+        if (looksHeader) {
+          startRow = 1; // baslik satirini atla
+          for (int c = 0; c < headers.length; c++) {
+            final h = headers[c];
+            // "stok kodu" -> stok kodu sutunu (once bunu kontrol et:
+            // "stok adı" ile karismasin diye 'kod' sart).
+            if (h.contains('kod') &&
+                !h.contains('barkod') &&
+                !h.contains('barcode')) {
+              stockCol = c;
+            } else if (h.contains('barkod') || h.contains('barcode')) {
+              barcodeCol = c;
+            } else if (h.contains('ad') ||
+                h.contains('ürün') ||
+                h.contains('urun') ||
+                h.contains('isim')) {
+              nameCol = c;
+            }
+          }
+        }
+      }
+
+      for (int i = startRow; i < sheet.rows.length; i++) {
+        final row = sheet.rows[i];
+        if (row.isEmpty) continue;
+
+        String cellAt(int idx) =>
+            _cellToString(idx < row.length ? row[idx] : null);
+
+        final barcodeCell = cellAt(barcodeCol);
+        final nameCell = cellAt(nameCol);
+        final stockCell = cellAt(stockCol);
         final barcodeClean = barcodeCell;
 
-        // Baslik satirini atla: bilinen anahtar kelimeler VEYA ilk satirda
-        // barkod hucresi sayisal degilse (ornegin "Stok Kodu", "Urun No").
-        if (i == 0) {
-          final lower = barcodeCell.toLowerCase();
-          final looksHeader = lower.contains('barkod') ||
-              lower.contains('barcode') ||
-              lower.contains('kod') ||
-              lower.contains('stok') ||
-              lower.contains('ürün') ||
-              lower.contains('urun') ||
-              !RegExp(r'\d').hasMatch(barcodeCell); // hic rakam yoksa baslik
-          if (looksHeader) continue;
+        // startRow=0 (baslik yok) iken ilk satir yanlislikla baslik olabilir:
+        // barkod hucresinde hic rakam yoksa atla.
+        if (i == 0 && !RegExp(r'\d').hasMatch(barcodeCell)) {
+          continue;
         }
 
         if (barcodeCell.isEmpty || nameCell.isEmpty) {
@@ -264,11 +307,43 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Önizleme: ${_preview.length} kayıt — $_fileName',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13)),
+                Expanded(
+                  child: Text('Önizleme: ${_preview.length} kayıt — $_fileName',
+                      style: const TextStyle(
+                          color: AppTheme.textSecondary, fontSize: 13)),
+                ),
               ],
             ),
+            const SizedBox(height: 4),
+            // Kac kayitta stok kodu okundu? (Ice aktarmadan once teyit.)
+            Builder(builder: (_) {
+              final withStock = _preview
+                  .where((e) =>
+                      e.stockCode != null && e.stockCode!.isNotEmpty)
+                  .length;
+              final ok = withStock == _preview.length;
+              return Row(
+                children: [
+                  Icon(
+                    ok
+                        ? Icons.check_circle_rounded
+                        : Icons.info_outline_rounded,
+                    size: 14,
+                    color: ok ? AppTheme.statusSafe : AppTheme.statusWarning,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Stok kodu okunan: $withStock / ${_preview.length}',
+                    style: TextStyle(
+                        color: ok
+                            ? AppTheme.statusSafe
+                            : AppTheme.statusWarning,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              );
+            }),
             const SizedBox(height: 8),
             Container(
               constraints: const BoxConstraints(maxHeight: 300),

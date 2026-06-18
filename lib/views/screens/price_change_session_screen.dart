@@ -184,6 +184,7 @@ class _PriceChangeSessionScreenState
     await _scanner.stop();
 
     final parsed = <PriceChangeItem>[];
+    final dirEntries = <BarcodeEntry>[]; // barkod dizinine de yazilacak (stok kodlu)
     try {
       final excel = Excel.decodeBytes(bytes);
       final sheetName = excel.sheets.keys.first;
@@ -221,7 +222,7 @@ class _PriceChangeSessionScreenState
         seen.add(barcode);
 
         final name = cell(1).replaceAll('*', '').trim();
-        // cell(2) = Stok Kodu — kullanilmiyor.
+        final stockCode = cell(2).trim(); // Stok Kodu (barkod dizinine yazilir)
         final newPrice = toPrice(cell(3));
         final oldPrice = toPrice(cell(4));
         final aisle = cell(5);
@@ -236,6 +237,19 @@ class _PriceChangeSessionScreenState
           aisle: aisle.isEmpty ? null : aisle,
           createdAt: now,
         ));
+
+        // Bu Excel ayni zamanda barkod dizinini de stok koduyla zenginlestirir.
+        // Excel en yuksek oncelik (BarcodeSource.excel) oldugu icin mevcut
+        // kayitlarin ad/stok kodunu gunceller.
+        if (name.isNotEmpty && ScanResult.looksLikeBarcode(barcode)) {
+          dirEntries.add(BarcodeEntry(
+            barcode: barcode,
+            productName: name,
+            stockCode: stockCode.isEmpty ? null : stockCode,
+            importedAt: now,
+            source: BarcodeSource.excel,
+          ));
+        }
       }
     } catch (e) {
       if (mounted) {
