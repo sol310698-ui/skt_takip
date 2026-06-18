@@ -1,5 +1,6 @@
-Buraya "alarm.mp3" adında bir alarm sesi dosyası koyun.
-Telefondan veya internetten (örn. freesound.org, pixabay) ücretsiz
-bir alarm/zil sesi indirip "alarm.mp3" olarak bu klasöre kaydedin.
+alarm.mp3: Uygulamanin paketle gelen VARSAYILAN alarm sesidir.
+Kullanici kendi sesini secmediginde veya sectigi dosya bulunamadiginda
+bu ses calar. Release derlemede de guvenilir sekilde calismasi icin
+mutlaka bu klasorde bulunmalidir.
 
-Dosya yoksa alarm yine çalışır ama sessiz olur (titreşim + ekran açılır).
+beep_*.wav: Reyon/etiket kontrol ekranindaki kisa geri bildirim sesleri.

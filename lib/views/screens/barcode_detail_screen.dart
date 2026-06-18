@@ -1,5 +1,8 @@
+import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -286,12 +289,15 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Barkod karti
+          // Barkod karti — tikla: kopyala, uzun bas: barkod/QR goster.
           _infoCard(
             icon: Icons.qr_code_rounded,
             label: 'Barkod',
             value: _entry.barcode,
             monospace: true,
+            copyable: true,
+            showCode: true,
+            isBarcode: true,
           ),
           // Stok kodu karti (Excel'den geldiyse).
           if (_entry.stockCode != null && _entry.stockCode!.isNotEmpty) ...[
@@ -301,6 +307,9 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
               label: 'Stok Kodu',
               value: _entry.stockCode!,
               monospace: true,
+              copyable: true,
+              showCode: true,
+              isBarcode: false,
             ),
           ],
           if (_category != null && _category!.isNotEmpty) ...[
@@ -354,8 +363,11 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
     required String value,
     bool monospace = false,
     Widget? trailing,
+    bool copyable = false,
+    bool showCode = false,
+    bool isBarcode = false,
   }) {
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(16),
       decoration: AppTheme.card(),
       child: Row(
@@ -382,11 +394,66 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                         fontFamily: monospace ? 'monospace' : null)),
+                if (copyable || showCode) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    showCode
+                        ? 'Kopyalamak için dokun • Kod için basılı tut'
+                        : 'Kopyalamak için dokun',
+                    style: const TextStyle(
+                        fontSize: 10.5, color: AppTheme.textTertiary),
+                  ),
+                ],
               ],
             ),
           ),
+          if (copyable)
+            Icon(Icons.copy_rounded,
+                size: 16, color: AppTheme.textTertiary),
           if (trailing != null) trailing,
         ],
+      ),
+    );
+
+    if (!copyable && !showCode) return card;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        onTap: copyable ? () => _copyValue(label, value) : null,
+        onLongPress:
+            showCode ? () => _showCodeSheet(label, value, isBarcode) : null,
+        child: card,
+      ),
+    );
+  }
+
+  /// Degeri panoya kopyala + kisa bildirim.
+  void _copyValue(String label, String value) {
+    Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label kopyalandı: $value'),
+        duration: const Duration(milliseconds: 1200),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Alttan kayan pencerede degerin barkod + QR gorselini gosterir.
+  void _showCodeSheet(String label, String value, bool isBarcode) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _CodeSheet(
+        label: label,
+        value: value,
+        // Barkod yalnizca EAN-13/EAN-8/UPC gibi gecerli sayisal kodlarda
+        // cizilebilir; degilse sadece QR gosterilir.
+        preferBarcode: isBarcode,
       ),
     );
   }
@@ -457,6 +524,144 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Bir degerin (barkod/stok kodu) barkod + QR gorselini gosteren alt sheet.
+/// Gecerli EAN-13/EAN-8/UPC ise 1D barkod cizilir; her durumda QR gosterilir.
+class _CodeSheet extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool preferBarcode;
+
+  const _CodeSheet({
+    required this.label,
+    required this.value,
+    this.preferBarcode = false,
+  });
+
+  /// value'ye uygun bir 1D barkod tipi sec (yoksa null -> sadece QR).
+  Barcode? _pick1DBarcode() {
+    final v = value.trim();
+    if (!RegExp(r'^\d+$').hasMatch(v)) return null; // salt rakam degil
+    switch (v.length) {
+      case 13:
+        return Barcode.ean13();
+      case 12:
+        return Barcode.upcA();
+      case 8:
+        return Barcode.ean8();
+      default:
+        // Diger uzunluklar icin Code128 (rakam+harf destekler).
+        return Barcode.code128();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final barcode = preferBarcode ? _pick1DBarcode() : null;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 18),
+              decoration: BoxDecoration(
+                color: AppTheme.textSecondary.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 13, color: AppTheme.textSecondary)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                fontFamily: 'monospace'),
+          ),
+          const SizedBox(height: 20),
+
+          // 1D Barkod (varsa) — beyaz zemin uzerine, taranabilir olsun.
+          if (barcode != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+              ),
+              child: BarcodeWidget(
+                barcode: barcode,
+                data: value.trim(),
+                drawText: true,
+                height: 90,
+                color: Colors.black,
+                errorBuilder: (context, error) => Text(
+                  'Barkod oluşturulamadı',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Center(
+              child: Text('— veya —',
+                  style: TextStyle(
+                      color: AppTheme.textTertiary, fontSize: 12)),
+            ),
+            const SizedBox(height: 18),
+          ],
+
+          // QR kod — her zaman.
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+              ),
+              child: QrImageView(
+                data: value.trim(),
+                version: QrVersions.auto,
+                size: 200,
+                backgroundColor: Colors.white,
+                // ignore: deprecated_member_use
+                foregroundColor: Colors.black,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+          OutlinedButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$label kopyalandı'),
+                  duration: const Duration(milliseconds: 1200),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('Kopyala'),
+          ),
+        ],
       ),
     );
   }

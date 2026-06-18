@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -98,6 +100,9 @@ class AlarmService {
     return await Permission.scheduleExactAlarm.isGranted;
   }
 
+  /// Varsayilan (paketle gelen) guvenilir alarm sesi.
+  static const String _defaultAsset = 'assets/sounds/alarm.mp3';
+
   /// Belirli bir tarihte alarm kur.
   /// audioPath verilmezse, kullanicinin sectigi GENEL alarm sesi kullanilir.
   static Future<void> setAlarmAt({
@@ -109,13 +114,37 @@ class AlarmService {
   }) async {
     // Genel alarm sesini ayardan oku (tum alarmlar ayni sesi kullanir).
     final globalSound = await SktAlarmSettings.instance.getSoundPath();
-    final effectivePath = audioPath ?? globalSound;
+    final candidate = audioPath ?? globalSound;
+
+    // ── SES YOLUNU GUVENLI SECON ──
+    // Kullanicinin sectigi ses bir DOSYA yolu (ornn /data/.../snd_x.mp3).
+    // Release derlemede bu dosya silinmis/erisilemez olabilir; bu durumda
+    // alarm SESSIZ kalir (yalnizca titresim). Bunu onlemek icin: dosya yolu
+    // ise gercekten VAR MI diye bakariz; yoksa paketle gelen guvenilir
+    // asset sesine (alarm.mp3) duseriz. Asset yollari ('assets/...') oldugu
+    // gibi birakilir (paket bunlari dogru cozer).
+    String effective;
+    if (candidate == null || candidate.trim().isEmpty) {
+      effective = _defaultAsset;
+    } else if (candidate.startsWith('assets/')) {
+      effective = candidate; // zaten asset
+    } else {
+      // Mutlak dosya yolu: var mi kontrol et.
+      try {
+        if (File(candidate).existsSync()) {
+          effective = candidate;
+        } else {
+          effective = _defaultAsset; // dosya yok -> guvenilir asset
+        }
+      } catch (_) {
+        effective = _defaultAsset;
+      }
+    }
+
     final settings = AlarmSettings(
       id: id,
       dateTime: when,
-      // Once parametre, sonra genel ayar sesi, o da yoksa paketle gelen
-      // alarm.mp3 (o da yoksa paket cihaz alarm sesine doner).
-      assetAudioPath: effectivePath ?? 'assets/sounds/alarm.mp3',
+      assetAudioPath: effective,
       loopAudio: true,
       vibrate: true,
       warningNotificationOnKill: true, // uygulama oldurulurse kullaniciyi uyar
@@ -124,9 +153,7 @@ class AlarmService {
       // DURMASIN. Boylece bildirimden uygulamaya gecince ses devam eder,
       // alarm ekrani acilir ve kullanici "Durdur"a basana kadar calar.
       androidStopAlarmOnTermination: false,
-      // Alarm STREAM_ALARM'da calar. volumeEnforced VERILMIYOR: sistem sesi
-      // zorla en uste cikarmaz, kullanici onceden ayarladigi/ses tusuyla
-      // degistirebilir. Baslangic 0.7 (makul), kademeli yukselir (fade).
+      // Alarm STREAM_ALARM'da calar. Baslangic 0.7, kademeli yukselir (fade).
       // 1 dakika kapatilmazsa AlarmRingScreen sesi ayrica artirir.
       volumeSettings: VolumeSettings.fade(
         volume: 0.7,
