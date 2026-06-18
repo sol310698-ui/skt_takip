@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/nav_bar_visibility.dart';
 import '../../data/models/shift_entry.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
@@ -22,6 +23,19 @@ class ShiftScreen extends ConsumerStatefulWidget {
 
 class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   bool _busy = false;
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(() => handleNavBarScroll(_scrollCtrl));
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
 
   Future<Position?> _getLocation() async {
     try {
@@ -153,6 +167,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                       ),
                       Expanded(
                         child: ListView.builder(
+                          controller: _scrollCtrl,
                           padding: const EdgeInsets.only(top: 4, bottom: 90),
                           itemCount: list.length,
                           itemBuilder: (_, i) => _shiftCard(list[i]),

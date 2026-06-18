@@ -51,6 +51,13 @@ class AlarmService {
     } catch (_) {}
   }
 
+  /// Alarm sesini (STREAM_ALARM) maksimuma cikar (1 dk kapatilmadiysa).
+  static Future<void> raiseAlarmVolume() async {
+    try {
+      await _fsChannel.invokeMethod('raiseAlarmVolume');
+    } catch (_) {}
+  }
+
   /// Gerekli izinleri ister: bildirim + tam zamanli alarm + tam ekran intent.
   /// Alarmin kilit ekraninda tam ekran acilmasi icin sart.
   static Future<void> requestPermissions() async {
@@ -117,13 +124,13 @@ class AlarmService {
       // DURMASIN. Boylece bildirimden uygulamaya gecince ses devam eder,
       // alarm ekrani acilir ve kullanici "Durdur"a basana kadar calar.
       androidStopAlarmOnTermination: false,
-      // KRITIK: Alarm STREAM_ALARM'da calar (medya degil). fixed + tam ses
-      // + volumeEnforced ile, telefon sessizde/kisikta olsa bile alarm
-      // duyulur sesle calar. Medya yonlendirme (androidAudioConfiguration)
-      // KULLANILMIYOR -> ses medya kanalina dusup susmaz.
-      volumeSettings: VolumeSettings.fixed(
-        volume: 1.0,
-        volumeEnforced: true,
+      // Alarm STREAM_ALARM'da calar. volumeEnforced VERILMIYOR: sistem sesi
+      // zorla en uste cikarmaz, kullanici onceden ayarladigi/ses tusuyla
+      // degistirebilir. Baslangic 0.7 (makul), kademeli yukselir (fade).
+      // 1 dakika kapatilmazsa AlarmRingScreen sesi ayrica artirir.
+      volumeSettings: VolumeSettings.fade(
+        volume: 0.7,
+        fadeDuration: const Duration(seconds: 5),
       ),
       notificationSettings: NotificationSettings(
         title: title,

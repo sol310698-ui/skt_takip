@@ -66,4 +66,25 @@ class SktAlarmSettings {
 
   Future<void> setKeepAlive(bool value) =>
       _storage.write(key: _kKeepAlive, value: value ? 'true' : 'false');
+
+  // ── QR ile alarm kapatma kilidi ──
+  static const _kQrEnabled = 'alarm_qr_enabled';
+  static const _kQrValue = 'alarm_qr_value';
+
+  /// QR kilidi acik mi? (Alarm kapatmak icin QR taranmali.)
+  Future<bool> isQrLockOn() async {
+    final v = await _storage.read(key: _kQrEnabled);
+    return v == 'true';
+  }
+
+  Future<void> setQrLock(bool value) =>
+      _storage.write(key: _kQrEnabled, value: value ? 'true' : 'false');
+
+  /// Tanimli QR degeri (alarm kapatma icin eslesmesi gereken metin).
+  Future<String?> getQrValue() => _storage.read(key: _kQrValue);
+
+  Future<void> setQrValue(String value) =>
+      _storage.write(key: _kQrValue, value: value);
+
+  Future<void> clearQrValue() => _storage.delete(key: _kQrValue);
 }

@@ -37,6 +37,7 @@ class DatabaseService {
     await _createWarehouseTables(db);
     await _createTransferTable(db);
     await _createScheduleTable(db);
+    await _createChecklistTables(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -101,6 +102,48 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.workScheduleTable} ADD COLUMN sound_name TEXT');
     }
+    if (oldVersion < 15) {
+      // Kontrol listeleri (oturumlu check-list).
+      await _createChecklistTables(db);
+    }
+    if (oldVersion < 16) {
+      // Haftalik alarmlara tip + checklist baglama.
+      await db.execute(
+          "ALTER TABLE ${AppConstants.workScheduleTable} ADD COLUMN alarm_type TEXT NOT NULL DEFAULT 'normal'");
+      await db.execute(
+          'ALTER TABLE ${AppConstants.workScheduleTable} ADD COLUMN checklist_id INTEGER');
+    }
+    if (oldVersion < 17) {
+      // Barkod dizinine stok kodu (Excel'deki urun stok kodu, 4-6 hane).
+      await db.execute(
+          'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN stock_code TEXT');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_stock_code ON ${AppConstants.barcodeTable} (stock_code)');
+    }
+  }
+
+  Future<void> _createChecklistTables(Database db) async {
+    // Oturum (liste basligi).
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.checklistTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        color INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    // Liste maddeleri.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.checklistItemTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        checklist_id INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0,
+        position INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (checklist_id) REFERENCES ${AppConstants.checklistTable} (id) ON DELETE CASCADE
+      )
+    ''');
   }
 
   Future<void> _createScheduleTable(Database db) async {
@@ -113,7 +156,9 @@ class DatabaseService {
         label TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
         sound_path TEXT,
-        sound_name TEXT
+        sound_name TEXT,
+        alarm_type TEXT NOT NULL DEFAULT 'normal',
+        checklist_id INTEGER
       )
     ''');
   }
@@ -148,6 +193,7 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         barcode TEXT NOT NULL UNIQUE,
         product_name TEXT NOT NULL,
+        stock_code TEXT,
         imported_at INTEGER NOT NULL
       )
     ''');

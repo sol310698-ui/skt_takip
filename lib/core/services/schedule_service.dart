@@ -12,6 +12,8 @@ class ScheduleEntry {
   final bool enabled;
   final String? soundPath; // telefondaki muzik dosyasi yolu (null = varsayilan)
   final String? soundName;  // gosterim adi (orn. "Sabah.mp3")
+  final String alarmType;   // 'normal' | 'wake' | 'shift_in' | 'shift_out'
+  final int? checklistId;   // alarm kapatilinca acilacak liste (null = yok)
 
   const ScheduleEntry({
     this.id,
@@ -22,6 +24,8 @@ class ScheduleEntry {
     this.enabled = true,
     this.soundPath,
     this.soundName,
+    this.alarmType = 'normal',
+    this.checklistId,
   });
 
   String get timeStr =>
@@ -36,6 +40,8 @@ class ScheduleEntry {
         enabled: (m['enabled'] as int? ?? 1) == 1,
         soundPath: m['sound_path'] as String?,
         soundName: m['sound_name'] as String?,
+        alarmType: (m['alarm_type'] as String?) ?? 'normal',
+        checklistId: m['checklist_id'] as int?,
       );
 
   Map<String, Object?> toMap() => {
@@ -47,6 +53,8 @@ class ScheduleEntry {
         'enabled': enabled ? 1 : 0,
         'sound_path': soundPath,
         'sound_name': soundName,
+        'alarm_type': alarmType,
+        'checklist_id': checklistId,
       };
 
   ScheduleEntry copyWith({
@@ -56,6 +64,8 @@ class ScheduleEntry {
     bool? enabled,
     String? soundPath,
     String? soundName,
+    String? alarmType,
+    int? checklistId,
   }) =>
       ScheduleEntry(
         id: id,
@@ -66,6 +76,8 @@ class ScheduleEntry {
         enabled: enabled ?? this.enabled,
         soundPath: soundPath ?? this.soundPath,
         soundName: soundName ?? this.soundName,
+        alarmType: alarmType ?? this.alarmType,
+        checklistId: checklistId ?? this.checklistId,
       );
 }
 
@@ -104,6 +116,17 @@ class ScheduleService {
     final rows = await db.query(AppConstants.workScheduleTable,
         orderBy: 'weekday ASC, hour ASC, minute ASC');
     return rows.map(ScheduleEntry.fromMap).toList();
+  }
+
+  /// Haftalik alarm ID'sinden (700000 + entryId) entry'yi bul.
+  Future<ScheduleEntry?> getByAlarmId(int alarmId) async {
+    if (alarmId < 700000 || alarmId >= 800000) return null;
+    final entryId = alarmId - 700000;
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.workScheduleTable,
+        where: 'id = ?', whereArgs: [entryId], limit: 1);
+    if (rows.isEmpty) return null;
+    return ScheduleEntry.fromMap(rows.first);
   }
 
   /// Gunlere gore grupla (1..7).

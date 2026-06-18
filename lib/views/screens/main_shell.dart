@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/nav_bar_visibility.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
+import 'checklist_screen.dart';
 import 'price_change_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
@@ -47,6 +49,8 @@ class _MainShellState extends State<MainShell> {
       return;
     }
     setState(() => _navIndex = i);
+    // Sekme degisince nav bar'i her zaman geri goster.
+    navBarVisible.value = true;
   }
 
   void _openControlSheet() {
@@ -93,6 +97,15 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'A4 listeyi tara, etiketleri değiştir (fotolu), kalanı raporla',
               onTap: () => _push(const PriceChangeScreen()),
+            ),
+            const SizedBox(height: 10),
+            _sheetOption(
+              icon: Icons.checklist_rounded,
+              color: AppTheme.accent,
+              title: 'Kontrol Listeleri',
+              subtitle:
+                  'Yapılacaklar listeleri oluştur, maddeleri işaretle (açılış, kapanış, sabah...)',
+              onTap: () => _push(const ChecklistScreen()),
             ),
           ],
         ),
@@ -161,7 +174,7 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: false,
+      extendBody: true,
       backgroundColor: AppTheme.background,
       body: IndexedStack(
         index: _stackIndex,
@@ -171,7 +184,20 @@ class _MainShellState extends State<MainShell> {
           const ShiftScreen(),
         ],
       ),
-      bottomNavigationBar: _buildCustomNavBar(),
+      bottomNavigationBar: ValueListenableBuilder<bool>(
+        valueListenable: navBarVisible,
+        builder: (_, visible, child) => AnimatedSlide(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          offset: visible ? Offset.zero : const Offset(0, 1.4),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: visible ? 1 : 0,
+            child: child,
+          ),
+        ),
+        child: _buildCustomNavBar(),
+      ),
     );
   }
 

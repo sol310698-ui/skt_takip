@@ -27,6 +27,25 @@ class FeedbackService {
       // Ses oynatıcıyı düşük gecikmeli modda başlat.
       await _player.setPlayerMode(PlayerMode.lowLatency);
       await _player.setVolume(1.0);
+      // KRITIK: Geri bildirim sesleri ALARM ses odagini CALMASIN.
+      // audioFocus: none -> feedback bipleri kisa calar ama sistemin
+      // ses odagini ele gecirmez. Boylece bir alarm caliyorsa, feedback
+      // sesi alarmi SUSTURMAZ (audio focus loss yasanmaz).
+      await _player.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: false,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.assistanceSonification,
+            audioFocus: AndroidAudioFocus.none,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.ambient,
+            options: const {AVAudioSessionOptions.mixWithOthers},
+          ),
+        ),
+      );
     } catch (_) {}
     _initialized = true;
   }

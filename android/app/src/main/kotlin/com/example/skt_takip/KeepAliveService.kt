@@ -61,6 +61,11 @@ class KeepAliveService : Service() {
                 ).apply {
                     description = "Alarmlarin guvenilir calismasi icin uygulamayi aktif tutar"
                     setShowBadge(false)
+                    // KRITIK: Bu kanal SES ve TITRESIM uretmesin (alarm kanaliyla
+                    // cakismasin, alarm sesini ezmesin).
+                    setSound(null, null)
+                    enableVibration(false)
+                    enableLights(false)
                 }
                 nm.createNotificationChannel(channel)
             }

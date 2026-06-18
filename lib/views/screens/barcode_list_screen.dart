@@ -3,14 +3,13 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/nav_bar_visibility.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
-import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
 import 'barcode_entry_screen.dart';
 import 'import_screen.dart';
-import 'label_inspect_screen.dart';
 
 /// Barkod dizini liste ekrani (Excel'den import edilenler).
 class BarcodeListScreen extends ConsumerStatefulWidget {
@@ -44,6 +43,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
     } else if (dir == ScrollDirection.forward && !_searchVisible) {
       setState(() => _searchVisible = true);
     }
+    handleNavBarScroll(_scrollCtrl);
   }
 
   @override
@@ -81,7 +81,8 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
     return _all
         .where((e) =>
             e.barcode.toLowerCase().contains(q) ||
-            e.productName.toLowerCase().contains(q))
+            e.productName.toLowerCase().contains(q) ||
+            (e.stockCode?.toLowerCase().contains(q) ?? false))
         .toList();
   }
 
@@ -113,21 +114,17 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
           ],
         ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: SpeedDialFab(
-        actions: [
-          SpeedDialAction(
-            icon: Icons.add_rounded,
-            label: 'Manuel Ekle',
-            color: AppTheme.accent,
-            onTap: _openAddEntry,
-          ),
-          SpeedDialAction(
-            icon: Icons.qr_code_scanner,
-            label: 'Tarayarak Ekle',
-            color: AppTheme.primary,
-            onTap: _openScan,
-          ),
-        ],
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 78),
+        child: FloatingActionButton.extended(
+          heroTag: 'bc_add_single',
+          onPressed: _openAddEntry,
+          backgroundColor: AppTheme.primary,
+          foregroundColor: Colors.white,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Manuel Ekle',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
       ),
     );
   }
@@ -189,7 +186,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                       controller: _searchCtrl,
                       onChanged: (v) => setState(() => _query = v),
                       decoration: const InputDecoration(
-                        hintText: 'Barkod veya ürün ara...',
+                        hintText: 'Barkod, ürün veya stok kodu ara...',
                         prefixIcon: Icon(Icons.search),
                       ),
                     ),
@@ -229,7 +226,10 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
         title: Text(e.productName,
             maxLines: 1, overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text(e.barcode,
+        subtitle: Text(
+            e.stockCode != null && e.stockCode!.isNotEmpty
+                ? '${e.barcode}  •  Stok: ${e.stockCode}'
+                : e.barcode,
             style: const TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 12,
@@ -333,13 +333,6 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
         label: const Text('Excel Yükle'),
       ),
     );
-  }
-
-  Future<void> _openScan() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const LabelInspectScreen()),
-    );
-    _load();
   }
 
   /// Manuel barkod + ad girisi (BarcodeEntryScreen).

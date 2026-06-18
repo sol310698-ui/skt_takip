@@ -7,6 +7,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/services/backup_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/nav_bar_visibility.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
@@ -47,6 +48,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } else if (dir == ScrollDirection.forward && !_searchVisible) {
       setState(() => _searchVisible = true);
     }
+    // Nav bar'i da ayni yonde gizle/goster.
+    handleNavBarScroll(_scrollCtrl);
   }
 
   @override
@@ -63,7 +66,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final filtered = ref.watch(filteredProductsProvider);
 
     return Scaffold(
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
           children: [
             _buildBanner(),
             Expanded(
@@ -121,21 +126,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-      floatingActionButtonLocation:
-          FloatingActionButtonLocation.endFloat,
-      floatingActionButton: SpeedDialFab(
-        actions: [
-          SpeedDialAction(
-            icon: Icons.document_scanner_rounded,
-            label: 'Etiket Tara',
-            color: AppTheme.accent,
-            onTap: _openLabelInspect,
-          ),
-          SpeedDialAction(
-            icon: Icons.event_available_rounded,
-            label: 'SKT Tara',
-            color: AppTheme.primary,
-            onTap: _openScanner,
+          // Speed-dial FAB (Stack icinde - tum ekrani kaplayabilir).
+          SpeedDialFab(
+            actions: [
+              SpeedDialAction(
+                icon: Icons.document_scanner_rounded,
+                label: 'Etiket Tara',
+                color: AppTheme.accent,
+                onTap: _openLabelInspect,
+              ),
+              SpeedDialAction(
+                icon: Icons.event_available_rounded,
+                label: 'SKT Tara',
+                color: AppTheme.primary,
+                onTap: _openScanner,
+              ),
+            ],
           ),
         ],
       ),

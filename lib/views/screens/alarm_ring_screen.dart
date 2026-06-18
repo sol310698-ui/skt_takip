@@ -4,9 +4,15 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/alarm_service.dart';
+import '../../core/services/checklist_service.dart';
+import '../../core/services/schedule_service.dart';
+import '../../core/services/skt_alarm_settings.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/checklist.dart';
+import 'checklist_detail_screen.dart';
 import 'shift_screen.dart';
 
 /// Alarm caldiginda acilan tam ekran modern ekran.
@@ -17,6 +23,8 @@ class AlarmRingScreen extends StatefulWidget {
   final String body;
   final bool isShift;
   final int? shiftId;
+  final String alarmType;   // 'normal' | 'wake' | 'shift_in' | 'shift_out'
+  final int? checklistId;   // kapatilinca acilacak liste
 
   const AlarmRingScreen({
     super.key,
@@ -25,6 +33,8 @@ class AlarmRingScreen extends StatefulWidget {
     required this.body,
     this.isShift = false,
     this.shiftId,
+    this.alarmType = 'normal',
+    this.checklistId,
   });
 
   @override
@@ -36,12 +46,24 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
   late final AnimationController _pulse;
   late final AnimationController _ringRotate;
   Timer? _clock;
+  Timer? _volumeTimer; // 1 dk sonra sesi artirir
   DateTime _now = DateTime.now();
   double _slideValue = 0.0;
+  // Alarm tipi ve bagli checklist (widget param yoksa DB'den yuklenir).
+  String _alarmType = 'normal';
+  int? _checklistId;
 
   @override
   void initState() {
     super.initState();
+    _alarmType = widget.alarmType;
+    _checklistId = widget.checklistId;
+    // Haftalik alarmsa DB'den tip + checklist bilgisini yukle.
+    _loadEntryMeta();
+    // 1 dakika kapatilmazsa alarm sesini maksimuma cikar.
+    _volumeTimer = Timer(const Duration(seconds: 60), () {
+      AlarmService.raiseAlarmVolume();
+    });
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -55,11 +77,23 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     });
   }
 
+  Future<void> _loadEntryMeta() async {
+    final entry =
+        await ScheduleService.instance.getByAlarmId(widget.alarmId);
+    if (entry != null && mounted) {
+      setState(() {
+        _alarmType = entry.alarmType;
+        _checklistId = entry.checklistId;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _pulse.dispose();
     _ringRotate.dispose();
     _clock?.cancel();
+    _volumeTimer?.cancel();
     super.dispose();
   }
 
@@ -72,9 +106,84 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     SystemNavigator.pop();
   }
 
+  /// Alarmi kapat: once QR kilidi varsa tarat, sonra tipe gore yonlendir.
   Future<void> _dismiss() async {
+    // QR kilidi SADECE sabah uyanma alarmlarinda gecerli.
+    final isWake = _alarmType == 'wake';
+    if (isWake) {
+      final qrOn = await SktAlarmSettings.instance.isQrLockOn();
+      final qrValue = await SktAlarmSettings.instance.getQrValue();
+      if (qrOn && qrValue != null && qrValue.isNotEmpty) {
+        if (!mounted) return;
+        final ok = await _scanQrToUnlock(qrValue);
+        if (ok != true) {
+          // QR taranamadi/yanlis -> alarm KAPANMAZ (sessize alinabilir ama acik).
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Alarmı kapatmak için doğru QR kodu taratın'),
+                backgroundColor: AppTheme.statusExpired,
+              ),
+            );
+            setState(() => _slideValue = 0);
+          }
+          return;
+        }
+      }
+    }
+    // Alarmi durdur.
     await AlarmService.stop(widget.alarmId);
+    if (!mounted) {
+      SystemNavigator.pop();
+      return;
+    }
+    // Tipe gore kapatma sonrasi aksiyon.
+    await _afterDismissAction();
+  }
+
+  /// Alarm kapatildiktan sonra tip + checklist'e gore yonlendir.
+  Future<void> _afterDismissAction() async {
+    // Once bagli checklist varsa onu ac.
+    if (_checklistId != null) {
+      final lists = await ChecklistService.instance.getAllWithCounts();
+      Checklist? cl;
+      for (final l in lists) {
+        if (l.checklist.id == _checklistId) {
+          cl = l.checklist;
+          break;
+        }
+      }
+      if (cl != null && mounted) {
+        if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ChecklistDetailScreen(checklist: cl!),
+        ));
+        return;
+      }
+    }
+    // Mesai baslama alarmi -> giris akisina (mesai ekrani) yonlendir.
+    if (_alarmType == 'shift_in') {
+      if (mounted) {
+        if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ShiftScreen()),
+        );
+      }
+      return;
+    }
+    // Diger durumlar: arka plana at.
     _closeAlarm();
+  }
+
+  /// QR taratma ekranini ac, dogru QR taranirsa true doner.
+  Future<bool?> _scanQrToUnlock(String expected) {
+    return showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: true,
+      backgroundColor: Colors.black,
+      builder: (ctx) => _QrUnlockSheet(expected: expected),
+    );
   }
 
   /// 5 dakika ertele: alarmi durdur, yeni alarmi 5 dk sonraya kur.
@@ -420,4 +529,94 @@ class _DashedRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Alarm kapatma icin QR taratma sayfasi (bottom sheet).
+/// Dogru QR taranirsa true ile kapanir.
+class _QrUnlockSheet extends StatefulWidget {
+  final String expected;
+  const _QrUnlockSheet({required this.expected});
+
+  @override
+  State<_QrUnlockSheet> createState() => _QrUnlockSheetState();
+}
+
+class _QrUnlockSheetState extends State<_QrUnlockSheet> {
+  final MobileScannerController _ctrl = MobileScannerController();
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture cap) {
+    if (_handled) return;
+    for (final b in cap.barcodes) {
+      final v = b.rawValue;
+      if (v == null) continue;
+      if (v.trim() == widget.expected.trim()) {
+        _handled = true;
+        Navigator.of(context).pop(true);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.75,
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Alarmı kapatmak için kayıtlı QR kodu taratın',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600),
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                MobileScanner(controller: _ctrl, onDetect: _onDetect),
+                // Tarama cercevesi
+                Container(
+                  width: 220,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppTheme.accent, width: 3),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Vazgeç',
+                  style: TextStyle(color: Colors.white70)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

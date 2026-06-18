@@ -79,6 +79,9 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
 
         final barcodeCell = row[0]?.value?.toString().trim() ?? '';
         final nameCell = row[1]?.value?.toString().trim() ?? '';
+        // 3. sutun: stok kodu (Excel: Barkod | Urun Adi | Stok Kodu | ...).
+        final stockCell =
+            row.length > 2 ? (row[2]?.value?.toString().trim() ?? '') : '';
 
         // Baslik satirini atla: bilinen anahtar kelimeler VEYA ilk satirda
         // barkod hucresi sayisal degilse (ornegin "Stok Kodu", "Urun No").
@@ -104,6 +107,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
         entries.add(BarcodeEntry(
           barcode: barcodeCell,
           productName: nameCell,
+          stockCode: stockCell.isEmpty ? null : stockCell,
           importedAt: DateTime.now(),
         ));
       }

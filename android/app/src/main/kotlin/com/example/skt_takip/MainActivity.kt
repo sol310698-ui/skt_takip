@@ -3,6 +3,7 @@ package com.example.skt_takip
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -71,6 +72,10 @@ class MainActivity : FlutterActivity() {
                         stopService(Intent(this, KeepAliveService::class.java))
                         result.success(true)
                     }
+                    "raiseAlarmVolume" -> {
+                        raiseAlarmVolume()
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -104,6 +109,17 @@ class MainActivity : FlutterActivity() {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
             }
+        }
+    }
+
+    // STREAM_ALARM ses seviyesini maksimuma cikar (alarm 1 dk kapatilmadiysa).
+    private fun raiseAlarmVolume() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, max, 0)
+        } catch (e: Exception) {
+            // sessizce gec
         }
     }
 }
