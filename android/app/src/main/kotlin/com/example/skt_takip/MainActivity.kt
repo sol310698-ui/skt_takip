@@ -23,28 +23,34 @@ class MainActivity : FlutterActivity() {
     }
 
     // singleTask modunda activity yeniden kullanilirsa onCreate cagrilmaz,
-    // onNewIntent cagrilir. Kilit ekrani bayraklarini burada da uygula ki
-    // alarm full-screen intent ile geldiginde ekran uyanip kilit ustune ciksin.
+    // onNewIntent cagrilir. Kilit ekrani bayraklarini burada da uygula.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         applyLockScreenFlags()
     }
 
+    /// Kilit ekrani uzerinde gosterim + ekrani uyandirma.
+    ///
+    /// ONEMLI: Bu bayraklar SADECE ekrani kilit ustune cikarir; kilidi
+    /// ACMAZ (parola/biyometri yine gerekir, bu guvenlik geregi dogrudur).
+    /// "alarm" paketi 5.x kendi full-screen intent'ini yonetir; biz burada
+    /// yalnizca activity one geldiginde ekranin uyanmasini ve kilit ustune
+    /// cikmasini garanti ederiz. Kilidi bypass ETMEYIZ; kullanici kilidi
+    /// acinca alarm ekrani (AlarmRingScreen) onunde olur.
+    ///
+    /// Onceki surumde ayrica FLAG_KEEP_SCREEN_ON eklenmis ve bu, "alarm"
+    /// paketi 5.x'in kendi full-screen intent yonetimiyle CAKISARAK ekranin
+    /// acilip kapanmasina yol aciyordu. Kaldirildi.
     private fun applyLockScreenFlags() {
-        // Alarm ekraninin kilit ekrani UZERINDE gorunmesi ve ekrani
-        // uyandirmasi icin (sessiz/kisik/kilitli fark etmez).
-        // Kilidi KALDIRMAYIZ; sadece kilit ekraninin UZERINE cizeriz.
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
     }

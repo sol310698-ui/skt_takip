@@ -153,11 +153,15 @@ class AlarmService {
       // DURMASIN. Boylece bildirimden uygulamaya gecince ses devam eder,
       // alarm ekrani acilir ve kullanici "Durdur"a basana kadar calar.
       androidStopAlarmOnTermination: false,
-      // Alarm STREAM_ALARM'da calar. Baslangic 0.7, kademeli yukselir (fade).
-      // 1 dakika kapatilmazsa AlarmRingScreen sesi ayrica artirir.
+      // Alarm STREAM_ALARM'da calar. Baslangic 0.8, 5 sn'de yukselir (fade).
+      // volumeEnforced: TRUE — KRITIK. Telefonun alarm ses seviyesi kisik veya
+      // 0 olsa bile, alarm caldigi surece sistemin alarm sesini bu seviyeye
+      // ZORLAR ve kullanici dusurmeye calissa da geri yukseltir. Bu olmadan,
+      // alarm sesi kisikken alarm sessiz calabiliyordu (yasanan sorun).
       volumeSettings: VolumeSettings.fade(
-        volume: 0.7,
+        volume: 0.8,
         fadeDuration: const Duration(seconds: 5),
+        volumeEnforced: true,
       ),
       notificationSettings: NotificationSettings(
         title: title,

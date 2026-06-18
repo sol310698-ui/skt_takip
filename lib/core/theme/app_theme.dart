@@ -75,19 +75,27 @@ class AppTheme {
   );
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
-  /// Verilen arka plan rengine gore telefonun ust sistem cubugu (saat/pil)
-  /// stilini uretir. Acik renkte koyu ikon, koyu renkte acik ikon secer ki
-  /// saat/pil her zaman okunabilir kalsin. Ekranlar bu stili AnnotatedRegion
-  /// ile sarmalayarak sistem cubugunu AppBar rengiyle ayni yapar.
+  /// Verilen arka plan rengine gore SADECE ikon parlaginini uretir.
+  ///
+  /// ONEMLI: Modern Android'de (edge-to-edge zorunlu) `statusBarColor` ARTIK
+  /// CALISMAZ — sistem onu yok sayar. Cubuk her zaman seffaftir ve uygulama
+  /// icerigi (AppBar/header) onun ARKASINA uzanir. Dolayisiyla "cubugu
+  /// boyamak" yerine, ekranin ust renkli alani cubuk bolgesine uzatilir
+  /// (Scaffold/AppBar bunu otomatik yapar) ve burada yalnizca saat/pil
+  /// ikonlarinin rengini (acik/koyu) arka plana gore ayarlariz.
   static SystemUiOverlayStyle systemBarForColor(Color bg) {
-    // Rengin algilanan parlakligi (luminance) ile ikon rengini sec.
     final isLight = bg.computeLuminance() > 0.5;
     return SystemUiOverlayStyle(
-      statusBarColor: bg,
+      // statusBarColor VERILMIYOR: seffaf kalir, arkasindaki AppBar/header
+      // rengi gorunur. (Gondersek bile modern Android yok sayardi.)
+      statusBarColor: Colors.transparent,
       statusBarIconBrightness:
-          isLight ? Brightness.dark : Brightness.light, // Android
+          isLight ? Brightness.dark : Brightness.light, // Android ikonlari
       statusBarBrightness:
           isLight ? Brightness.light : Brightness.dark, // iOS
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness:
+          isLight ? Brightness.dark : Brightness.light,
     );
   }
 
