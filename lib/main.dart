@@ -1,42 +1,28 @@
-import 'dart:async';
-
-import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'core/constants/app_constants.dart';
+import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/app_logger.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
 import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
-import 'views/screens/alarm_ring_screen.dart';
 import 'views/screens/main_shell.dart';
-import 'views/screens/skt_disposal_alarm_screen.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
-/// Soguk baslatmada yakalanan ama henuz gosterilemeyen alarm.
-int? _pendingAlarmId;
-String _pendingTitle = '';
-String _pendingBody = '';
-StreamSubscription? _globalRingSub;
-/// Alarm ekrani su an acik mi? (Ust uste activity acilmasini onler.)
-bool _alarmScreenOpen = false;
-/// O an gosterilen alarm ID (ayni alarmi tekrar acmamak icin).
-int? _shownAlarmId;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr', null);
   await AppLogger.instance
       .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
-  // Edge-to-edge: icerik status bar'in ARKASINA uzanir (mor banner gorunur).
+
+  // Edge-to-edge: icerik status bar'in ARKASINA uzanir.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -45,58 +31,31 @@ Future<void> main() async {
     systemNavigationBarColor: Colors.transparent,
   ));
 
-  // Uygulamayi yalnizca DIKEY moda kilitle (yatay moda asla gecmesin).
+  // Uygulamayi yalnizca DIKEY moda kilitle.
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Alarm paketini baslat (kilit ekrani alarmi icin).
+  // ── ALARM BASLATMA SIRASI ──
+  // 1) Paketi baslat.
   await AlarmService.init();
-  // Gerekli izinleri iste (bildirim + tam zamanli alarm).
+  // 2) Sorunlu (mp3 disi) genel ses ayarini temizle (eski .wav kayitlari
+  //    alarmi sessiz birakip ekran acmiyordu).
+  final sanitized = await SktAlarmSettings.instance.sanitizeSoundIfNeeded();
+  if (sanitized) {
+    await AppLogger.instance.log(
+        'ALARM', 'Sorunlu ses ayari temizlendi -> varsayilan sese donuldu.');
+  }
+  // 3) Izinleri iste (bildirim + tam zamanli alarm + tam ekran intent).
   await AlarmService.requestPermissions();
+  // 4) Alarm calma akisini baslat (dinleyici runApp'ten ONCE kurulur ki
+  //    soguk baslatmada ilk ringing event'i kaybolmasin).
+  AlarmFlow.instance.start(navigatorKey);
 
-  // ÖNEMLİ: Alarm dinleyicisini runApp'ten ÖNCE kur. Boylece uygulama
-  // alarm tarafindan soguk baslatildiginda bile ilk event yakalanir.
-  // Yakalanan alarm _pendingAlarmId'ye yazilir; arayuz hazir olunca acilir.
-  _globalRingSub = Alarm.ringing.listen((alarmSet) {
-    AppLogger.instance.log('ALARM',
-        'RINGING event alindi. Alarm sayisi: ${alarmSet.alarms.length}, '
-        'idler: ${alarmSet.alarms.map((a) => a.id).toList()}');
-    // KRITIK: Alarm caldigi an CPU/ekrani ZORLA uyanik tut. Doze modunda
-    // islemcinin durup sesi kesmesini engeller. Alarm durdurulunca birakilir.
-    if (alarmSet.alarms.isNotEmpty) {
-      WakelockPlus.enable();
-      AppLogger.instance.log('ALARM', 'Wakelock etkinlestirildi.');
-    }
-    for (final alarm in alarmSet.alarms) {
-      AppLogger.instance.log('ALARM',
-          'Alarm isleniyor id=${alarm.id} '
-          'ses=${alarm.assetAudioPath} '
-          'loop=${alarm.loopAudio} '
-          'baslik="${alarm.notificationSettings.title}"');
-      // ── BIR SONRAKI OLUSUMA YENIDEN KUR (UI'dan BAGIMSIZ) ──
-      // Onceden bu, yalnizca alarm ekrani acilinca yapiliyordu. Eger ekran
-      // herhangi bir nedenle acilamazsa (navigator hazir degil, kullanici
-      // bildirimden kapatti vb.) haftalik/gunluk zincir KOPUYORDU. Artik
-      // alarm calar calmaz, ekrandan bagimsiz olarak yeniden kuruyoruz.
-      _rescheduleFiredAlarm(alarm.id);
-
-      _pendingAlarmId = alarm.id;
-      _pendingTitle = alarm.notificationSettings.title;
-      _pendingBody = alarm.notificationSettings.body;
-      // Arayuz aciksa hemen goster.
-      _tryShowPendingAlarm();
-    }
-  });
-
-  // SKT imha alarmi acik ise, gunluk zincirin kopmamasi icin her
-  // uygulama acilisinda bir sonraki olusuma yeniden kur (sessizce).
+  // 5) Acilis guvenceleri (zincirlerin kurulu oldugundan emin ol).
   _ensureSktDisposalAlarm();
-  // Reboot sonrasi guvence: tum aktif haftalik alarmlari yeniden kur.
-  // (Uygulama acildiginda alarmlarin kurulu oldugundan emin oluruz.)
   _ensureWeeklyAlarms();
-  // Kullanici kalici servisi actiysa baslat (swipe-kill korumasi).
   _ensureKeepAlive();
 
   runApp(const ProviderScope(child: SktTakipApp()));
@@ -131,97 +90,6 @@ Future<void> _ensureKeepAlive() async {
   } catch (_) {}
 }
 
-/// Calan alarmi turune gore bir sonraki olusuma yeniden kurar.
-/// UI'dan BAGIMSIZ calisir (alarm ekrani acilmasa bile zincir kopmaz).
-Future<void> _rescheduleFiredAlarm(int firedAlarmId) async {
-  try {
-    if (firedAlarmId == ScheduleService.sktDisposalAlarmId) {
-      // Gunluk SKT imha alarmi: kullanicinin ayarladigi saate ertesi gun.
-      final on = await SktAlarmSettings.instance.isEnabled();
-      if (on) {
-        final h = await SktAlarmSettings.instance.getHour();
-        final m = await SktAlarmSettings.instance.getMinute();
-        await ScheduleService.instance
-            .rescheduleSktDisposal(hour: h, minute: m);
-      }
-    } else if (firedAlarmId >= 700000 && firedAlarmId < 800000) {
-      // Haftalik program alarmi: bir sonraki ayni gun/saate.
-      await ScheduleService.instance.rescheduleIfWeekly(firedAlarmId);
-    }
-    // Mesai cikis alarmi (800000+) tek seferlik; yeniden kurulmaz.
-  } catch (_) {}
-}
-
-/// Bekleyen alarm varsa ve arayuz hazirsa, dogru alarm ekranini ac.
-void _tryShowPendingAlarm() {
-  final id = _pendingAlarmId;
-  if (id == null) return;
-  final nav = navigatorKey.currentState;
-  if (nav == null) {
-    AppLogger.instance.log('ALARM',
-        'Ekran acilamadi: navigator henuz HAZIR DEGIL (id=$id). '
-        'Arayuz hazir olunca tekrar denenecek.');
-    return; // arayuz henuz hazir degil; sonra denenecek
-  }
-
-  // ── UST USTE ACILMA KORUMASI ──
-  // Zaten bir alarm ekrani aciksa, tekrar acma (activity ust uste binmesin).
-  if (_alarmScreenOpen) {
-    if (_shownAlarmId == id) _pendingAlarmId = null;
-    return;
-  }
-
-  AppLogger.instance
-      .log('ALARM', 'Alarm ekrani aciliyor id=$id baslik="$_pendingTitle"');
-
-  // Tuketildi olarak isaretle (tekrar acilmasin).
-  _pendingAlarmId = null;
-  _alarmScreenOpen = true;
-  _shownAlarmId = id;
-  final title = _pendingTitle;
-  final body = _pendingBody;
-
-  // SKT imha alarmi (sabit ID) -> ozel ekran.
-  if (id == ScheduleService.sktDisposalAlarmId) {
-    nav
-        .push(MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => SktDisposalAlarmScreen(
-            alarmId: id,
-            onGoToList: () {
-              navigatorKey.currentState?.popUntil((r) => r.isFirst);
-            },
-          ),
-        ))
-        .then((_) {
-      // Ekran kapandi -> bayraklari sifirla (sonraki alarm acilabilsin).
-      _alarmScreenOpen = false;
-      _shownAlarmId = null;
-      _tryShowPendingAlarm(); // bekleyen baska alarm varsa ac
-    });
-    return;
-  }
-
-  // Haftalik / mesai alarmi -> modern alarm ekrani.
-  final isShift = id >= 800000 && id < 900000;
-  nav
-      .push(MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => AlarmRingScreen(
-          alarmId: id,
-          title: title,
-          body: body,
-          isShift: isShift,
-          shiftId: isShift ? id - 800000 : null,
-        ),
-      ))
-      .then((_) {
-    _alarmScreenOpen = false;
-    _shownAlarmId = null;
-    _tryShowPendingAlarm();
-  });
-}
-
 class SktTakipApp extends StatefulWidget {
   const SktTakipApp({super.key});
 
@@ -235,11 +103,11 @@ class _SktTakipAppState extends State<SktTakipApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Ilk frame cizildikten sonra (navigator hazir olunca) bekleyen
-    // alarmi kontrol et. Uygulama alarm tarafindan soguk baslatildiysa
-    // _pendingAlarmId dolu olur ve dogru alarm ekrani acilir.
+    // Ilk frame cizildikten sonra (navigator hazir olunca) bekleyen alarmi
+    // kontrol et. Uygulama alarm tarafindan soguk baslatildiysa AlarmFlow
+    // bekleyen alarmi tutar ve burada gosterir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _tryShowPendingAlarm();
+      AlarmFlow.instance.onUiReady();
     });
   }
 
@@ -247,7 +115,7 @@ class _SktTakipAppState extends State<SktTakipApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Uygulama one geldiginde bekleyen alarm varsa goster.
     if (state == AppLifecycleState.resumed) {
-      _tryShowPendingAlarm();
+      AlarmFlow.instance.onUiReady();
     }
   }
 

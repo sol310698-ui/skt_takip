@@ -410,14 +410,30 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
       final f = result.files.first;
       if (f.path == null) return null;
 
+      // SADECE .mp3 kabul et. "alarm" paketi Android'de dosya yolundan
+      // .wav/.ogg gibi formatlari guvenilir calamadigi icin (alarm sessiz
+      // kalip ekran acilmiyor), kullaniciyi en bastan dogru formata yonlendir.
+      final lowerName = f.name.toLowerCase();
+      if (!lowerName.endsWith('.mp3')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Lütfen MP3 formatında bir ses seçin. '
+                  'Diğer formatlar (WAV, OGG) alarmı sessiz bırakabilir.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return null;
+      }
+
       // Uygulamanin kalici klasorune kopyala.
       final dir = await getApplicationDocumentsDirectory();
       final soundsDir = Directory('${dir.path}/alarm_sounds');
       if (!soundsDir.existsSync()) soundsDir.createSync(recursive: true);
-      // Dosya adini koru ama benzersiz yap.
-      final ext = f.name.contains('.') ? f.name.split('.').last : 'mp3';
       final dst =
-          '${soundsDir.path}/snd_${DateTime.now().millisecondsSinceEpoch}.$ext';
+          '${soundsDir.path}/snd_${DateTime.now().millisecondsSinceEpoch}.mp3';
       await File(f.path!).copy(dst);
 
       return (dst, f.name);

@@ -55,6 +55,21 @@ class SktAlarmSettings {
     await _storage.delete(key: _kSoundName);
   }
 
+  /// Kayitli genel ses guvenilir degilse (mp3 disi format, orn .wav/.ogg)
+  /// otomatik temizler. "alarm" paketi dosya yolundan bu formatlari guvenilir
+  /// calamadigi icin alarm sessiz kalip ekran acilmiyordu. Uygulama acilisinda
+  /// bir kez cagrilir; sorunlu ayari varsayilan (paket asset mp3) sesine ceker.
+  Future<bool> sanitizeSoundIfNeeded() async {
+    final path = await _storage.read(key: _kSoundPath);
+    if (path == null || path.trim().isEmpty) return false;
+    final lower = path.toLowerCase();
+    if (lower.startsWith('assets/')) return false; // asset zaten guvenli
+    if (lower.endsWith('.mp3')) return false; // mp3 dosya yolu kabul
+    // Diger her sey (.wav/.ogg/.m4a vb) -> temizle.
+    await clearSound();
+    return true;
+  }
+
   // ── Kalici servis (swipe-kill korumasi) tercihi ──
   static const _kKeepAlive = 'alarm_keepalive';
 

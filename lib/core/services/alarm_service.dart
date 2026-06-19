@@ -127,29 +127,45 @@ class AlarmService {
     final candidate = audioPath ?? globalSound;
 
     // ── SES YOLUNU GUVENLI SECON ──
-    // Kullanicinin sectigi ses bir DOSYA yolu (ornn /data/.../snd_x.mp3).
-    // Release derlemede bu dosya silinmis/erisilemez olabilir; bu durumda
-    // alarm SESSIZ kalir (yalnizca titresim). Bunu onlemek icin: dosya yolu
-    // ise gercekten VAR MI diye bakariz; yoksa paketle gelen guvenilir
-    // asset sesine (alarm.mp3) duseriz. Asset yollari ('assets/...') oldugu
-    // gibi birakilir (paket bunlari dogru cozer).
+    // Kullanicinin sectigi ses bir DOSYA yolu (orn /data/.../snd_x.wav).
+    // ONEMLI BULGU: "alarm" paketi Android'de DOSYA yolundan .wav/.ogg gibi
+    // formatlari guvenilir CALAMIYOR; alarm kuruluyor, foreground service
+    // basliyor (RINGING event geliyor) ama ses CIKMIYOR ve full-screen intent
+    // tetiklenmiyor -> ne ses ne ekran. (Gercek cihaz logu ile dogrulandi.)
+    // Bu yuzden: yalnizca .mp3 dosya yollarina izin veriyoruz; diger
+    // formatlar VEYA dosya yoksa, paketle gelen guvenilir asset'e (alarm.mp3)
+    // duseruz. Asset yollari ('assets/...') oldugu gibi gecer.
     String effective;
+    String reason;
     if (candidate == null || candidate.trim().isEmpty) {
       effective = _defaultAsset;
+      reason = 'ayarda ses yok -> varsayilan asset';
     } else if (candidate.startsWith('assets/')) {
-      effective = candidate; // zaten asset
+      effective = candidate;
+      reason = 'asset yolu';
     } else {
-      // Mutlak dosya yolu: var mi kontrol et.
+      final lower = candidate.toLowerCase();
+      final isMp3 = lower.endsWith('.mp3');
+      bool exists = false;
       try {
-        if (File(candidate).existsSync()) {
-          effective = candidate;
-        } else {
-          effective = _defaultAsset; // dosya yok -> guvenilir asset
-        }
-      } catch (_) {
+        exists = File(candidate).existsSync();
+      } catch (_) {}
+
+      if (!exists) {
         effective = _defaultAsset;
+        reason = 'dosya bulunamadi -> varsayilan asset';
+      } else if (!isMp3) {
+        // .wav/.ogg/.m4a vb: guvenilmez -> guvenilir asset'e dus.
+        effective = _defaultAsset;
+        reason = 'desteklenmeyen format (${lower.split('.').last}) '
+            '-> varsayilan asset (mp3)';
+      } else {
+        effective = candidate;
+        reason = 'gecerli mp3 dosya yolu';
       }
     }
+    await AppLogger.instance
+        .log('ALARM', 'Ses secimi: $reason -> $effective');
 
     final settings = AlarmSettings(
       id: id,
