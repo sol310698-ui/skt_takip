@@ -31,7 +31,7 @@ class AlarmFlow {
   /// Alarm ekranlarini acmak icin global navigator (main'de atanir).
   late final GlobalKey<NavigatorState> navigatorKey;
 
-  StreamSubscription<AlarmSet>? _sub;
+  StreamSubscription<AlarmSettings>? _sub;
 
   /// Calmis ama henuz ekrani GOSTERILMEMIS alarm. Arayuz hazir olunca acilir.
   _PendingAlarm? _pending;
@@ -42,11 +42,15 @@ class AlarmFlow {
   /// ── BASLAT ──
   /// main() icinde, runApp'ten ONCE bir kez cagrilir. Dinleyiciyi runApp'ten
   /// once kurmak kritik: uygulama alarm tarafindan soguk baslatildiginda ilk
-  /// `ringing` event'i kaybolmasin.
+  /// ring event'i kaybolmasin.
+  ///
+  /// NOT: alarm 5.2.1'de API `Alarm.ringStream.stream` olup her olayda TEK bir
+  /// [AlarmSettings] yayinlar (5.4.x'teki `Alarm.ringing` + `AlarmSet.alarms`
+  /// DEGIL). Bu yuzden burada tek tek AlarmSettings isliyoruz.
   void start(GlobalKey<NavigatorState> navKey) {
     navigatorKey = navKey;
     _sub?.cancel();
-    _sub = Alarm.ringing.listen(_onRinging);
+    _sub = Alarm.ringStream.stream.listen(_onRinging);
     AppLogger.instance.log('ALARM', 'AlarmFlow baslatildi (dinleyici kuruldu).');
   }
 
@@ -61,36 +65,22 @@ class AlarmFlow {
 
   // ───────────────────────── ic akis ─────────────────────────
 
-  void _onRinging(AlarmSet alarmSet) {
-    final alarms = alarmSet.alarms;
+  void _onRinging(AlarmSettings alarm) {
     AppLogger.instance.log('ALARM',
-        'RINGING: ${alarms.length} alarm, idler=${alarms.map((a) => a.id).toList()}');
-
-    if (alarms.isEmpty) {
-      // Bos set: tum alarmlar durmus demektir. Wakelock'u birak.
-      WakelockPlus.disable();
-      return;
-    }
+        'RINGING: id=${alarm.id} ses=${alarm.assetAudioPath} '
+        'baslik="${alarm.notificationSettings.title}"');
 
     // Ekran/CPU'yu uyanik tut ki ses kesilmesin (Doze modu korumasi).
     WakelockPlus.enable();
 
-    // Birden fazla alarm ayni anda calabilir; ilkini gosteririz, digerleri
-    // sirayla (ekran kapaninca) gelir. Hepsini yeniden kurariz.
-    for (final alarm in alarms) {
-      AppLogger.instance.log('ALARM',
-          'Caliyor id=${alarm.id} ses=${alarm.assetAudioPath} '
-          'baslik="${alarm.notificationSettings.title}"');
-      // Zinciri UI'dan bagimsiz surdur (ekran acilmasa bile).
-      _rescheduleNext(alarm.id);
-    }
+    // Zinciri UI'dan bagimsiz surdur (ekran acilmasa bile).
+    _rescheduleNext(alarm.id);
 
-    // Ekranda ilk alarmi goster (digerleri bekler).
-    final first = alarms.first;
+    // Ekranda goster (zaten bir ekran aciksa bu kapaninca gosterilir).
     _pending = _PendingAlarm(
-      id: first.id,
-      title: first.notificationSettings.title,
-      body: first.notificationSettings.body,
+      id: alarm.id,
+      title: alarm.notificationSettings.title,
+      body: alarm.notificationSettings.body,
     );
     _showPendingIfPossible();
   }
