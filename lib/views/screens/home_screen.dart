@@ -17,6 +17,7 @@ import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
 import 'label_inspect_screen.dart';
+import 'label_print_screen.dart';
 import 'scanner_screen.dart';
 import 'settings_screen.dart';
 import 'web_search_screen.dart';
@@ -129,6 +130,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // Speed-dial FAB (Stack icinde - tum ekrani kaplayabilir).
           SpeedDialFab(
             actions: [
+              SpeedDialAction(
+                icon: Icons.print_rounded,
+                label: 'Etiket Bas',
+                color: AppTheme.primaryDark,
+                onTap: _openLabelPrint,
+              ),
               SpeedDialAction(
                 icon: Icons.document_scanner_rounded,
                 label: 'Etiket Tara',
@@ -637,6 +644,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _openLabelInspect() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const LabelInspectScreen()),
+    );
+  }
+
+  Future<void> _openLabelPrint() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LabelPrintScreen()),
     );
   }
 
