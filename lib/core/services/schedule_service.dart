@@ -149,17 +149,11 @@ class ScheduleService {
   static int shiftAlarmId(int shiftId) => 800000 + shiftId;
 
   /// Bir sonraki [weekday] gununun [hour]:[minute] anini hesaplar.
-  ///
-  /// DUZELTME: Eskiden `d.isBefore(now)` kullaniliyordu. Bu, dogru gun+saat
-  /// kurulum aninda yalnizca birkac saniye/dakika gecmis olsa bile alarmi
-  /// tam 7 gun ileri atiyordu ("sabah alarmi hic calmadi" sorununun sebebi).
-  /// Artik kucuk bir tolerans (60 sn) taniyoruz: alarm anindan en fazla 60 sn
-  /// once kurulum olsa bile alarm BUGUN kurulur. Daha eski ise haftaya gecer.
+  /// Her zaman GELECEKTEKI bir an dondurur (su anki saat gecmisse haftaya).
   static DateTime nextOccurrence(int weekday, int hour, int minute) {
     final now = DateTime.now();
-    final threshold = now.subtract(const Duration(seconds: 60));
     var d = DateTime(now.year, now.month, now.day, hour, minute);
-    while (d.weekday != weekday || d.isBefore(threshold)) {
+    while (d.weekday != weekday || !d.isAfter(now)) {
       d = d.add(const Duration(days: 1));
       d = DateTime(d.year, d.month, d.day, hour, minute);
     }
@@ -202,14 +196,20 @@ class ScheduleService {
     final all = await getAll();
     final scheduledAlarms = await AlarmService.scheduledAlarmsMap();
     final now = DateTime.now();
+    // GUVENLIK: O an calmakta olan / cok yeni gecmis alarma DOKUNMA.
+    // Aksi halde calan alarmin dateTime'i now'dan kucuk gorunur, "drift"
+    // sanip ayni ana yeniden kurariz -> alarm tekrar calar -> kilit acilir
+    // -> sonsuz dongu. Yalnizca >10 dk gecmis VEYA hic kurulu olmayan
+    // alarmlari kuruyoruz.
+    final staleBefore = now.subtract(const Duration(minutes: 10));
     for (final e in all.where((x) => x.enabled)) {
       if (e.id == null) continue;
       final existing = scheduledAlarms[alarmId(e.id!)];
-      if (existing != null && existing.isAfter(now)) {
-        // Zaten kurulu VE zamani gelecekte -> dokunma (mesai cikis gibi).
-        continue;
+      if (existing != null) {
+        // Kurulu. Sadece COK ESKI (>10 dk gecmis) ise yeniden kur; aksi
+        // halde dokunma (gelecekteki alarm da, az once calan alarm da korunur).
+        if (existing.isAfter(staleBefore)) continue;
       }
-      // Kurulu degil VEYA zamani gecmis (calip dustu / drift etti) -> kur.
       await setAlarm(e);
     }
   }
@@ -290,17 +290,18 @@ class ScheduleService {
     );
   }
 
-  /// Alarm caldiginda haftalik tekrar icin yeniden kur.
-  /// (Sadece schedule alarmlari icin; mesai alarmi tek seferlik.)
-  Future<void> rescheduleIfWeekly(int firedAlarmId) async {
+  /// Haftalik alarm caldiktan sonra DB'de pasifle (tek atimlik davranis).
+  /// Boylece refreshAllAlarms acilista onu tekrar kurmaz; kullanici listede
+  /// kapali gorur ve dilerse tekrar etkinlestirir.
+  Future<void> disableEntryByAlarmId(int firedAlarmId) async {
     if (firedAlarmId < 700000 || firedAlarmId >= 800000) return;
     final entryId = firedAlarmId - 700000;
-    final all = await getAll();
-    for (final e in all) {
-      if (e.id == entryId && e.enabled) {
-        await setAlarm(e);
-        return;
-      }
-    }
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.workScheduleTable,
+      {'enabled': 0},
+      where: 'id = ?',
+      whereArgs: [entryId],
+    );
   }
 }

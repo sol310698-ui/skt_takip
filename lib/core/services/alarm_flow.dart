@@ -152,8 +152,12 @@ class AlarmFlow {
           await ScheduleService.instance.rescheduleSktDisposal(hour: h, minute: m);
         }
       } else if (firedId >= 700000 && firedId < 800000) {
-        // Haftalik program alarmi: bir sonraki ayni gun/saate.
-        await ScheduleService.instance.rescheduleIfWeekly(firedId);
+        // Haftalik program alarmi: ARTIK YENIDEN KURULMUYOR (tek atimlik).
+        // Kullanici talebi: haftalik alarm tek sefer calsin. Caldiktan sonra
+        // DB'de enabled=false yapiyoruz; boylece:
+        //  - refreshAllAlarms onu acilista tekrar diriltmez,
+        //  - kullanici listede "kapali" gorur ve isterse tekrar acar.
+        await ScheduleService.instance.disableEntryByAlarmId(firedId);
       }
       // Mesai cikis alarmi (800000+) tek seferlik; yeniden kurulmaz.
     } catch (e) {
