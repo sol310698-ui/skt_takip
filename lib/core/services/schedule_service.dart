@@ -1,6 +1,7 @@
 import '../constants/app_constants.dart';
 import 'alarm_service.dart';
 import 'database_service.dart';
+import '../../data/datasources/product_local_datasource.dart';
 
 /// Haftalik calisma programi kalemi (gun + saat).
 class ScheduleEntry {
@@ -274,6 +275,20 @@ class ScheduleService {
 
   Future<void> cancelSktDisposalAlarm() async {
     await AlarmService.stop(sktDisposalAlarmId);
+  }
+
+  /// SKT alarmi calmadan once kontrol: bugun SKT'si dolan VEYA suresi
+  /// gecmis AKTIF urun var mi? Yoksa alarm calmamali (kullanici talebi).
+  /// daysUntilExpiry <= 0  =>  bugun dolan + gecmis hepsi.
+  Future<bool> hasDueSktProducts() async {
+    try {
+      final ds = ProductLocalDataSource(DatabaseService.instance);
+      final active = await ds.getActive();
+      return active.any((p) => p.daysUntilExpiry <= 0);
+    } catch (_) {
+      // Hata olursa guvenli taraf: alarmi engelleme (eskisi gibi cal).
+      return true;
+    }
   }
 
   /// SKT imha alarmi caldiginda ertesi gune yeniden kur (gunluk tekrar).

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/services/alarm_service.dart';
+import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/skt_alarm_settings.dart';
@@ -35,6 +36,8 @@ class SktDisposalAlarmScreen extends StatefulWidget {
 class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
   List<Product> _expired = [];
   bool _loading = true;
+  // barkod -> OFF kucuk gorsel URL (geldikce dolar).
+  final Map<String, String> _imageUrls = {};
 
   @override
   void initState() {
@@ -46,9 +49,9 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
     try {
       final ds = ProductLocalDataSource(DatabaseService.instance);
       final active = await ds.getActive();
-      // Suresi gecmis (expired) olanlar.
+      // Bugun dolan + suresi gecmis hepsi (daysUntilExpiry <= 0).
       final expired = active
-          .where((p) => p.status == ExpiryStatus.expired)
+          .where((p) => p.daysUntilExpiry <= 0)
           .toList()
         ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
       if (!mounted) return;
@@ -56,8 +59,29 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
         _expired = expired;
         _loading = false;
       });
+      // Resimleri arka planda OFF'tan cek (varsa).
+      _loadImages(expired);
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Her urun icin OpenFoodFacts'ten kucuk gorseli (varsa) cek; geldikce
+  /// ekrani guncelle. Barkodu olmayan / bulunamayan urunlerde ikon kalir.
+  Future<void> _loadImages(List<Product> products) async {
+    for (final p in products) {
+      final code = p.barcode;
+      if (code == null || code.trim().isEmpty) continue;
+      if (_imageUrls.containsKey(code)) continue;
+      try {
+        final r = await BarcodeLookupService.instance.lookupDetailed(code);
+        if (!mounted) return;
+        if (r.imageUrl != null && r.imageUrl!.isNotEmpty) {
+          setState(() => _imageUrls[code] = r.imageUrl!);
+        }
+      } catch (_) {
+        // sessizce gec
+      }
     }
   }
 
@@ -184,15 +208,11 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
           ),
           child: Column(
             children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: AppTheme.statusExpired.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.inventory_2_rounded,
-                    color: AppTheme.statusExpired, size: 36),
+              _productImage(
+                p,
+                size: 72,
+                radius: 36,
+                iconSize: 36,
               ),
               const SizedBox(height: 18),
               Text(
@@ -221,6 +241,39 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Urun gorseli: OFF'tan gelen resim varsa onu, yoksa kutu ikonu gosterir.
+  Widget _productImage(
+    Product p, {
+    required double size,
+    required double radius,
+    required double iconSize,
+  }) {
+    final url = p.barcode == null ? null : _imageUrls[p.barcode];
+    final placeholder = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AppTheme.statusExpired.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Icon(Icons.inventory_2_rounded,
+          color: AppTheme.statusExpired, size: iconSize),
+    );
+    if (url == null || url.isEmpty) return placeholder;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => placeholder,
+        loadingBuilder: (ctx, child, progress) =>
+            progress == null ? child : placeholder,
       ),
     );
   }
@@ -268,15 +321,11 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
           ),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.statusExpired.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.inventory_2_rounded,
-                    color: AppTheme.statusExpired, size: 22),
+              _productImage(
+                p,
+                size: 44,
+                radius: 10,
+                iconSize: 22,
               ),
               const SizedBox(width: 12),
               Expanded(

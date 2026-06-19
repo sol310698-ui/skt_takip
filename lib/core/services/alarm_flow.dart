@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'app_logger.dart';
+import 'alarm_service.dart';
 import 'schedule_service.dart';
 import 'skt_alarm_settings.dart';
 import '../../views/screens/alarm_ring_screen.dart';
@@ -70,6 +71,13 @@ class AlarmFlow {
         'RINGING: id=${alarm.id} ses=${alarm.assetAudioPath} '
         'baslik="${alarm.notificationSettings.title}"');
 
+    // SKT imha alarmi: SADECE bugun dolan/gecmis aktif urun varsa calsin.
+    // Urun yoksa sesi hemen durdur, yarina kur, ekrani ACMA.
+    if (alarm.id == ScheduleService.sktDisposalAlarmId) {
+      _handleSktRinging(alarm);
+      return;
+    }
+
     // Ekran/CPU'yu uyanik tut ki ses kesilmesin (Doze modu korumasi).
     WakelockPlus.enable();
 
@@ -77,6 +85,28 @@ class AlarmFlow {
     _rescheduleNext(alarm.id);
 
     // Ekranda goster (zaten bir ekran aciksa bu kapaninca gosterilir).
+    _pending = _PendingAlarm(
+      id: alarm.id,
+      title: alarm.notificationSettings.title,
+      body: alarm.notificationSettings.body,
+    );
+    _showPendingIfPossible();
+  }
+
+  /// SKT alarmi ozel akisi: urun yoksa hic gosterme.
+  Future<void> _handleSktRinging(AlarmSettings alarm) async {
+    final hasDue = await ScheduleService.instance.hasDueSktProducts();
+    if (!hasDue) {
+      // Urun yok -> sesi durdur, yarina yeniden kur, ekrani acma.
+      AppLogger.instance.log(
+          'ALARM', 'SKT alarmi: dolan urun yok, susturuldu (id=${alarm.id}).');
+      await AlarmService.stop(alarm.id);
+      await _rescheduleNext(alarm.id);
+      return;
+    }
+    // Urun var -> normal akis: uyanik tut, yarina kur, ekrani goster.
+    WakelockPlus.enable();
+    await _rescheduleNext(alarm.id);
     _pending = _PendingAlarm(
       id: alarm.id,
       title: alarm.notificationSettings.title,

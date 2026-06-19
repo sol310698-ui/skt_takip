@@ -2,20 +2,39 @@ import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/services/label_settings_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/label_item.dart';
 import '../../viewmodels/providers.dart';
 import 'add_product_screen.dart' show BarcodeScanPage;
 
-/// Etiket Basim Sayfasi.
+/// Etiket gruplari (ust sekmeler). Her grup AYRI bir urun listesi tutar.
+/// Amac: kutudaki barkodlari gruplayip seri sekilde lazerle okutmak.
+enum LabelGroup { kalinRon, inceRon, a4, a4Double, a4Triple }
+
+extension LabelGroupX on LabelGroup {
+  String get title {
+    switch (this) {
+      case LabelGroup.kalinRon:
+        return 'Kalın Rön';
+      case LabelGroup.inceRon:
+        return 'İnce Rön';
+      case LabelGroup.a4:
+        return 'A4';
+      case LabelGroup.a4Double:
+        return 'A4 İkili';
+      case LabelGroup.a4Triple:
+        return 'A4 Üçlü';
+    }
+  }
+}
+
+/// Etiket Basım Sayfasi.
 ///
-/// Akis:
-///  1) Kullanici bir etiket formati secer (5 secenek; olculer ayarlanabilir).
-///  2) Sayfaya urun ekler: barkod tarayarak VEYA dizinden secerek.
-///     Tabanda kayitliysa kisa kod (stok kodu) da listede gosterilir.
-///  3) Sag ustten "Akis" baslatir: barkodlar tek tek tam ekran buyuk
-///     gosterilir, lazer/harici okuyucu ile okutulabilir.
+///  - Ust tarafta 5 sekme (5 ayri liste): Kalın Rön, İnce Rön, A4, A4 İkili,
+///    A4 Üçlü. Her sekme kendi urun listesini tutar.
+///  - Alt butonlar: Listeden / Kısa Kod / Tara ile aktif sekmeye urun ekler.
+///  - Sag ust "Akış" (▶): aktif sekmedeki barkodlari tek tek tam ekran buyuk
+///    gosterir; lazer/harici okuyucu ile seri okutma icin.
 class LabelPrintScreen extends ConsumerStatefulWidget {
   const LabelPrintScreen({super.key});
 
@@ -23,11 +42,34 @@ class LabelPrintScreen extends ConsumerStatefulWidget {
   ConsumerState<LabelPrintScreen> createState() => _LabelPrintScreenState();
 }
 
-class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
-  LabelFormat _format = LabelFormat.bigRoll;
-  final List<LabelItem> _items = [];
+class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
 
-  // ── Urun ekleme: barkod tara ──────────────────────────────────────────
+  /// Her grup icin ayri urun listesi.
+  final Map<LabelGroup, List<LabelItem>> _lists = {
+    for (final g in LabelGroup.values) g: <LabelItem>[],
+  };
+
+  LabelGroup get _active => LabelGroup.values[_tab.index];
+  List<LabelItem> get _items => _lists[_active]!;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: LabelGroup.values.length, vsync: this);
+    _tab.addListener(() {
+      if (!_tab.indexIsChanging) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  // ── Aktif sekmeye urun ekleme: barkod tara ─────────────────────────────
   Future<void> _addByScan() async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
@@ -37,18 +79,20 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
   }
 
   /// Barkodu dizinde arar; bulursa ad+kisa kod ile, bulamazsa sadece
-  /// barkod ile ekler. Ayni barkod zaten varsa adedi artirir.
+  /// barkod ile aktif sekmeye ekler. Ayni barkod varsa adedi artirir.
   Future<void> _addByBarcode(String barcode) async {
     if (barcode.isEmpty) return;
-    final entry =
-        await ref.read(barcodeDirectoryRepositoryProvider).findEntryByBarcode(barcode);
+    final entry = await ref
+        .read(barcodeDirectoryRepositoryProvider)
+        .findEntryByBarcode(barcode);
     if (!mounted) return;
     setState(() {
-      final idx = _items.indexWhere((e) => e.barcode == barcode);
+      final list = _items;
+      final idx = list.indexWhere((e) => e.barcode == barcode);
       if (idx >= 0) {
-        _items[idx].quantity++;
+        list[idx].quantity++;
       } else {
-        _items.add(LabelItem(
+        list.add(LabelItem(
           barcode: barcode,
           productName: entry?.productName ?? 'Bilinmeyen ürün',
           stockCode: entry?.stockCode,
@@ -57,7 +101,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
     });
   }
 
-  // ── Urun ekleme: dizinden sec ──────────────────────────────────────────
+  // ── Aktif sekmeye urun ekleme: dizinden sec ────────────────────────────
   Future<void> _addFromDirectory() async {
     final all = await ref.read(barcodeDirectoryRepositoryProvider).getAll();
     if (!mounted) return;
@@ -65,13 +109,13 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _DirectoryPickerSheet(entriesBarcodes: all),
+      builder: (_) => _DirectoryPickerSheet(entries: all),
     );
     if (picked == null || !mounted) return;
     await _addByBarcode(picked);
   }
 
-  // ── Urun ekleme: kisa kod (stok kodu) ile ──────────────────────────────
+  // ── Aktif sekmeye urun ekleme: kisa kod (stok kodu) ────────────────────
   Future<void> _addByShortCode() async {
     final code = await showDialog<String>(
       context: context,
@@ -104,25 +148,19 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
     });
   }
 
-  // ── Akis: tam ekran buyuk barkod (lazer okutma) ─────────────────────────
+  // ── Akis: aktif sekme barkodlarini tam ekran buyuk goster (lazer) ──────
   void _startFlow() {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce ürün ekleyin.')),
+        const SnackBar(content: Text('Bu listeye önce ürün ekleyin.')),
       );
       return;
     }
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => _LabelFlowScreen(items: List.of(_items))),
-    );
-  }
-
-  Future<void> _openSizeSettings() async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SizeSettingsSheet(format: _format),
+      MaterialPageRoute(
+        builder: (_) =>
+            _LabelFlowScreen(title: _active.title, items: List.of(_items)),
+      ),
     );
   }
 
@@ -133,26 +171,57 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
         title: const Text('Etiket Basım'),
         actions: [
           IconButton(
-            tooltip: 'Etiket ölçüleri',
-            icon: const Icon(Icons.straighten_rounded),
-            onPressed: _openSizeSettings,
-          ),
-          // Sag ust: akis baslatici (lazer okutma).
-          IconButton(
             tooltip: 'Akışı Başlat',
             icon: const Icon(Icons.play_circle_fill_rounded),
             color: AppTheme.accent,
             onPressed: _startFlow,
           ),
         ],
+        bottom: TabBar(
+          controller: _tab,
+          isScrollable: true,
+          labelColor: AppTheme.accent,
+          unselectedLabelColor: AppTheme.textSecondary,
+          indicatorColor: AppTheme.accent,
+          tabs: [
+            for (final g in LabelGroup.values)
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(g.title),
+                    if (_lists[g]!.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '${_lists[g]!.length}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tab,
         children: [
-          _buildFormatPicker(),
-          const Divider(height: 1),
-          Expanded(
-            child: _items.isEmpty ? _buildEmpty() : _buildItemList(),
-          ),
+          for (final g in LabelGroup.values)
+            _items.isEmpty && g == _active
+                ? _buildEmpty()
+                : _buildItemList(_lists[g]!),
         ],
       ),
       bottomNavigationBar: SafeArea(
@@ -190,64 +259,6 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
     );
   }
 
-  Widget _buildFormatPicker() {
-    return SizedBox(
-      height: 96,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        itemCount: LabelFormat.values.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final f = LabelFormat.values[i];
-          final selected = f == _format;
-          return GestureDetector(
-            onTap: () => setState(() => _format = f),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: 150,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: selected ? AppTheme.primary : AppTheme.surfaceAlt,
-                borderRadius: BorderRadius.circular(AppTheme.rMd),
-                border: Border.all(
-                  color: selected ? AppTheme.primaryLight : Colors.transparent,
-                  width: 1.4,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    f.title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: selected ? Colors.white : AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    f.subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: selected
-                          ? Colors.white.withOpacity(0.85)
-                          : AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Widget _buildEmpty() {
     return Center(
       child: Column(
@@ -256,8 +267,9 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
           Icon(Icons.label_outline_rounded,
               size: 64, color: AppTheme.textTertiary),
           const SizedBox(height: 12),
-          const Text('Henüz ürün eklenmedi',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 15)),
+          Text('“${_active.title}” listesi boş',
+              style: const TextStyle(
+                  color: AppTheme.textSecondary, fontSize: 15)),
           const SizedBox(height: 4),
           const Text('Tara, Listeden veya Kısa Kod ile ürün ekleyin',
               style: TextStyle(color: AppTheme.textTertiary, fontSize: 12)),
@@ -266,13 +278,14 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
     );
   }
 
-  Widget _buildItemList() {
+  Widget _buildItemList(List<LabelItem> list) {
+    if (list.isEmpty) return _buildEmpty();
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      itemCount: _items.length,
+      itemCount: list.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
-        final it = _items[i];
+        final it = list[i];
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: AppTheme.card(),
@@ -313,7 +326,6 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen> {
                   ],
                 ),
               ),
-              // Adet kontrolu
               _QtyBtn(icon: Icons.remove, onTap: () => _changeQty(i, -1)),
               SizedBox(
                 width: 28,
@@ -363,8 +375,8 @@ class _QtyBtn extends StatelessWidget {
 
 // ── Dizinden urun secme sayfasi ──────────────────────────────────────────
 class _DirectoryPickerSheet extends StatefulWidget {
-  final List entriesBarcodes; // List<BarcodeEntry>
-  const _DirectoryPickerSheet({required this.entriesBarcodes});
+  final List entries; // List<BarcodeEntry>
+  const _DirectoryPickerSheet({required this.entries});
 
   @override
   State<_DirectoryPickerSheet> createState() => _DirectoryPickerSheetState();
@@ -376,7 +388,7 @@ class _DirectoryPickerSheetState extends State<_DirectoryPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final q = _query.toLowerCase();
-    final list = widget.entriesBarcodes.where((e) {
+    final list = widget.entries.where((e) {
       if (q.isEmpty) return true;
       final name = (e.productName as String).toLowerCase();
       final code = (e.barcode as String).toLowerCase();
@@ -436,7 +448,8 @@ class _DirectoryPickerSheetState extends State<_DirectoryPickerSheet> {
                             style: const TextStyle(
                                 fontFamily: 'monospace', fontSize: 12),
                           ),
-                          trailing: const Icon(Icons.add_circle_outline_rounded),
+                          trailing:
+                              const Icon(Icons.add_circle_outline_rounded),
                           onTap: () =>
                               Navigator.of(context).pop(e.barcode as String),
                         );
@@ -492,145 +505,11 @@ class _ShortCodeDialogState extends State<_ShortCodeDialog> {
   }
 }
 
-// ── Etiket olcu ayarlari ─────────────────────────────────────────────────
-class _SizeSettingsSheet extends StatefulWidget {
-  final LabelFormat format;
-  const _SizeSettingsSheet({required this.format});
-
-  @override
-  State<_SizeSettingsSheet> createState() => _SizeSettingsSheetState();
-}
-
-class _SizeSettingsSheetState extends State<_SizeSettingsSheet> {
-  final _wCtrl = TextEditingController();
-  final _hCtrl = TextEditingController();
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final d = await LabelSettingsService.instance.getDimensions(widget.format);
-    if (!mounted) return;
-    setState(() {
-      _wCtrl.text = d.widthMm.toStringAsFixed(0);
-      _hCtrl.text = d.heightMm.toStringAsFixed(0);
-      _loading = false;
-    });
-  }
-
-  Future<void> _save() async {
-    final w = double.tryParse(_wCtrl.text.trim());
-    final h = double.tryParse(_hCtrl.text.trim());
-    if (w == null || h == null || w <= 0 || h <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Geçerli ölçü girin (mm).')),
-      );
-      return;
-    }
-    await LabelSettingsService.instance
-        .setDimensions(widget.format, widthMm: w, heightMm: h);
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  Future<void> _reset() async {
-    await LabelSettingsService.instance.resetToDefault(widget.format);
-    await _load();
-  }
-
-  @override
-  void dispose() {
-    _wCtrl.dispose();
-    _hCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppTheme.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Text('${widget.format.title} ölçüleri (mm)',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 16)),
-            const SizedBox(height: 16),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _wCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                          labelText: 'Genişlik (mm)'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _hCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                          labelText: 'Yükseklik (mm)'),
-                    ),
-                  ),
-                ],
-              ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _reset,
-                    child: const Text('Varsayılana Dön'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _save,
-                    child: const Text('Kaydet'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ── AKIS: tam ekran buyuk barkod (lazer okutma) ──────────────────────────
 class _LabelFlowScreen extends StatefulWidget {
+  final String title;
   final List<LabelItem> items;
-  const _LabelFlowScreen({required this.items});
+  const _LabelFlowScreen({required this.title, required this.items});
 
   @override
   State<_LabelFlowScreen> createState() => _LabelFlowScreenState();
@@ -640,12 +519,10 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
   final PageController _pageCtrl = PageController();
   int _index = 0;
 
-  /// value'ye uygun 1D barkod tipi sec (yoksa null).
-  Barcode? _pick1DBarcode(String value) {
+  /// value'ye uygun 1D barkod tipi sec.
+  Barcode _pick1DBarcode(String value) {
     final v = value.trim();
-    if (!RegExp(r'^\d+$').hasMatch(v)) {
-      return Barcode.code128(); // rakam degil -> code128 dene
-    }
+    if (!RegExp(r'^\d+$').hasMatch(v)) return Barcode.code128();
     switch (v.length) {
       case 13:
         return Barcode.ean13();
@@ -673,7 +550,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
-        title: Text('Akış  ${_index + 1} / $total',
+        title: Text('${widget.title}  ${_index + 1}/$total',
             style: const TextStyle(color: Colors.black)),
       ),
       body: PageView.builder(
@@ -701,12 +578,10 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                   const SizedBox(height: 6),
                   Text(
                     'Kısa kod: ${it.stockCode}',
-                    style: const TextStyle(
-                        color: Colors.black54, fontSize: 14),
+                    style: const TextStyle(color: Colors.black54, fontSize: 14),
                   ),
                 ],
                 const SizedBox(height: 32),
-                // Buyuk barkod - lazer okuyucu icin genis ve net.
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
@@ -716,7 +591,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: BarcodeWidget(
-                    barcode: barcode!,
+                    barcode: barcode,
                     data: it.barcode.trim(),
                     drawText: true,
                     height: 160,
@@ -728,16 +603,12 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text(
-                  'Adet: ${it.quantity}',
-                  style: const TextStyle(
-                      color: Colors.black, fontSize: 16),
-                ),
+                Text('Adet: ${it.quantity}',
+                    style:
+                        const TextStyle(color: Colors.black, fontSize: 16)),
                 const SizedBox(height: 8),
-                const Text(
-                  'Kaydır → sonraki ürün',
-                  style: TextStyle(color: Colors.black38, fontSize: 12),
-                ),
+                const Text('Kaydır → sonraki ürün',
+                    style: TextStyle(color: Colors.black38, fontSize: 12)),
               ],
             ),
           );
