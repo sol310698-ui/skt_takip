@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'app_logger.dart';
 import 'skt_alarm_settings.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -83,6 +84,15 @@ class AlarmService {
     if (!canFsi) {
       await openFullScreenIntentSettings();
     }
+
+    // Tum izin durumlarini logla (alarm calmazsa hangisinin eksik oldugunu
+    // gormek icin).
+    final notif = await Permission.notification.isGranted;
+    final exact = await Permission.scheduleExactAlarm.isGranted;
+    final battery = await Permission.ignoreBatteryOptimizations.isGranted;
+    await AppLogger.instance.log('IZIN',
+        'bildirim=$notif tamZamanliAlarm=$exact '
+        'pilMuafiyeti=$battery tamEkranIntent=$canFsi');
   }
 
   /// Pil optimizasyonu muafiyeti verilmis mi?
@@ -172,10 +182,15 @@ class AlarmService {
       ),
     );
     await Alarm.set(alarmSettings: settings);
+    await AppLogger.instance.log('ALARM',
+        'KURULDU id=$id zaman=${when.toIso8601String()} '
+        'ses=$effective baslik="$title" '
+        '(simdi=${DateTime.now().toIso8601String()})');
   }
 
   /// Alarmi durdur/iptal et.
   static Future<void> stop(int id) async {
+    await AppLogger.instance.log('ALARM', 'DURDURULDU id=$id (kullanici).');
     await Alarm.stop(id);
     // Kullanici alarmi durdurdu -> CPU/ekran kilidini birak (pil tasarrufu).
     // (getAlarms zamanlanmis alarmlari da sayar; burada calan alarm

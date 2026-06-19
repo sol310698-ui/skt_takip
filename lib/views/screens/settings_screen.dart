@@ -11,6 +11,7 @@ import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
+import 'log_viewer_screen.dart';
 import 'work_schedule_screen.dart';
 
 /// Ayarlar ekranı: banner ikonlarını + bildirim yönetimini toplar.
@@ -230,6 +231,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           subtitle: 'Geçmişteki imha ve iade kayıtları',
           onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const HistoryScreen())),
+        ),
+        const SizedBox(height: 16),
+        const SectionLabel('Tanılama'),
+        const SizedBox(height: 8),
+        _tile(
+          icon: Icons.bug_report_outlined,
+          color: AppTheme.accent,
+          title: 'Alarm Kayıtları (Log)',
+          subtitle: 'Alarm sorununu tespit için kayıtları görüntüle/paylaş',
+          onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LogViewerScreen())),
         ),
         const SizedBox(height: 16),
         const SectionLabel('Hakkında'),

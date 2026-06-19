@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/alarm_service.dart';
+import '../../core/services/app_logger.dart';
 import '../../core/services/checklist_service.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/skt_alarm_settings.dart';
@@ -58,6 +59,10 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
     super.initState();
     _alarmType = widget.alarmType;
     _checklistId = widget.checklistId;
+    AppLogger.instance.log('ALARM',
+        'AlarmRingScreen acildi id=${widget.alarmId} '
+        'baslik="${widget.title}". Bu noktada paket sesi caliyor olmali; '
+        'ses YOKSA sorun paket/cihaz ses katmanindadir, ekran akisi degil.');
     // Haftalik alarmsa DB'den tip + checklist bilgisini yukle.
     _loadEntryMeta();
     // 1 dakika kapatilmazsa alarm sesini maksimuma cikar.

@@ -9,6 +9,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_service.dart';
+import 'core/services/app_logger.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
 import 'core/services/skt_alarm_settings.dart';
@@ -33,6 +34,8 @@ int? _shownAlarmId;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr', null);
+  await AppLogger.instance
+      .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
   // Edge-to-edge: icerik status bar'in ARKASINA uzanir (mor banner gorunur).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -57,12 +60,21 @@ Future<void> main() async {
   // alarm tarafindan soguk baslatildiginda bile ilk event yakalanir.
   // Yakalanan alarm _pendingAlarmId'ye yazilir; arayuz hazir olunca acilir.
   _globalRingSub = Alarm.ringing.listen((alarmSet) {
+    AppLogger.instance.log('ALARM',
+        'RINGING event alindi. Alarm sayisi: ${alarmSet.alarms.length}, '
+        'idler: ${alarmSet.alarms.map((a) => a.id).toList()}');
     // KRITIK: Alarm caldigi an CPU/ekrani ZORLA uyanik tut. Doze modunda
     // islemcinin durup sesi kesmesini engeller. Alarm durdurulunca birakilir.
     if (alarmSet.alarms.isNotEmpty) {
       WakelockPlus.enable();
+      AppLogger.instance.log('ALARM', 'Wakelock etkinlestirildi.');
     }
     for (final alarm in alarmSet.alarms) {
+      AppLogger.instance.log('ALARM',
+          'Alarm isleniyor id=${alarm.id} '
+          'ses=${alarm.assetAudioPath} '
+          'loop=${alarm.loopAudio} '
+          'baslik="${alarm.notificationSettings.title}"');
       // ── BIR SONRAKI OLUSUMA YENIDEN KUR (UI'dan BAGIMSIZ) ──
       // Onceden bu, yalnizca alarm ekrani acilinca yapiliyordu. Eger ekran
       // herhangi bir nedenle acilamazsa (navigator hazir degil, kullanici
@@ -145,15 +157,22 @@ void _tryShowPendingAlarm() {
   final id = _pendingAlarmId;
   if (id == null) return;
   final nav = navigatorKey.currentState;
-  if (nav == null) return; // arayuz henuz hazir degil; sonra denenecek
+  if (nav == null) {
+    AppLogger.instance.log('ALARM',
+        'Ekran acilamadi: navigator henuz HAZIR DEGIL (id=$id). '
+        'Arayuz hazir olunca tekrar denenecek.');
+    return; // arayuz henuz hazir degil; sonra denenecek
+  }
 
   // ── UST USTE ACILMA KORUMASI ──
   // Zaten bir alarm ekrani aciksa, tekrar acma (activity ust uste binmesin).
   if (_alarmScreenOpen) {
-    // Ayni alarmsa tuket ve cik; farkli alarmsa beklet (mevcut kapaninca acilir).
     if (_shownAlarmId == id) _pendingAlarmId = null;
     return;
   }
+
+  AppLogger.instance
+      .log('ALARM', 'Alarm ekrani aciliyor id=$id baslik="$_pendingTitle"');
 
   // Tuketildi olarak isaretle (tekrar acilmasin).
   _pendingAlarmId = null;
@@ -161,9 +180,6 @@ void _tryShowPendingAlarm() {
   _shownAlarmId = id;
   final title = _pendingTitle;
   final body = _pendingBody;
-
-  // Not: Haftalik/gunluk yeniden kurulum artik alarm CALAR CALMAZ
-  // (_rescheduleFiredAlarm) yapiliyor; burada tekrar etmiyoruz.
 
   // SKT imha alarmi (sabit ID) -> ozel ekran.
   if (id == ScheduleService.sktDisposalAlarmId) {
