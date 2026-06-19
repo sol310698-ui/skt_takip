@@ -80,8 +80,8 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     final picked = await _pickSound();
     if (picked == null) return;
     await SktAlarmSettings.instance.setSound(picked.$1, picked.$2);
-    // Mevcut tum alarmlari yeni sesle yeniden kur.
-    await ScheduleService.instance.refreshAllAlarms();
+    // Ses degisti: tum alarmlari yeni sesle ZORLA yeniden kur.
+    await ScheduleService.instance.forceResetAllAlarms();
     if (_sktAlarmOn) {
       await ScheduleService.instance
           .setSktDisposalAlarm(hour: _sktHour, minute: _sktMinute);
@@ -100,7 +100,8 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   /// Alarm sesini varsayilana dondur.
   Future<void> _resetGlobalSound() async {
     await SktAlarmSettings.instance.clearSound();
-    await ScheduleService.instance.refreshAllAlarms();
+    // Ses degisti: tum alarmlari yeni sesle ZORLA yeniden kur.
+    await ScheduleService.instance.forceResetAllAlarms();
     if (_sktAlarmOn) {
       await ScheduleService.instance
           .setSktDisposalAlarm(hour: _sktHour, minute: _sktMinute);

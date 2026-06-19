@@ -219,4 +219,18 @@ class AlarmService {
     await Alarm.stopAll();
     await WakelockPlus.disable();
   }
+
+  /// Su an ZAMANLANMIS (kurulu) tum alarm ID'lerini dondurur.
+  /// refreshAllAlarms'in zaten kurulu alarmlari gereksiz yere silip yeniden
+  /// kurmamasi icin kullanilir (bu yeniden kurulum haftalik alarmlari
+  /// bozabiliyordu; mesai cikis alarmi bir kez kurulup dokunulmadigi icin
+  /// kusursuz calisiyor — ayni davranisi haftaliga da uyguluyoruz).
+  static Future<Set<int>> scheduledAlarmIds() async {
+    try {
+      final alarms = await Alarm.getAlarms();
+      return alarms.map((a) => a.id).toSet();
+    } catch (_) {
+      return <int>{};
+    }
+  }
 }

@@ -182,9 +182,32 @@ class ScheduleService {
     }
   }
 
-  /// Tum aktif haftalik alarmlari DB'den okuyup yeniden kur.
-  /// (Genel alarm sesi degisince hepsini yeni sesle yenilemek icin.)
+  /// Tum aktif haftalik alarmlarin KURULU OLDUGUNDAN emin ol.
+  ///
+  /// ONEMLI DAVRANIS DEGISIKLIGI: Eskiden bu metot her acilista TUM aktif
+  /// alarmlari kosulsuz yeniden kuruyordu (setAlarm -> Alarm.set). Bu yeniden
+  /// kurulum, kurulu/yaklasmakta olan haftalik alarmlari bozabiliyordu.
+  /// Mesai cikis alarmi ise bir kez kurulup bir daha DOKUNULMADIGI icin
+  /// kusursuz calisiyor. Ayni davranisi haftaliga uyguluyoruz: yalnizca
+  /// HENUZ KURULU OLMAYAN aktif alarmlari kuruyoruz; zaten kurulu olanlara
+  /// dokunmuyoruz.
   Future<void> refreshAllAlarms() async {
+    final all = await getAll();
+    final scheduled = await AlarmService.scheduledAlarmIds();
+    for (final e in all.where((x) => x.enabled)) {
+      if (e.id == null) continue;
+      if (scheduled.contains(alarmId(e.id!))) {
+        // Zaten kurulu -> dokunma (mesai cikis gibi).
+        continue;
+      }
+      await setAlarm(e);
+    }
+  }
+
+  /// Genel alarm sesi degisince TUM alarmlari zorla yeni sesle yeniden kur.
+  /// (refreshAllAlarms artik kurulu alarma dokunmadigindan, ses degisikligi
+  /// gibi durumlar icin ayri bir "zorla" yolu birakiyoruz.)
+  Future<void> forceResetAllAlarms() async {
     final all = await getAll();
     for (final e in all.where((x) => x.enabled)) {
       await setAlarm(e);
