@@ -6,9 +6,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.provider.Settings
-import android.view.WindowManager
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -17,43 +15,13 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channel = "skt_takip/fullscreen"
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        applyLockScreenFlags()
-    }
-
-    // singleTask modunda activity yeniden kullanilirsa onCreate cagrilmaz,
-    // onNewIntent cagrilir. Kilit ekrani bayraklarini burada da uygula.
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        applyLockScreenFlags()
-    }
-
-    /// Kilit ekrani uzerinde gosterim + ekrani uyandirma.
-    ///
-    /// ONEMLI: Bu bayraklar SADECE ekrani kilit ustune cikarir; kilidi
-    /// ACMAZ (parola/biyometri yine gerekir, bu guvenlik geregi dogrudur).
-    /// "alarm" paketi 5.x kendi full-screen intent'ini yonetir; biz burada
-    /// yalnizca activity one geldiginde ekranin uyanmasini ve kilit ustune
-    /// cikmasini garanti ederiz. Kilidi bypass ETMEYIZ; kullanici kilidi
-    /// acinca alarm ekrani (AlarmRingScreen) onunde olur.
-    ///
-    /// Onceki surumde ayrica FLAG_KEEP_SCREEN_ON eklenmis ve bu, "alarm"
-    /// paketi 5.x'in kendi full-screen intent yonetimiyle CAKISARAK ekranin
-    /// acilip kapanmasina yol aciyordu. Kaldirildi.
-    private fun applyLockScreenFlags() {
-        if (Build.VERSION.SDK_INT >= 27) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            )
-        }
-    }
+    // ONEMLI: Activity'ye kilit ekrani bayraklari (setShowWhenLocked /
+    // setTurnScreenOn) EKLEMIYORUZ. "alarm" paketi 5.x, alarm calarken kilit
+    // ekrani uzerinde gosterimi ve ekrani uyandirmayi KENDI yonetir. Resmi
+    // kurulum rehberi de v5'e gecerken bu bayraklarin KALDIRILMASINI soyler.
+    // Bunlari MainActivity'de zorlamak, paketin full-screen intent yonetimiyle
+    // CAKISARAK alarm ekraninin acilip kapanmasina ve kilit ekraninin one
+    // gecip parola istemesine yol aciyordu. Bu yuzden tamamen kaldirildi.
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
