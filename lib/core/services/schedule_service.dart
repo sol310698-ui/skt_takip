@@ -149,10 +149,17 @@ class ScheduleService {
   static int shiftAlarmId(int shiftId) => 800000 + shiftId;
 
   /// Bir sonraki [weekday] gununun [hour]:[minute] anini hesaplar.
+  ///
+  /// DUZELTME: Eskiden `d.isBefore(now)` kullaniliyordu. Bu, dogru gun+saat
+  /// kurulum aninda yalnizca birkac saniye/dakika gecmis olsa bile alarmi
+  /// tam 7 gun ileri atiyordu ("sabah alarmi hic calmadi" sorununun sebebi).
+  /// Artik kucuk bir tolerans (60 sn) taniyoruz: alarm anindan en fazla 60 sn
+  /// once kurulum olsa bile alarm BUGUN kurulur. Daha eski ise haftaya gecer.
   static DateTime nextOccurrence(int weekday, int hour, int minute) {
     final now = DateTime.now();
+    final threshold = now.subtract(const Duration(seconds: 60));
     var d = DateTime(now.year, now.month, now.day, hour, minute);
-    while (d.weekday != weekday || d.isBefore(now)) {
+    while (d.weekday != weekday || d.isBefore(threshold)) {
       d = d.add(const Duration(days: 1));
       d = DateTime(d.year, d.month, d.day, hour, minute);
     }
@@ -193,13 +200,16 @@ class ScheduleService {
   /// dokunmuyoruz.
   Future<void> refreshAllAlarms() async {
     final all = await getAll();
-    final scheduled = await AlarmService.scheduledAlarmIds();
+    final scheduledAlarms = await AlarmService.scheduledAlarmsMap();
+    final now = DateTime.now();
     for (final e in all.where((x) => x.enabled)) {
       if (e.id == null) continue;
-      if (scheduled.contains(alarmId(e.id!))) {
-        // Zaten kurulu -> dokunma (mesai cikis gibi).
+      final existing = scheduledAlarms[alarmId(e.id!)];
+      if (existing != null && existing.isAfter(now)) {
+        // Zaten kurulu VE zamani gelecekte -> dokunma (mesai cikis gibi).
         continue;
       }
+      // Kurulu degil VEYA zamani gecmis (calip dustu / drift etti) -> kur.
       await setAlarm(e);
     }
   }

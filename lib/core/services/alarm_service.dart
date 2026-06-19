@@ -233,4 +233,16 @@ class AlarmService {
       return <int>{};
     }
   }
+
+  /// Kurulu alarmlarin id -> tetik zamani haritasi.
+  /// refreshAllAlarms, "kurulu ama zamani gecmis/drift etmis" alarmlari
+  /// ayirt edip yeniden kurabilmek icin kullanir.
+  static Future<Map<int, DateTime>> scheduledAlarmsMap() async {
+    try {
+      final alarms = await Alarm.getAlarms();
+      return {for (final a in alarms) a.id: a.dateTime};
+    } catch (_) {
+      return <int, DateTime>{};
+    }
+  }
 }
