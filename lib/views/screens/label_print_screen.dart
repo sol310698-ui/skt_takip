@@ -22,9 +22,9 @@ extension LabelGroupX on LabelGroup {
   String get title {
     switch (this) {
       case LabelGroup.kalinRon:
-        return 'Kalın Rön';
+        return 'Kalın Reyon';
       case LabelGroup.inceRon:
-        return 'İnce Rön';
+        return 'İnce Reyon';
       case LabelGroup.a4:
         return 'A4';
       case LabelGroup.a4Double:
@@ -37,7 +37,7 @@ extension LabelGroupX on LabelGroup {
 
 /// Etiket Basım Sayfasi.
 ///
-///  - Ust tarafta 5 sekme (5 ayri liste): Kalın Rön, İnce Rön, A4, A4 İkili,
+///  - Ust tarafta 5 sekme (5 ayri liste): Kalın Reyon, İnce Reyon, A4, A4 İkili,
 ///    A4 Üçlü. Her sekme kendi urun listesini tutar.
 ///  - Alt butonlar: Listeden / Kısa Kod / Tara ile aktif sekmeye urun ekler.
 ///  - Sag ust "Akış" (▶): aktif sekmedeki barkodlari tek tek tam ekran buyuk

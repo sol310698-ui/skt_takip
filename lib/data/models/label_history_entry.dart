@@ -6,7 +6,7 @@ class LabelHistoryEntry {
   final String productName;
   final String? stockCode;
   final String groupKey; // LabelGroup.name (kalinRon, inceRon, a4, ...)
-  final String groupTitle; // gösterim adı (Kalın Rön, A4, ...)
+  final String groupTitle; // gösterim adı (Kalın Reyon, A4, ...)
   final int quantity;
   final DateTime addedAt;
 

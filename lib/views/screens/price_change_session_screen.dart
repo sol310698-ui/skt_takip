@@ -19,6 +19,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
+import 'label_print_screen.dart' show LabelGroup, LabelGroupX;
 import 'price_change_review_screen.dart';
 import 'price_review_guide_screen.dart';
 import 'web_search_screen.dart';
@@ -47,9 +48,9 @@ class _PriceChangeSessionScreenState
   PriceChangeItem? _matched;
   String? _scanMessage;
   // Eslesen urunu onaylarken "Etiket Basim'a da gonder" secimi.
-  // Her eslesmede varsayilan kapali baslar, kullanici isaretlerse o urun
-  // icin gecerlidir (bir sonraki eslesmede tekrar kapali baslar).
-  bool _sendToLabelPrint = false;
+  // null = gonderilmeyecek; doluysa secilen grubun key'i (kalinRon, a4, ...).
+  // Her eslesmede sifirlanir (bir sonraki urun icin tekrar secim sorulur).
+  String? _sendToLabelGroup;
   // Excel'den okunan, stok kodu dahil barkod dizini kayitlari.
   // Onay sonrasi dizine (oncelik: excel) yazilir.
   List<BarcodeEntry> _pendingDirEntries = [];
@@ -396,7 +397,7 @@ class _PriceChangeSessionScreenState
     setState(() {
       _matched = item;
       _scanMessage = null;
-      _sendToLabelPrint = false;
+      _sendToLabelGroup = null;
     });
   }
 
@@ -407,16 +408,15 @@ class _PriceChangeSessionScreenState
         .pickImage(source: ImageSource.camera, imageQuality: 80);
     if (photo == null) return; // foto ZORUNLU
 
-    final sendToLabel = _sendToLabelPrint;
+    final labelGroup = _sendToLabelGroup;
     setState(() => _busy = true);
     await PriceChangeService.instance.markChanged(item.id!, photo.path);
-    if (sendToLabel) {
+    if (labelGroup != null) {
       // Etiket Basim ekrani acildiginda bu kuyruktan okunup eklenecek.
-      // Varsayilan grup A4 (Fiyat Degisim genelde A4 listesinden gelir).
       await LabelPendingQueueService.instance.push(
         barcode: item.barcode,
         productName: item.productName ?? item.barcode,
-        groupKey: 'a4',
+        groupKey: labelGroup,
         source: 'price_change',
       );
     }
@@ -425,7 +425,7 @@ class _PriceChangeSessionScreenState
     setState(() {
       _matched = null;
       _busy = false;
-      _sendToLabelPrint = false;
+      _sendToLabelGroup = null;
     });
 
     final pending = _items.where((i) => !i.changed).length;
@@ -434,7 +434,13 @@ class _PriceChangeSessionScreenState
       _offerComplete();
     } else {
       await _scanner.start();
-      final labelNote = sendToLabel ? ' • Etikete gönderildi' : '';
+      final groupTitle = labelGroup == null
+          ? null
+          : LabelGroup.values
+              .firstWhere((g) => g.name == labelGroup)
+              .title;
+      final labelNote =
+          groupTitle != null ? ' • $groupTitle\'a gönderildi' : '';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -449,6 +455,64 @@ class _PriceChangeSessionScreenState
   Future<void> _cancelMatch() async {
     setState(() => _matched = null);
     await _scanner.start();
+  }
+
+  /// Etiket Basim'daki 5 listeyi (Kalin Reyon, Ince Reyon, A4, A4 Ikili,
+  /// A4 Uclu) gosteren secim sheet'i. Secilen grup _sendToLabelGroup'a
+  /// yazilir; tekrar dokunup "Gonderme" secilirse iptal edilir.
+  Future<void> _pickLabelGroup() async {
+    final result = await showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppTheme.hairline,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Hangi listeye gönderilsin?',
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            ),
+            for (final g in LabelGroup.values)
+              ListTile(
+                leading: Icon(
+                  _sendToLabelGroup == g.name
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: _sendToLabelGroup == g.name
+                      ? AppTheme.accent
+                      : AppTheme.textTertiary,
+                ),
+                title: Text(g.title),
+                onTap: () => Navigator.pop(context, g.name),
+              ),
+            if (_sendToLabelGroup != null)
+              ListTile(
+                leading: const Icon(Icons.close_rounded,
+                    color: AppTheme.statusExpired),
+                title: const Text('Gönderme (vazgeç)',
+                    style: TextStyle(color: AppTheme.statusExpired)),
+                onTap: () => Navigator.pop(context, ''),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return; // disariya tiklandi, degisiklik yok
+    setState(() => _sendToLabelGroup = result.isEmpty ? null : result);
   }
 
   // ─────────────────────────── Tamamlama ─────────────────────────────
@@ -560,7 +624,11 @@ class _PriceChangeSessionScreenState
   }
 
   // Gorme dostu rehber moduna gec (tek tek, buyuk gosterim).
+  // Rehber ekraninin kendi kamerasi var; bu ekranin kamerasi durdurulmazsa
+  // iki ekran ayni anda kamera donanimina erismeye calisip cakisabilir.
   Future<void> _openGuide() async {
+    await _scanner.stop();
+    if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -568,7 +636,11 @@ class _PriceChangeSessionScreenState
       ),
     );
     // Donunce listeyi tazele (rehberde isaretlemeler yapilmis olabilir).
-    if (mounted) _load();
+    if (!mounted) return;
+    await _load();
+    if (mounted && _matched == null && !_completed) {
+      await _startCameraSafe();
+    }
   }
 
   void _openEvidence() {
@@ -926,33 +998,44 @@ class _PriceChangeSessionScreenState
             ],
           ),
           const SizedBox(height: 12),
-          // "Etiket Basim'a da gonder" secimi — isaretlenirse bu urun
-          // onaylandiginda Etiket Basim'in A4 listesine de eklenir.
+          // "Etiket Basim'a da gonder" secimi — dokununca mevcut 5 liste
+          // (Kalin Reyon, Ince Reyon, A4, A4 Ikili, A4 Uclu) gosterilir,
+          // hangisi secilirse urun onaylandiginda o listeye eklenir.
           InkWell(
-            onTap: _busy
-                ? null
-                : () => setState(
-                    () => _sendToLabelPrint = !_sendToLabelPrint),
+            onTap: _busy ? null : _pickLabelGroup,
             borderRadius: BorderRadius.circular(AppTheme.rSm),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  Checkbox(
-                    value: _sendToLabelPrint,
-                    onChanged: _busy
-                        ? null
-                        : (v) => setState(
-                            () => _sendToLabelPrint = v ?? false),
-                    activeColor: AppTheme.accent,
+                  Icon(
+                    _sendToLabelGroup != null
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    color: _sendToLabelGroup != null
+                        ? AppTheme.accent
+                        : AppTheme.textTertiary,
+                    size: 22,
                   ),
-                  const Expanded(
+                  const SizedBox(width: 10),
+                  Expanded(
                     child: Text(
-                      'Etiket Basım listesine de gönder',
+                      _sendToLabelGroup == null
+                          ? 'Etiket Basım listesine de gönder'
+                          : 'Etiket Basım → ${LabelGroup.values.firstWhere((g) => g.name == _sendToLabelGroup!).title}',
                       style: TextStyle(
-                          fontSize: 13, color: AppTheme.textSecondary),
+                        fontSize: 13,
+                        color: _sendToLabelGroup != null
+                            ? AppTheme.accent
+                            : AppTheme.textSecondary,
+                        fontWeight: _sendToLabelGroup != null
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                      ),
                     ),
                   ),
+                  Icon(Icons.chevron_right_rounded,
+                      size: 18, color: AppTheme.textTertiary),
                 ],
               ),
             ),

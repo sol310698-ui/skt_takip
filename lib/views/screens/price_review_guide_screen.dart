@@ -8,8 +8,10 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/theme/app_theme.dart';
+import 'label_print_screen.dart' show LabelGroup, LabelGroupX;
 
 /// ════════════════════════════════════════════════════════════════════
 ///  FİYAT DEĞİŞİM REHBERİ — gorme dostu, tek tek urun gosterimi.
@@ -31,6 +33,10 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
   int _index = 0;
   bool _loading = true;
   bool _busy = false;
+
+  // "Etiket Basim'a da gonder" secimi — gosterilen URUNE OZEL.
+  // Urun degisince (index degisince) sifirlanir.
+  String? _sendToLabelGroup;
 
   // Barkod -> resim URL onbellegi (tekrar sorgulamamak icin).
   final Map<String, String?> _imageCache = {};
@@ -70,7 +76,10 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
 
   void _goTo(int i) {
     if (i < 0 || i >= _items.length) return;
-    setState(() => _index = i);
+    setState(() {
+      _index = i;
+      _sendToLabelGroup = null;
+    });
     _prefetchImage();
   }
 
@@ -88,12 +97,93 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     );
     if (shot == null) return; // kullanici vazgecti -> isaretleme
 
+    final labelGroup = _sendToLabelGroup;
     setState(() => _busy = true);
     // Fotoyu kalici sakla + degistirildi isaretle.
     await PriceChangeService.instance.markChanged(item.id!, shot.path);
+    if (labelGroup != null) {
+      await LabelPendingQueueService.instance.push(
+        barcode: item.barcode,
+        productName: item.productName ?? item.barcode,
+        groupKey: labelGroup,
+        source: 'price_change_guide',
+      );
+    }
     _items[_index] = item.copyWith(changed: true, photoPath: shot.path);
-    setState(() => _busy = false);
+    setState(() {
+      _busy = false;
+      _sendToLabelGroup = null;
+    });
+    if (labelGroup != null && mounted) {
+      final title =
+          LabelGroup.values.firstWhere((g) => g.name == labelGroup).title;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Etiket Basım → $title\'a gönderildi'),
+          backgroundColor: AppTheme.accent,
+          duration: const Duration(milliseconds: 1200),
+        ),
+      );
+    }
     _nextOrFinish();
+  }
+
+  /// Etiket Basim'daki 5 listeyi gosteren secim sheet'i (price_change_
+  /// session_screen.dart'taki ile ayni mantik). Secilen grup
+  /// _sendToLabelGroup'a yazilir.
+  Future<void> _pickLabelGroup() async {
+    final result = await showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppTheme.hairline,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Hangi listeye gönderilsin?',
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            ),
+            for (final g in LabelGroup.values)
+              ListTile(
+                leading: Icon(
+                  _sendToLabelGroup == g.name
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: _sendToLabelGroup == g.name
+                      ? AppTheme.accent
+                      : AppTheme.textTertiary,
+                ),
+                title: Text(g.title),
+                onTap: () => Navigator.pop(context, g.name),
+              ),
+            if (_sendToLabelGroup != null)
+              ListTile(
+                leading: const Icon(Icons.close_rounded,
+                    color: AppTheme.statusExpired),
+                title: const Text('Gönderme (vazgeç)',
+                    style: TextStyle(color: AppTheme.statusExpired)),
+                onTap: () => Navigator.pop(context, ''),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _sendToLabelGroup = result.isEmpty ? null : result);
   }
 
   Future<void> _undo() async {
@@ -419,6 +509,49 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // "Etiket Basim'a da gonder" secimi — sadece henuz
+            // isaretlenmemis urunlerde gosterilir.
+            if (!isDone)
+              InkWell(
+                onTap: _busy ? null : _pickLabelGroup,
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 4, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _sendToLabelGroup != null
+                            ? Icons.check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                        color: _sendToLabelGroup != null
+                            ? AppTheme.accent
+                            : AppTheme.textTertiary,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _sendToLabelGroup == null
+                              ? 'Etiket Basım listesine de gönder'
+                              : 'Etiket Basım → ${LabelGroup.values.firstWhere((g) => g.name == _sendToLabelGroup!).title}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _sendToLabelGroup != null
+                                ? AppTheme.accent
+                                : AppTheme.textSecondary,
+                            fontWeight: _sendToLabelGroup != null
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 18, color: AppTheme.textTertiary),
+                    ],
+                  ),
+                ),
+              ),
             // Ana eylem: Cekildi / Geri al
             SizedBox(
               width: double.infinity,
@@ -556,7 +689,25 @@ class _LabelCheckSheetState extends State<LabelCheckSheet> {
   }
 
   Future<void> _ensureCamera() async {
-    if (_scanner != null) return;
+    // Controller zaten varsa (sheet kapatilip ACILMIŞ, dispose EDİLMEMİŞ
+    // durumda), sadece stop edilmis kamerayi yeniden baslat. Eskiden burada
+    // "controller var diye hicbir sey yapma" mantigi vardi; bu, ikinci
+    // acilista kameranin donmus/siyah kalmasina sebep oluyordu.
+    if (_scanner != null) {
+      try {
+        await _scanner!.start();
+      } catch (_) {
+        // Baslatma basarisiz olduysa controller'i tamamen yenile.
+        await _scanner!.dispose();
+        _scanner = null;
+        await _createAndStartCamera();
+      }
+      return;
+    }
+    await _createAndStartCamera();
+  }
+
+  Future<void> _createAndStartCamera() async {
     _scanner = MobileScannerController(
       detectionSpeed: DetectionSpeed.normal,
       returnImage: true, // fiyat OCR'i icin kare goruntusu
