@@ -107,6 +107,17 @@ class _SktTakipAppState extends State<SktTakipApp>
   bool _locked = true;
   bool _lockCheckDone = false;
 
+  // Uygulama ne zaman ARKA PLANA gittigini (paused) izaretlemek icin.
+  // Biyometri (BiometricPrompt) dialogu acilirken sistem kisa bir
+  // "paused/inactive" sinyali gonderir, hemen ardindan "resumed" gelir.
+  // Bu DOGAL gecisi "arka plandan gerciden geri donus" ile ayirt
+  // ETMEZSEK, biyometri basarili olup kilit acildiginda bile resumed
+  // tekrar tetiklenip kilidi yeniden kapatiyor, LockScreen yeniden
+  // kuruluyor, initState tekrar biyometriyi otomatik aciyor — SONSUZ
+  // DONGU (kullanicinin bildirdigi "surekli parmak izi soruyor" hatasi
+  // tam olarak buydu).
+  DateTime? _pausedAt;
+
   @override
   void initState() {
     super.initState();
@@ -135,11 +146,26 @@ class _SktTakipAppState extends State<SktTakipApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Uygulama one geldiginde bekleyen alarm varsa goster.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _pausedAt ??= DateTime.now();
+      return;
+    }
     if (state == AppLifecycleState.resumed) {
+      // Uygulama one geldiginde bekleyen alarm varsa goster.
       AlarmFlow.instance.onUiReady();
-      // Arka plandan one gelirken kilit aciksa tekrar kilitle.
-      _relockIfNeeded();
+
+      // KRITIK: sadece GERCEKTEN bir sure arka planda kalindiysa kilitle.
+      // Biyometri/izin dialogu gibi anlik sistem gecisleri ~1 saniyenin
+      // altinda surer; bu kisa gecisleri kilitleme tetikleyicisi SAYMIYORUZ.
+      final pausedAt = _pausedAt;
+      _pausedAt = null;
+      if (pausedAt != null) {
+        final elapsed = DateTime.now().difference(pausedAt);
+        if (elapsed > const Duration(seconds: 2)) {
+          _relockIfNeeded();
+        }
+      }
     }
   }
 
