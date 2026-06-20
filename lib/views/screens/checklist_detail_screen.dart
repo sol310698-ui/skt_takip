@@ -133,6 +133,7 @@ class _ChecklistDetailScreenState extends State<ChecklistDetailScreen> {
         title: Text(widget.checklist.title),
         backgroundColor: _color,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(_color),
         actions: [
           if (_items.isNotEmpty)
             IconButton(

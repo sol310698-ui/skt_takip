@@ -582,6 +582,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
         title: Text(_pallet?.code ?? 'Palet'),
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
         actions: [
           // Resim göster (varsa)
           if (_pallet?.imagePath != null)

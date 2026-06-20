@@ -578,6 +578,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
         title: const Text('Fiyat Değişim'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
         actions: [
           IconButton(
             icon: const Icon(Icons.manage_search_rounded, color: Colors.white),
@@ -834,6 +835,7 @@ class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(Colors.black),
         title: const Text('Barkod Okut'),
       ),
       body: Stack(

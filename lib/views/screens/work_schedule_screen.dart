@@ -605,6 +605,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
         title: const Text('Çalışma Programı'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
         actions: [
           IconButton(
             icon: const Icon(Icons.tune_rounded),
@@ -1291,6 +1292,7 @@ class _QrDefineScreenState extends State<_QrDefineScreen> {
         title: const Text('QR Kodu Tara'),
         backgroundColor: AppTheme.amber,
         foregroundColor: Colors.black,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.amber),
       ),
       body: Column(
         children: [

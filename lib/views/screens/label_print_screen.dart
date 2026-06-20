@@ -550,6 +550,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        systemOverlayStyle: AppTheme.systemBarForColor(Colors.white),
         title: Text('${widget.title}  ${_index + 1}/$total',
             style: const TextStyle(color: Colors.black)),
       ),

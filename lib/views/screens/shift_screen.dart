@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -129,57 +130,62 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   Widget build(BuildContext context) {
     final openAsync = ref.watch(openShiftProvider);
     final shiftsAsync = ref.watch(shiftListProvider);
+    final isWorking = openAsync.valueOrNull != null;
 
-    return Scaffold(
-      body: Column(
-          children: [
-            _buildHeader(context, openAsync.valueOrNull),
-            Expanded(
-              child: shiftsAsync.when(
-                loading: () => const LoadingState(),
-                error: (e, _) => ErrorStateView(
-                  message: 'Mesai kayıtları yüklenemedi',
-                  onRetry: () =>
-                      ref.read(shiftListProvider.notifier).refresh(),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(
+          isWorking ? const Color(0xFF00B894) : AppTheme.primary),
+      child: Scaffold(
+        body: Column(
+            children: [
+              _buildHeader(context, openAsync.valueOrNull),
+              Expanded(
+                child: shiftsAsync.when(
+                  loading: () => const LoadingState(),
+                  error: (e, _) => ErrorStateView(
+                    message: 'Mesai kayıtları yüklenemedi',
+                    onRetry: () =>
+                        ref.read(shiftListProvider.notifier).refresh(),
+                  ),
+                  data: (list) {
+                    if (list.isEmpty) return _buildEmpty();
+                    return Column(
+                      children: [
+                        // Disa aktar cubugu
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: Row(
+                            children: [
+                              Text('${list.length} kayıt',
+                                  style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontWeight: FontWeight.w600)),
+                              const Spacer(),
+                              OutlinedButton.icon(
+                                onPressed: () => _showExportMenu(list),
+                                icon: const Icon(Icons.ios_share_rounded,
+                                    size: 18),
+                                label: const Text('Dışa Aktar'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.builder(
+                            controller: _scrollCtrl,
+                            padding: const EdgeInsets.only(top: 4, bottom: 90),
+                            itemCount: list.length,
+                            itemBuilder: (_, i) => _shiftCard(list[i]),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                data: (list) {
-                  if (list.isEmpty) return _buildEmpty();
-                  return Column(
-                    children: [
-                      // Disa aktar cubugu
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                        child: Row(
-                          children: [
-                            Text('${list.length} kayıt',
-                                style: const TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600)),
-                            const Spacer(),
-                            OutlinedButton.icon(
-                              onPressed: () => _showExportMenu(list),
-                              icon: const Icon(Icons.ios_share_rounded,
-                                  size: 18),
-                              label: const Text('Dışa Aktar'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: ListView.builder(
-                          controller: _scrollCtrl,
-                          padding: const EdgeInsets.only(top: 4, bottom: 90),
-                          itemCount: list.length,
-                          itemBuilder: (_, i) => _shiftCard(list[i]),
-                        ),
-                      ),
-                    ],
-                  );
-                },
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+      ),
     );
   }
 

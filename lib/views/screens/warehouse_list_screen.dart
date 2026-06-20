@@ -92,6 +92,7 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
         title: const Text('Depolar'),
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
       ),
       body: _loading
           ? const LoadingState()
@@ -332,6 +333,7 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
         title: const Text('Yeni Depo'),
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),

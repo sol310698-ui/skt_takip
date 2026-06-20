@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/services/checklist_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -183,34 +184,37 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createList,
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Yeni Liste',
-            style: TextStyle(fontWeight: FontWeight.w700)),
-      ),
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _lists.isEmpty
-                    ? _buildEmpty()
-                    : ListView.separated(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                        itemCount: _lists.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 12),
-                        itemBuilder: (_, i) => _listCard(_lists[i]),
-                      ),
-          ),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(AppTheme.primary),
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _createList,
+          backgroundColor: AppTheme.primary,
+          foregroundColor: Colors.white,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Yeni Liste',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        body: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _lists.isEmpty
+                      ? _buildEmpty()
+                      : ListView.separated(
+                          controller: _scrollCtrl,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                          itemCount: _lists.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (_, i) => _listCard(_lists[i]),
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }

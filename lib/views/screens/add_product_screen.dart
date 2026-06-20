@@ -525,6 +525,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       stretch: hasImage,
       backgroundColor: AppTheme.primary,
       foregroundColor: Colors.white,
+      systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => Navigator.of(context).maybePop(),

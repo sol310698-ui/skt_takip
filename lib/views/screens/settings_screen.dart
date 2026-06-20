@@ -160,6 +160,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         title: const Text('Ayarlar'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
         bottom: TabBar(
           controller: _tab,
           labelColor: Colors.white,

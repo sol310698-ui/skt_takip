@@ -164,6 +164,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
         appBar: AppBar(
           backgroundColor: AppTheme.primary,
           foregroundColor: Colors.white,
+          systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
           title: const Text('Fiyat Rehberi'),
         ),
         body: const Center(
@@ -181,6 +182,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
       appBar: AppBar(
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
         title: Text('${_index + 1} / ${_items.length}'),
         actions: [
           Center(

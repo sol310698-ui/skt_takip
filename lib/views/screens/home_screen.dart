@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -66,91 +67,94 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final productsAsync = ref.watch(productListProvider);
     final filtered = ref.watch(filteredProductsProvider);
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Column(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(AppTheme.primary),
+      child: Scaffold(
+        body: Stack(
           children: [
-            _buildBanner(),
-            Expanded(
-              child: productsAsync.when(
-                loading: () => const LoadingState(),
-                error: (e, _) => ErrorStateView(
-                  message: 'Ürünler yüklenemedi',
-                  onRetry: () =>
-                      ref.read(productListProvider.notifier).refresh(),
-                ),
-                data: (products) {
-                  final activeFilter = ref.watch(statusFilterProvider);
-                  if (filtered.isEmpty &&
-                      _searchCtrl.text.isEmpty &&
-                      activeFilter == null) {
-                    return Column(children: [
-                      _buildStats(products),
-                      Expanded(child: _buildEmpty())
-                    ]);
-                  }
-                  return RefreshIndicator(
-                    onRefresh: () =>
+            Column(
+            children: [
+              _buildBanner(),
+              Expanded(
+                child: productsAsync.when(
+                  loading: () => const LoadingState(),
+                  error: (e, _) => ErrorStateView(
+                    message: 'Ürünler yüklenemedi',
+                    onRetry: () =>
                         ref.read(productListProvider.notifier).refresh(),
-                    child: ListView.builder(
-                      controller: _scrollCtrl,
-                      padding: const EdgeInsets.only(top: 4, bottom: 100),
-                      itemCount: _buildSectionedItems(filtered).length + 2,
-                      itemBuilder: (context, i) {
-                        if (i == 0) return _buildStats(products);
-                        if (i == 1) return _buildFilterBanner(activeFilter);
-                        final item = _buildSectionedItems(filtered)[i - 2];
-                        if (item is _SectionHeader) {
-                          return _buildGroupHeader(item.label, item.color);
-                        }
-                        final product = item as Product;
-                        return ProductCard(
-                          product: product,
-                          onDelete: () => _confirmDelete(product),
-                          onTap: () => _openEditSheet(product),
-                          onDispose: () => _openDisposalSheet(product),
-                          onSearch: product.barcode == null
-                              ? null
-                              : () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => WebSearchScreen(
-                                          query: product.barcode!),
+                  ),
+                  data: (products) {
+                    final activeFilter = ref.watch(statusFilterProvider);
+                    if (filtered.isEmpty &&
+                        _searchCtrl.text.isEmpty &&
+                        activeFilter == null) {
+                      return Column(children: [
+                        _buildStats(products),
+                        Expanded(child: _buildEmpty())
+                      ]);
+                    }
+                    return RefreshIndicator(
+                      onRefresh: () =>
+                          ref.read(productListProvider.notifier).refresh(),
+                      child: ListView.builder(
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.only(top: 4, bottom: 100),
+                        itemCount: _buildSectionedItems(filtered).length + 2,
+                        itemBuilder: (context, i) {
+                          if (i == 0) return _buildStats(products);
+                          if (i == 1) return _buildFilterBanner(activeFilter);
+                          final item = _buildSectionedItems(filtered)[i - 2];
+                          if (item is _SectionHeader) {
+                            return _buildGroupHeader(item.label, item.color);
+                          }
+                          final product = item as Product;
+                          return ProductCard(
+                            product: product,
+                            onDelete: () => _confirmDelete(product),
+                            onTap: () => _openEditSheet(product),
+                            onDispose: () => _openDisposalSheet(product),
+                            onSearch: product.barcode == null
+                                ? null
+                                : () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => WebSearchScreen(
+                                            query: product.barcode!),
+                                      ),
                                     ),
-                                  ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-          // Speed-dial FAB (Stack icinde - tum ekrani kaplayabilir).
-          SpeedDialFab(
-            actions: [
-              SpeedDialAction(
-                icon: Icons.print_rounded,
-                label: 'Etiket Bas',
-                color: AppTheme.primaryDark,
-                onTap: _openLabelPrint,
-              ),
-              SpeedDialAction(
-                icon: Icons.document_scanner_rounded,
-                label: 'Etiket Tara',
-                color: AppTheme.accent,
-                onTap: _openLabelInspect,
-              ),
-              SpeedDialAction(
-                icon: Icons.event_available_rounded,
-                label: 'SKT Tara',
-                color: AppTheme.primary,
-                onTap: _openScanner,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
-        ],
+            // Speed-dial FAB (Stack icinde - tum ekrani kaplayabilir).
+            SpeedDialFab(
+              actions: [
+                SpeedDialAction(
+                  icon: Icons.print_rounded,
+                  label: 'Etiket Bas',
+                  color: AppTheme.primaryDark,
+                  onTap: _openLabelPrint,
+                ),
+                SpeedDialAction(
+                  icon: Icons.document_scanner_rounded,
+                  label: 'Etiket Tara',
+                  color: AppTheme.accent,
+                  onTap: _openLabelInspect,
+                ),
+                SpeedDialAction(
+                  icon: Icons.event_available_rounded,
+                  label: 'SKT Tara',
+                  color: AppTheme.primary,
+                  onTap: _openScanner,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

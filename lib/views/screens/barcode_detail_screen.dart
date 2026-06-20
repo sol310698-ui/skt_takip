@@ -196,6 +196,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       stretch: true,
       backgroundColor: AppTheme.primary,
       foregroundColor: Colors.white,
+      systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => Navigator.of(context).pop(_changed),

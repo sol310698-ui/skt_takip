@@ -183,6 +183,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
         title: const Text('Ürün Kaydet'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
       ),
       backgroundColor: AppTheme.background,
       body: ListView(

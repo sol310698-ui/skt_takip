@@ -655,6 +655,8 @@ class _PriceChangeSessionScreenState
         backgroundColor:
             _completed ? AppTheme.statusSafe : AppTheme.primary,
         foregroundColor: _completed ? Colors.black : Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(
+            _completed ? AppTheme.statusSafe : AppTheme.primary),
         actions: [
           IconButton(
             icon: const Icon(Icons.visibility_rounded),

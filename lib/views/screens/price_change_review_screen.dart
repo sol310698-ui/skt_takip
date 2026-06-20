@@ -152,6 +152,7 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
         title: const Text('Okunan Liste — Kontrol'),
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
       ),
       body: Column(
         children: [

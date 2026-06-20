@@ -175,6 +175,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         title: Text(_warehouse?.name ?? 'Depo'),
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
         actions: [
           IconButton(
             icon: const Icon(Icons.search_rounded),
