@@ -22,7 +22,7 @@ import '../../views/screens/skt_disposal_alarm_screen.dart';
 ///
 /// Tasarim ilkeleri:
 ///  - Tek giris noktasi: [start] (main'de bir kez cagrilir).
-///  - Tek "su an ne olmali" durumu: [_pending] ve [_isScreenOpen].
+///  - Tek "su an ne olmali" durumu: [_pendingQueue] ve [_isScreenOpen].
 ///  - Reschedule UI'dan BAGIMSIZ: ekran acilamasa bile alarm zinciri devam eder.
 ///  - Ust uste ekran acilmaz; ayni alarm iki kez gosterilmez.
 class AlarmFlow {
@@ -34,8 +34,19 @@ class AlarmFlow {
 
   StreamSubscription<AlarmSettings>? _sub;
 
-  /// Calmis ama henuz ekrani GOSTERILMEMIS alarm. Arayuz hazir olunca acilir.
-  _PendingAlarm? _pending;
+  /// Calmis ama henuz ekrani GOSTERILMEMIS alarmlar (KUYRUK).
+  /// ONEMLI: Eskiden bu TEK bir alan (_PendingAlarm?) idi. Art arda yakin
+  /// araliklarla (orn. 09:00 ve 09:01) birden fazla alarm calarsa, ekran
+  /// hala acikken gelen ikinci alarm bu alani UZERINE YAZIYORDU — araya
+  /// giren ucuncu bir alarm gelirse, ikincisi HIC GORUNMEDEN kaybolup
+  /// gidiyordu (ekrani hic acilmadigi icin kullanici onu "Durdur"
+  /// edemiyor, native ses/zamanlayici gorunmeden arka planda kalabiliyordu).
+  /// Bu da "bir alarm acilip 1-2 saniyede kendiliginden kapaniyor" hissini
+  /// yaratiyordu: aslinda kapanan alarm degil, ardindan HEMEN baska bir
+  /// bekleyen alarmin ekrani acilan ayni ekranin yerine geciyordu.
+  /// Simdi: kuyruk kullanarak HICBIR alarm atlanmiyor, hepsi sirayla
+  /// (gelis sirasina gore) gosteriliyor.
+  final List<_PendingAlarm> _pendingQueue = [];
 
   /// Su an bir alarm ekrani acik mi? (Ust uste acilmayi onler.)
   bool _isScreenOpen = false;
@@ -84,12 +95,16 @@ class AlarmFlow {
     // Zinciri UI'dan bagimsiz surdur (ekran acilmasa bile).
     _rescheduleNext(alarm.id);
 
-    // Ekranda goster (zaten bir ekran aciksa bu kapaninca gosterilir).
-    _pending = _PendingAlarm(
-      id: alarm.id,
-      title: alarm.notificationSettings.title,
-      body: alarm.notificationSettings.body,
-    );
+    // Kuyruga ekle (hicbir alarm atlanmaz) ve gosterilebiliyorsa goster.
+    // Ayni id zaten kuyrukta varsa (cok nadir, native'in cift tetiklemesi
+    // gibi durumlarda) tekrar eklenmez.
+    if (!_pendingQueue.any((p) => p.id == alarm.id)) {
+      _pendingQueue.add(_PendingAlarm(
+        id: alarm.id,
+        title: alarm.notificationSettings.title,
+        body: alarm.notificationSettings.body,
+      ));
+    }
     _showPendingIfPossible();
   }
 
@@ -121,43 +136,46 @@ class AlarmFlow {
       return;
     }
 
-    // Urun var -> ekranda goster.
-    _pending = _PendingAlarm(
-      id: alarm.id,
-      title: alarm.notificationSettings.title,
-      body: alarm.notificationSettings.body,
-    );
+    // Urun var -> ekranda goster (kuyruga ekle, cift eklemeyi engelle).
+    if (!_pendingQueue.any((p) => p.id == alarm.id)) {
+      _pendingQueue.add(_PendingAlarm(
+        id: alarm.id,
+        title: alarm.notificationSettings.title,
+        body: alarm.notificationSettings.body,
+      ));
+    }
     _showPendingIfPossible();
   }
 
-  /// Bekleyen alarmi, kosullar uygunsa ekranda gosterir.
+  /// Kuyruktaki ilk alarmi, kosullar uygunsa ekranda gosterir.
   void _showPendingIfPossible() {
-    final p = _pending;
-    if (p == null) return;
+    if (_pendingQueue.isEmpty) return;
 
     final nav = navigatorKey.currentState;
     if (nav == null) {
       AppLogger.instance.log('ALARM',
-          'Ekran bekliyor: navigator hazir degil (id=${p.id}).');
+          'Ekran bekliyor: navigator hazir degil (kuyrukta ${_pendingQueue.length} alarm).');
       return; // arayuz hazir olunca tekrar denenecek
     }
 
     if (_isScreenOpen) {
-      // Zaten bir alarm ekrani var; bu alarm o kapaninca gosterilecek.
+      // Zaten bir alarm ekrani var; kuyruktaki bu alarm sirasi gelince
+      // (mevcut ekran kapaninca) gosterilecek. SILINMEZ, kuyrukta kalir.
       return;
     }
 
-    // Tuket + ac.
-    _pending = null;
+    // Kuyruktan ilk alarmi cikar + ac (FIFO: en once calan en once gosterilir).
+    final p = _pendingQueue.removeAt(0);
     _isScreenOpen = true;
-    AppLogger.instance.log('ALARM', 'Alarm ekrani aciliyor id=${p.id}.');
+    AppLogger.instance.log('ALARM',
+        'Alarm ekrani aciliyor id=${p.id} (kuyrukta kalan: ${_pendingQueue.length}).');
 
     final route = MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (_) => _buildScreenFor(p),
     );
     nav.push(route).then((_) {
-      // Ekran kapandi -> bayragi sifirla, sirada bekleyen alarm varsa ac.
+      // Ekran kapandi -> bayragi sifirla, kuyrukta bekleyen varsa ac.
       _isScreenOpen = false;
       _showPendingIfPossible();
     });
