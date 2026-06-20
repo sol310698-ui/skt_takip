@@ -61,6 +61,7 @@ class DatabaseService {
     await _createScheduleTable(db);
     await _createChecklistTables(db);
     await _createLabelHistoryTable(db);
+    await _createLabelPendingQueueTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -157,6 +158,10 @@ class DatabaseService {
       // Etiket basim gecmisi: hangi barkod hangi gruba ne zaman eklendi.
       await _createLabelHistoryTable(db);
     }
+    if (oldVersion < 20) {
+      // Fiyat Degisim ekranindan "Etikete Gonder" ile gelen bekleyen kayitlar.
+      await _createLabelPendingQueueTable(db);
+    }
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {
@@ -176,6 +181,21 @@ class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_labelhist_added ON ${AppConstants.labelHistoryTable}(added_at)');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_labelhist_barcode ON ${AppConstants.labelHistoryTable}(barcode)');
+  }
+
+  Future<void> _createLabelPendingQueueTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.labelPendingQueueTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        stock_code TEXT,
+        group_key TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        source TEXT NOT NULL,
+        added_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> _createChecklistTables(Database db) async {

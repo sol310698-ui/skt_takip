@@ -10,6 +10,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
+import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/services/database_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
@@ -45,6 +46,10 @@ class _PriceChangeSessionScreenState
   bool _busy = false;
   PriceChangeItem? _matched;
   String? _scanMessage;
+  // Eslesen urunu onaylarken "Etiket Basim'a da gonder" secimi.
+  // Her eslesmede varsayilan kapali baslar, kullanici isaretlerse o urun
+  // icin gecerlidir (bir sonraki eslesmede tekrar kapali baslar).
+  bool _sendToLabelPrint = false;
   // Excel'den okunan, stok kodu dahil barkod dizini kayitlari.
   // Onay sonrasi dizine (oncelik: excel) yazilir.
   List<BarcodeEntry> _pendingDirEntries = [];
@@ -94,7 +99,31 @@ class _PriceChangeSessionScreenState
       _items = items;
     });
     if (startCamera && !(s?.isCompleted ?? true)) {
+      await _startCameraSafe();
+    }
+  }
+
+  /// Kamerayi guvenli baslatir. Onceki bir ekranin kamerasi henuz tam
+  /// serbest kalmadiysa (ozellikle hizli ekran gecislerinde) ilk deneme
+  /// basarisiz olabilir; kisa bir bekleme ile bir kez daha denenir.
+  Future<void> _startCameraSafe() async {
+    try {
       await _scanner.start();
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+      try {
+        await _scanner.start();
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Kamera başlatılamadı. Geri gidip tekrar deneyin veya uygulamayı yeniden açın.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
@@ -367,6 +396,7 @@ class _PriceChangeSessionScreenState
     setState(() {
       _matched = item;
       _scanMessage = null;
+      _sendToLabelPrint = false;
     });
   }
 
@@ -377,13 +407,25 @@ class _PriceChangeSessionScreenState
         .pickImage(source: ImageSource.camera, imageQuality: 80);
     if (photo == null) return; // foto ZORUNLU
 
+    final sendToLabel = _sendToLabelPrint;
     setState(() => _busy = true);
     await PriceChangeService.instance.markChanged(item.id!, photo.path);
+    if (sendToLabel) {
+      // Etiket Basim ekrani acildiginda bu kuyruktan okunup eklenecek.
+      // Varsayilan grup A4 (Fiyat Degisim genelde A4 listesinden gelir).
+      await LabelPendingQueueService.instance.push(
+        barcode: item.barcode,
+        productName: item.productName ?? item.barcode,
+        groupKey: 'a4',
+        source: 'price_change',
+      );
+    }
     await _load();
     if (!mounted) return;
     setState(() {
       _matched = null;
       _busy = false;
+      _sendToLabelPrint = false;
     });
 
     final pending = _items.where((i) => !i.changed).length;
@@ -392,12 +434,13 @@ class _PriceChangeSessionScreenState
       _offerComplete();
     } else {
       await _scanner.start();
+      final labelNote = sendToLabel ? ' • Etikete gönderildi' : '';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text('✓ ${item.productName ?? item.barcode} — Kalan: $pending'),
+          content: Text(
+              '✓ ${item.productName ?? item.barcode} — Kalan: $pending$labelNote'),
           backgroundColor: AppTheme.statusSafe,
-          duration: const Duration(milliseconds: 1100),
+          duration: const Duration(milliseconds: 1300),
         ),
       );
     }
@@ -883,6 +926,38 @@ class _PriceChangeSessionScreenState
             ],
           ),
           const SizedBox(height: 12),
+          // "Etiket Basim'a da gonder" secimi — isaretlenirse bu urun
+          // onaylandiginda Etiket Basim'in A4 listesine de eklenir.
+          InkWell(
+            onTap: _busy
+                ? null
+                : () => setState(
+                    () => _sendToLabelPrint = !_sendToLabelPrint),
+            borderRadius: BorderRadius.circular(AppTheme.rSm),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: _sendToLabelPrint,
+                    onChanged: _busy
+                        ? null
+                        : (v) => setState(
+                            () => _sendToLabelPrint = v ?? false),
+                    activeColor: AppTheme.accent,
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Etiket Basım listesine de gönder',
+                      style: TextStyle(
+                          fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(

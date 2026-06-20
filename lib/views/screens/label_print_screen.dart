@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/label_history_service.dart';
+import '../../core/services/label_pending_queue_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/label_history_entry.dart';
 import '../../data/models/label_item.dart';
@@ -67,6 +68,56 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     _tab.addListener(() {
       if (!_tab.indexIsChanging) setState(() {});
     });
+    // Baska ekranlardan (orn. Fiyat Degisim) "Etikete Gonder" ile
+    // gelmis bekleyen urunleri kuyruktan al, ilgili sekmelere ekle.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainPendingQueue());
+  }
+
+  Future<void> _drainPendingQueue() async {
+    final pending = await LabelPendingQueueService.instance.drainAll();
+    if (pending.isEmpty || !mounted) return;
+    setState(() {
+      for (final p in pending) {
+        final group = LabelGroup.values.firstWhere(
+          (g) => g.name == p.groupKey,
+          orElse: () => LabelGroup.a4,
+        );
+        final list = _lists[group]!;
+        final idx = list.indexWhere((e) => e.barcode == p.barcode);
+        if (idx >= 0) {
+          list[idx].quantity += p.quantity;
+        } else {
+          list.add(LabelItem(
+            barcode: p.barcode,
+            productName: p.productName,
+            stockCode: p.stockCode,
+            quantity: p.quantity,
+          ));
+        }
+      }
+    });
+    for (final p in pending) {
+      final group = LabelGroup.values.firstWhere(
+        (g) => g.name == p.groupKey,
+        orElse: () => LabelGroup.a4,
+      );
+      unawaited(LabelHistoryService.instance.log(
+        barcode: p.barcode,
+        productName: p.productName,
+        stockCode: p.stockCode,
+        groupKey: group.name,
+        groupTitle: group.title,
+        quantity: p.quantity,
+      ));
+    }
+    final names = pending.map((p) => p.productName).take(3).join(', ');
+    final extra = pending.length > 3 ? ' +${pending.length - 3} ürün' : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Fiyat Değişim\'den eklendi: $names$extra'),
+        backgroundColor: AppTheme.statusSafe,
+      ),
+    );
   }
 
   @override
