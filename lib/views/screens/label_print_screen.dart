@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:barcode_widget/barcode_widget.dart';
+import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -783,18 +783,18 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
   int _index = 0;
 
   /// value'ye uygun 1D barkod tipi sec.
-  Barcode _pick1DBarcode(String value) {
+  bw.Barcode _pick1DBarcode(String value) {
     final v = value.trim();
-    if (!RegExp(r'^\d+$').hasMatch(v)) return Barcode.code128();
+    if (!RegExp(r'^\d+$').hasMatch(v)) return bw.Barcode.code128();
     switch (v.length) {
       case 13:
-        return Barcode.ean13();
+        return bw.Barcode.ean13();
       case 12:
-        return Barcode.upcA();
+        return bw.Barcode.upcA();
       case 8:
-        return Barcode.ean8();
+        return bw.Barcode.ean8();
       default:
-        return Barcode.code128();
+        return bw.Barcode.code128();
     }
   }
 
@@ -854,7 +854,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                     border: Border.all(color: Colors.black12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: BarcodeWidget(
+                  child: bw.BarcodeWidget(
                     barcode: barcode,
                     data: it.barcode.trim(),
                     drawText: true,
