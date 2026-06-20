@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/app_lock_service.dart';
 import '../../core/services/backup_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/notification_service.dart';
@@ -12,6 +13,7 @@ import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
 import 'import_screen.dart';
 import 'log_viewer_screen.dart';
+import 'work_location_picker_screen.dart';
 import 'work_schedule_screen.dart';
 
 /// Ayarlar ekranı: banner ikonlarını + bildirim yönetimini toplar.
@@ -196,6 +198,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const WorkScheduleScreen())),
         ),
+        const SizedBox(height: 16),
+        const SectionLabel('Güvenlik'),
+        const SizedBox(height: 8),
+        const _SecuritySection(),
         const SizedBox(height: 16),
         const SectionLabel('Veri'),
         const SizedBox(height: 8),
@@ -406,6 +412,394 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             onPressed: () => _cancelNotification(n.id),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Ayarlar — Güvenlik bölümü: kilit aç/kapa, PIN değiştir, biyometri,
+/// iş yeri konumu (haritadan otomatik tespit için).
+class _SecuritySection extends StatefulWidget {
+  const _SecuritySection();
+
+  @override
+  State<_SecuritySection> createState() => _SecuritySectionState();
+}
+
+class _SecuritySectionState extends State<_SecuritySection> {
+  bool _loading = true;
+  bool _lockEnabled = false;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  bool _hasWorkLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final lockEnabled = await AppLockService.instance.isLockEnabled();
+    final bioAvailable = await AppLockService.instance.isBiometricAvailable();
+    final bioEnabled = await AppLockService.instance.isBiometricEnabled();
+    final hasWork = await AppLockService.instance.hasWorkLocation();
+    if (!mounted) return;
+    setState(() {
+      _lockEnabled = lockEnabled;
+      _biometricAvailable = bioAvailable;
+      _biometricEnabled = bioEnabled;
+      _hasWorkLocation = hasWork;
+      _loading = false;
+    });
+  }
+
+  Future<void> _toggleLock(bool value) async {
+    if (!value) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Kilidi kapat'),
+          content: const Text(
+              'Uygulama açılışında artık PIN/parmak izi sorulmayacak. Emin misiniz?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Vazgeç')),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.statusExpired),
+              child: const Text('Kapat'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    await AppLockService.instance.setLockEnabled(value);
+    setState(() => _lockEnabled = value);
+  }
+
+  Future<void> _changePin() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const _ChangePinScreen()),
+    );
+    if (result == true) _load();
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (value) {
+      // Acmadan once bir kez dogrulama iste (gercekten calistigindan emin ol).
+      final ok = await AppLockService.instance.authenticateWithBiometrics();
+      if (!ok) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Doğrulama başarısız, biyometri açılamadı.')),
+          );
+        }
+        return;
+      }
+    }
+    await AppLockService.instance.setBiometricEnabled(value);
+    setState(() => _biometricEnabled = value);
+  }
+
+  Future<void> _openWorkLocationPicker() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+          builder: (_) => const WorkLocationPickerScreen()),
+    );
+    if (result == true) _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Center(
+            child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    }
+    return Column(
+      children: [
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: AppTheme.card(),
+          child: SwitchListTile(
+            value: _lockEnabled,
+            onChanged: _toggleLock,
+            activeColor: AppTheme.accent,
+            title: const Text('Uygulama Kilidi',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: const Text('Açılışta PIN/parmak izi sor',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ),
+        ),
+        if (_lockEnabled) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              onTap: _changePin,
+              tileColor: AppTheme.surface,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.rLg)),
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.password_rounded,
+                    color: AppTheme.primary, size: 22),
+              ),
+              title: const Text('PIN Değiştir',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              trailing: const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textTertiary),
+            ),
+          ),
+          if (_biometricAvailable)
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: AppTheme.card(),
+              child: SwitchListTile(
+                value: _biometricEnabled,
+                onChanged: _toggleBiometric,
+                activeColor: AppTheme.accent,
+                title: const Text('Parmak İzi / Yüz ile Aç',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: const Text('PIN yerine hızlı biyometrik giriş',
+                    style: TextStyle(
+                        fontSize: 12, color: AppTheme.textSecondary)),
+              ),
+            ),
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              onTap: _openWorkLocationPicker,
+              tileColor: AppTheme.surface,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.rLg)),
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.statusSafe.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.location_on_rounded,
+                    color: AppTheme.statusSafe, size: 22),
+              ),
+              title: const Text('İş Yeri Konumu',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                _hasWorkLocation
+                    ? 'Tanımlı — konumdaysanız bilgi notu gösterilir'
+                    : 'Tanımlı değil — haritadan işaretleyin',
+                style: const TextStyle(
+                    fontSize: 12, color: AppTheme.textSecondary),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.textTertiary),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// PIN değiştirme ekranı: önce mevcut PIN doğrulanır, sonra yeni PIN
+/// iki kez girilir.
+class _ChangePinScreen extends StatefulWidget {
+  const _ChangePinScreen();
+
+  @override
+  State<_ChangePinScreen> createState() => _ChangePinScreenState();
+}
+
+class _ChangePinScreenState extends State<_ChangePinScreen> {
+  static const int _pinLength = 6;
+  final List<String> _entered = [];
+  String? _newFirstPin;
+  String? _errorText;
+  bool _verifiedOld = false;
+
+  void _onDigit(String d) {
+    if (_entered.length >= _pinLength) return;
+    setState(() {
+      _entered.add(d);
+      _errorText = null;
+    });
+    if (_entered.length == _pinLength) _onComplete();
+  }
+
+  void _onBackspace() {
+    if (_entered.isEmpty) return;
+    setState(() => _entered.removeLast());
+  }
+
+  Future<void> _onComplete() async {
+    final pin = _entered.join();
+
+    if (!_verifiedOld) {
+      final ok = await AppLockService.instance.verifyPin(pin);
+      if (ok) {
+        setState(() {
+          _verifiedOld = true;
+          _entered.clear();
+        });
+      } else {
+        setState(() {
+          _errorText = 'Mevcut PIN yanlış';
+          _entered.clear();
+        });
+      }
+      return;
+    }
+
+    if (_newFirstPin == null) {
+      setState(() {
+        _newFirstPin = pin;
+        _entered.clear();
+      });
+      return;
+    }
+
+    if (pin == _newFirstPin) {
+      await AppLockService.instance.setPin(pin);
+      if (mounted) Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _errorText = 'Yeni PIN’ler eşleşmedi';
+        _newFirstPin = null;
+        _entered.clear();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = !_verifiedOld
+        ? 'Mevcut PIN'
+        : (_newFirstPin == null ? 'Yeni PIN belirleyin' : 'Yeni PIN’i onaylayın');
+
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        title: const Text('PIN Değiştir'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            const Spacer(),
+            Text(title,
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary)),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(_pinLength, (i) {
+                final filled = i < _entered.length;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: filled ? AppTheme.primary : AppTheme.surfaceHigh,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 18,
+              child: _errorText != null
+                  ? Text(_errorText!,
+                      style: const TextStyle(
+                          color: AppTheme.statusExpired, fontSize: 12))
+                  : null,
+            ),
+            const Spacer(),
+            _buildKeypad(),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeypad() {
+    const rows = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final row in rows)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [for (final d in row) _key(d)],
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(width: 64, height: 64),
+              _key('0'),
+              SizedBox(
+                width: 64,
+                height: 64,
+                child: IconButton(
+                  onPressed: _onBackspace,
+                  icon: const Icon(Icons.backspace_outlined,
+                      color: AppTheme.textSecondary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _key(String digit) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: InkWell(
+        onTap: () => _onDigit(digit),
+        borderRadius: BorderRadius.circular(32),
+        child: Container(
+          width: 64,
+          height: 64,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppTheme.surface,
+          ),
+          child: Text(digit,
+              style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary)),
+        ),
       ),
     );
   }

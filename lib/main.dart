@@ -6,11 +6,13 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
+import 'core/services/app_lock_service.dart';
 import 'core/services/app_logger.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
 import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
+import 'views/screens/lock_screen.dart';
 import 'views/screens/main_shell.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
@@ -99,10 +101,17 @@ class SktTakipApp extends StatefulWidget {
 
 class _SktTakipAppState extends State<SktTakipApp>
     with WidgetsBindingObserver {
+  // Uygulama her acilista (soguk baslatma) ve her arka plandan one
+  // gelirken (resumed) kilit ekrani gosterilir. Sadece kullanici basariyla
+  // PIN/biyometri ile dogrulanirsa _locked = false olur.
+  bool _locked = true;
+  bool _lockCheckDone = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _checkLockOnStart();
     // Ilk frame cizildikten sonra (navigator hazir olunca) bekleyen alarmi
     // kontrol et. Uygulama alarm tarafindan soguk baslatildiysa AlarmFlow
     // bekleyen alarmi tutar ve burada gosterir.
@@ -111,11 +120,33 @@ class _SktTakipAppState extends State<SktTakipApp>
     });
   }
 
+  Future<void> _checkLockOnStart() async {
+    final enabled = await AppLockService.instance.isLockEnabled();
+    if (!mounted) return;
+    setState(() {
+      _locked = enabled; // kilit kapaliysa direkt acik say
+      _lockCheckDone = true;
+    });
+  }
+
+  void _onUnlocked() {
+    if (mounted) setState(() => _locked = false);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Uygulama one geldiginde bekleyen alarm varsa goster.
     if (state == AppLifecycleState.resumed) {
       AlarmFlow.instance.onUiReady();
+      // Arka plandan one gelirken kilit aciksa tekrar kilitle.
+      _relockIfNeeded();
+    }
+  }
+
+  Future<void> _relockIfNeeded() async {
+    final enabled = await AppLockService.instance.isLockEnabled();
+    if (enabled && mounted && !_locked) {
+      setState(() => _locked = true);
     }
   }
 
@@ -134,7 +165,14 @@ class _SktTakipAppState extends State<SktTakipApp>
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.dark,
-      home: const MainShell(),
+      home: !_lockCheckDone
+          ? const Scaffold(
+              backgroundColor: AppTheme.background,
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : (_locked
+              ? LockScreen(onUnlocked: _onUnlocked)
+              : const MainShell()),
     );
   }
 }

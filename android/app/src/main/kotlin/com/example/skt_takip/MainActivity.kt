@@ -8,11 +8,16 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.annotation.NonNull
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// NOT: FlutterActivity yerine FlutterFragmentActivity kullaniliyor.
+// local_auth (parmak izi/yuz tanima) paketinin resmi gereksinimi budur;
+// biyometri dialog'u bir Fragment uzerinden gosterilir. Bu degisiklik
+// alarm paketinin kilit ekrani davranisini ETKILEMEZ (asagidaki not
+// gecerliligini koruyor, sadece temel Activity sinifi degisti).
+class MainActivity : FlutterFragmentActivity() {
     private val channel = "skt_takip/fullscreen"
 
     // ONEMLI: Activity'ye kilit ekrani bayraklari (setShowWhenLocked /
