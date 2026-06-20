@@ -94,19 +94,34 @@ class AlarmFlow {
   }
 
   /// SKT alarmi ozel akisi: urun yoksa hic gosterme.
+  /// ONEMLI SIRALAMA: wakelock'u HEMEN aciyoruz (veritabani sorgusunu
+  /// BEKLEMEDEN). Eskiden once "await hasDueSktProducts()" sonucu
+  /// bekleniyordu; bu sorgu (DB acma + tum urunleri okuma) cihaz derin
+  /// uykudayken veya soguk baslatmada gecikebiliyor, bu gecikme sirasinda
+  /// ekran/CPU uyanik tutulmadigi icin alarm sesi kesilebiliyordu
+  /// (kullanicinin bildirdigi "uygulamayi acinca calmaya basladi" hatasi
+  /// tam olarak buydu). Simdi: once uyanik tut + algoritmayi calistir,
+  /// sonuc "urun yok" ise SADECE O ZAMAN durduruyoruz.
   Future<void> _handleSktRinging(AlarmSettings alarm) async {
+    // 1) HEMEN uyanik tut — DB sorgusunu beklemeden. Native ses zaten
+    //    calmaya baslamis olabilir; bu satir gecikirse ses kesilebilirdi.
+    WakelockPlus.enable();
+
+    // 2) Zinciri UI'dan bagimsiz hemen surdur (ekran acilmasa bile).
+    unawaited(_rescheduleNext(alarm.id));
+
+    // 3) Urun kontrolu — bu artik sesi/ekrani GECIKTIRMIYOR, sadece
+    //    "urun yoksa durdur" kararini veriyor.
     final hasDue = await ScheduleService.instance.hasDueSktProducts();
     if (!hasDue) {
-      // Urun yok -> sesi durdur, yarina yeniden kur, ekrani acma.
       AppLogger.instance.log(
           'ALARM', 'SKT alarmi: dolan urun yok, susturuldu (id=${alarm.id}).');
       await AlarmService.stop(alarm.id);
-      await _rescheduleNext(alarm.id);
+      await WakelockPlus.disable();
       return;
     }
-    // Urun var -> normal akis: uyanik tut, yarina kur, ekrani goster.
-    WakelockPlus.enable();
-    await _rescheduleNext(alarm.id);
+
+    // Urun var -> ekranda goster.
     _pending = _PendingAlarm(
       id: alarm.id,
       title: alarm.notificationSettings.title,
