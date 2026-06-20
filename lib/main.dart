@@ -27,7 +27,16 @@ Future<void> main() async {
   // Tam ekran (immersive sticky): status bar VE sistem navigasyon cubugu
   // tamamen gizlenir. Kullanici ekranin ustunden/altindan kaydirirsa
   // gecici gorunur, sonra otomatik tekrar gizlenir (sticky davranis).
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // ONEMLI: await edilmezse native taraf isareti islemeden runApp()
+  // calisabiliyor, bu da ilk acilista status bar'in (siyah serit olarak)
+  // bir an / surekli gorunmesine sebep oluyordu.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
 
   // Uygulamayi yalnizca DIKEY moda kilitle.
   await SystemChrome.setPreferredOrientations([
@@ -124,6 +133,10 @@ class _SktTakipAppState extends State<SktTakipApp>
     // bekleyen alarmi tutar ve burada gosterir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AlarmFlow.instance.onUiReady();
+      // Tam ekran modunu ilk frame ciziminden SONRA bir kez daha zorla.
+      // main()'deki tek seferlik cagri bazi cihazlarda ilk layout
+      // tarafindan ezilebiliyor; burada tekrar etmek bunu garantiler.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     });
   }
 

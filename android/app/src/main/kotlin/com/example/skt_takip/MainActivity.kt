@@ -6,7 +6,11 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -27,6 +31,59 @@ class MainActivity : FlutterFragmentActivity() {
     // Bunlari MainActivity'de zorlamak, paketin full-screen intent yonetimiyle
     // CAKISARAK alarm ekraninin acilip kapanmasina ve kilit ekraninin one
     // gecip parola istemesine yol aciyordu. Bu yuzden tamamen kaldirildi.
+
+    // TAM EKRAN (immersive sticky): status bar + sistem nav cubugu gizli.
+    // Dart tarafindaki SystemChrome.setEnabledSystemUIMode cagrisi TEK
+    // BASINA YETERSIZ kalabiliyordu — ilk acilista veya focus degisiminde
+    // Android'in kendi ilk layout/window mekanizmasi bu ayari ezebiliyordu
+    // (kullanicinin bildirdigi "ustte siyah serit kaliyor" hatasi buydu).
+    // Bu yuzden native tarafta da, Activity her zaman onResume + her
+    // pencere odagini (focus) her geri aldiginda, bu modu DOGRUDAN
+    // Android'in kendi API'siyle zorluyoruz. Bu, Dart tarafindan tamamen
+    // bagimsiz, en garantili yontemdir.
+    private fun applyImmersiveMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ (API 30+): modern WindowInsetsController API.
+            window.setDecorFitsSystemWindows(false)
+            val controller = window.insetsController
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            // Android 10 ve altı: eski bayrak tabanlı yöntem.
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                )
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        applyImmersiveMode()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyImmersiveMode()
+    }
+
+    // Pencere odagi her geri geldiginde (orn. bildirim cekmecesi kapaninca,
+    // baska bir dialog kapaninca) immersive modu yeniden zorla. Bu, Android'in
+    // sistem UI bayraklarini "sticky" tutmasini saglayan en guvenilir noktadir.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyImmersiveMode()
+        }
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
