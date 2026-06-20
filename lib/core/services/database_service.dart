@@ -60,6 +60,7 @@ class DatabaseService {
     await _createTransferTable(db);
     await _createScheduleTable(db);
     await _createChecklistTables(db);
+    await _createLabelHistoryTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -152,6 +153,29 @@ class DatabaseService {
           "UPDATE ${AppConstants.barcodeTable} SET source = 'excel' "
           "WHERE stock_code IS NOT NULL AND TRIM(stock_code) != ''");
     }
+    if (oldVersion < 19) {
+      // Etiket basim gecmisi: hangi barkod hangi gruba ne zaman eklendi.
+      await _createLabelHistoryTable(db);
+    }
+  }
+
+  Future<void> _createLabelHistoryTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.labelHistoryTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        stock_code TEXT,
+        group_key TEXT NOT NULL,
+        group_title TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        added_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_labelhist_added ON ${AppConstants.labelHistoryTable}(added_at)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_labelhist_barcode ON ${AppConstants.labelHistoryTable}(barcode)');
   }
 
   Future<void> _createChecklistTables(Database db) async {

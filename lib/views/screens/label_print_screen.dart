@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/label_history_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/label_history_entry.dart';
 import '../../data/models/label_item.dart';
 import '../../viewmodels/providers.dart';
-import 'add_product_screen.dart' show BarcodeScanPage;
 
 /// Etiket gruplari (ust sekmeler). Her grup AYRI bir urun listesi tutar.
 /// Amac: kutudaki barkodlari gruplayip seri sekilde lazerle okutmak.
@@ -70,35 +76,93 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
   }
 
   // ── Aktif sekmeye urun ekleme: barkod tara ─────────────────────────────
+  // Surekli tarama ekranini acar; ekran kapanana kadar her okutulan barkod
+  // anlik olarak _addByBarcode ile aktif sekmeye eklenir (ekran kapanmaz).
   Future<void> _addByScan() async {
-    final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ContinuousScanScreen(
+          onScan: _scanAndGetQty,
+          onEditQuantity: _editQuantityByBarcode,
+        ),
+      ),
     );
-    if (code == null || !mounted) return;
-    await _addByBarcode(code.trim());
+  }
+
+  /// Tarama ekranindan cagrilir: barkodu ekler/artirir ve aktif sekmedeki
+  /// GUNCEL adedini doner (buyuk rakam gosterimi icin).
+  Future<int> _scanAndGetQty(String barcode) async {
+    await _addByBarcode(barcode);
+    final idx = _items.indexWhere((e) => e.barcode == barcode);
+    return idx >= 0 ? _items[idx].quantity : 1;
+  }
+
+  /// Tarama ekranindaki buyuk rakama dokununca cagrilir: adet giris
+  /// dialogunu acar, onaylanirsa o barkodun adedini SET eder ve yeni
+  /// adedi doner (dialog iptal edilirse null doner).
+  Future<int?> _editQuantityByBarcode(String barcode, int currentQty) async {
+    final idx = _items.indexWhere((e) => e.barcode == barcode);
+    final name = idx >= 0 ? _items[idx].productName : barcode;
+    final result = await showDialog<int>(
+      context: context,
+      builder: (_) => _QuantityInputDialog(
+        title: name,
+        initialValue: currentQty,
+      ),
+    );
+    if (result == null || !mounted) return null;
+    final safe = result <= 0 ? 1 : result;
+    await _addByBarcode(barcode, setQuantity: safe);
+    return safe;
   }
 
   /// Barkodu dizinde arar; bulursa ad+kisa kod ile, bulamazsa sadece
-  /// barkod ile aktif sekmeye ekler. Ayni barkod varsa adedi artirir.
-  Future<void> _addByBarcode(String barcode) async {
+  /// barkod ile aktif sekmeye ekler. Ayni barkod varsa adedi artirir
+  /// (varsayilan +1), ancak [setQuantity] verilirse adet O SAYIYA esitlenir
+  /// (klavyeden direkt adet yazma senaryosu icin).
+  /// Her ekleme/artirma ayrica 30 gunluk gecmise (LabelHistoryService) loglanir.
+  Future<void> _addByBarcode(String barcode, {int? setQuantity}) async {
     if (barcode.isEmpty) return;
     final entry = await ref
         .read(barcodeDirectoryRepositoryProvider)
         .findEntryByBarcode(barcode);
     if (!mounted) return;
+    final productName = entry?.productName ?? 'Bilinmeyen ürün';
+    final stockCode = entry?.stockCode;
+    int loggedQuantity = 1;
     setState(() {
       final list = _items;
       final idx = list.indexWhere((e) => e.barcode == barcode);
       if (idx >= 0) {
-        list[idx].quantity++;
+        if (setQuantity != null) {
+          loggedQuantity = setQuantity - list[idx].quantity;
+          list[idx].quantity = setQuantity;
+        } else {
+          list[idx].quantity++;
+        }
       } else {
+        final qty = setQuantity ?? 1;
+        loggedQuantity = qty;
         list.add(LabelItem(
           barcode: barcode,
-          productName: entry?.productName ?? 'Bilinmeyen ürün',
-          stockCode: entry?.stockCode,
+          productName: productName,
+          stockCode: stockCode,
+          quantity: qty,
         ));
       }
     });
+    // Gecmis kaydi: aktif liste sifirlansa bile bu kayit 30 gun durur.
+    // Net degisim 0 ise (adet aynen onaylandi) anlamsiz kayit atilmaz.
+    if (loggedQuantity != 0) {
+      unawaited(LabelHistoryService.instance.log(
+        barcode: barcode,
+        productName: productName,
+        stockCode: stockCode,
+        groupKey: _active.name,
+        groupTitle: _active.title,
+        quantity: loggedQuantity,
+      ));
+    }
   }
 
   // ── Aktif sekmeye urun ekleme: dizinden sec ────────────────────────────
@@ -148,19 +212,64 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     });
   }
 
+  /// Adet rakamina dokununca acilan buyuk klavyeli adet giris dialogu.
+  /// Onaylanirsa adet O SAYIYA esitlenir (gecmise fark olarak loglanir).
+  Future<void> _editQtyDialog(int i) async {
+    final item = _items[i];
+    final result = await showDialog<int>(
+      context: context,
+      builder: (_) => _QuantityInputDialog(
+        title: item.productName,
+        initialValue: item.quantity,
+      ),
+    );
+    if (result == null || !mounted) return;
+    if (result <= 0) {
+      setState(() => _items.removeAt(i));
+      return;
+    }
+    final delta = result - item.quantity;
+    setState(() => item.quantity = result);
+    if (delta != 0) {
+      unawaited(LabelHistoryService.instance.log(
+        barcode: item.barcode,
+        productName: item.productName,
+        stockCode: item.stockCode,
+        groupKey: _active.name,
+        groupTitle: _active.title,
+        quantity: delta,
+      ));
+    }
+  }
+
   // ── Akis: aktif sekme barkodlarini tam ekran buyuk goster (lazer) ──────
-  void _startFlow() {
+  // Akis sonuna kadar gidip "Bitir"e basilirsa (true doner) o sekmenin
+  // listesi otomatik temizlenir. Yarida geri cikilirsa liste korunur.
+  Future<void> _startFlow() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bu listeye önce ürün ekleyin.')),
       );
       return;
     }
-    Navigator.of(context).push(
+    final finished = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) =>
             _LabelFlowScreen(title: _active.title, items: List.of(_items)),
       ),
+    );
+    if (finished == true && mounted) {
+      setState(() => _items.clear());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${_active.title}" listesi temizlendi.')),
+      );
+    }
+  }
+
+  // ── Gecmis: son 30 gunde eklenen tum barkodlari gun gun goster ─────────
+  void _openHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const _LabelHistoryScreen()),
     );
   }
 
@@ -170,6 +279,11 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
       appBar: AppBar(
         title: const Text('Etiket Basım'),
         actions: [
+          IconButton(
+            tooltip: 'Geçmiş',
+            icon: const Icon(Icons.history_rounded),
+            onPressed: _openHistory,
+          ),
           IconButton(
             tooltip: 'Akışı Başlat',
             icon: const Icon(Icons.play_circle_fill_rounded),
@@ -327,13 +441,20 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                 ),
               ),
               _QtyBtn(icon: Icons.remove, onTap: () => _changeQty(i, -1)),
-              SizedBox(
-                width: 28,
-                child: Text(
-                  '${it.quantity}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800, fontSize: 15),
+              GestureDetector(
+                onTap: () => _editQtyDialog(i),
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 36),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    '${it.quantity}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: AppTheme.accent),
+                  ),
                 ),
               ),
               _QtyBtn(icon: Icons.add, onTap: () => _changeQty(i, 1)),
@@ -368,6 +489,148 @@ class _QtyBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppTheme.rSm),
         ),
         child: Icon(icon, size: 18, color: AppTheme.textPrimary),
+      ),
+    );
+  }
+}
+
+/// Buyuk, goz yormayan adet giris dialogu — gorme zorlugu olanlar icin
+/// buyuk rakam, buyuk butonlar. Adet rakamina dokununca acilir.
+/// "Tamam" ile sonucu doner, "Vazgec" ile null doner.
+class _QuantityInputDialog extends StatefulWidget {
+  final String title;
+  final int initialValue;
+  const _QuantityInputDialog(
+      {required this.title, required this.initialValue});
+
+  @override
+  State<_QuantityInputDialog> createState() => _QuantityInputDialogState();
+}
+
+class _QuantityInputDialogState extends State<_QuantityInputDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: '${widget.initialValue}');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final v = int.tryParse(_ctrl.text.trim());
+    Navigator.of(context).pop(v ?? widget.initialValue);
+  }
+
+  void _bump(int delta) {
+    final cur = int.tryParse(_ctrl.text.trim()) ?? widget.initialValue;
+    final next = (cur + delta).clamp(0, 9999);
+    setState(() => _ctrl.text = '$next');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.surface,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.rLg)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.title,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _BigStepBtn(icon: Icons.remove, onTap: () => _bump(-1)),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: _ctrl,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 56,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.accent,
+                    ),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isCollapsed: true,
+                    ),
+                    onSubmitted: (_) => _submit(),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                _BigStepBtn(icon: Icons.add, onTap: () => _bump(1)),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 18)),
+                    child: const Text('Vazgeç', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _submit,
+                    style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 18)),
+                    child: const Text('Tamam',
+                        style:
+                            TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Adet dialogundaki buyuk +/- butonlari (parmak icin genis dokunma alani).
+class _BigStepBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _BigStepBtn({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppTheme.rMd),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceHigh,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+        ),
+        child: Icon(icon, size: 26, color: AppTheme.textPrimary),
       ),
     );
   }
@@ -604,10 +867,37 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text('Adet: ${it.quantity}',
-                    style:
-                        const TextStyle(color: Colors.black, fontSize: 16)),
-                const SizedBox(height: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('ADET',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1,
+                          )),
+                      const SizedBox(width: 14),
+                      Text(
+                        '${it.quantity}',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 48,
+                          fontWeight: FontWeight.w900,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const Text('Kaydır → sonraki ürün',
                     style: TextStyle(color: Colors.black38, fontSize: 12)),
               ],
@@ -640,7 +930,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                             duration: const Duration(milliseconds: 250),
                             curve: Curves.easeInOut,
                           )
-                      : () => Navigator.of(context).pop(),
+                      : () => Navigator.of(context).pop(true),
                   icon: Icon(_index < total - 1
                       ? Icons.chevron_right_rounded
                       : Icons.check_rounded),
@@ -654,3 +944,404 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
     );
   }
 }
+
+/// Etiket Basım — Geçmiş ekranı.
+/// Son 30 günde listeye eklenen TÜM barkodları, ekleme tarihine göre
+/// gün gün gruplanmış olarak gösterir (Bugün / Dün / dd MMMM gibi).
+/// Aktif liste sıfırlansa/akış bitse bile bu kayıtlar burada kalır.
+class _LabelHistoryScreen extends StatefulWidget {
+  const _LabelHistoryScreen();
+
+  @override
+  State<_LabelHistoryScreen> createState() => _LabelHistoryScreenState();
+}
+
+class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
+  bool _loading = true;
+  List<LabelHistoryEntry> _entries = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final entries = await LabelHistoryService.instance.getRecent(
+      days: 30,
+    );
+    if (!mounted) return;
+    setState(() {
+      _entries = entries;
+      _loading = false;
+    });
+  }
+
+  Future<void> _confirmClear() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Geçmişi temizle'),
+        content: const Text(
+            'Son 30 güne ait tüm etiket geçmişi kalıcı olarak silinecek. Emin misiniz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusExpired),
+            child: const Text('Temizle'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await LabelHistoryService.instance.clearAll();
+      _load();
+    }
+  }
+
+  /// Verilen gunu "Bugün", "Dün" veya "dd MMMM" olarak etiketler.
+  String _dayLabel(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(d.year, d.month, d.day);
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return 'Bugün';
+    if (diff == 1) return 'Dün';
+    return DateFormat('d MMMM yyyy', 'tr').format(day);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Gun gun grupla (added_at zaten DESC siralı geliyor).
+    final Map<String, List<LabelHistoryEntry>> grouped = {};
+    for (final e in _entries) {
+      final key = _dayLabel(e.addedAt);
+      grouped.putIfAbsent(key, () => []).add(e);
+    }
+
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        title: const Text('Etiket Geçmişi'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
+        actions: [
+          if (_entries.isNotEmpty)
+            IconButton(
+              tooltip: 'Geçmişi Temizle',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: _confirmClear,
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _entries.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.history_rounded,
+                          size: 64, color: AppTheme.textTertiary),
+                      const SizedBox(height: 12),
+                      const Text('Son 30 günde kayıt yok',
+                          style: TextStyle(
+                              color: AppTheme.textSecondary, fontSize: 15)),
+                    ],
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                  children: [
+                    for (final dayKey in grouped.keys) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
+                        child: Text(
+                          dayKey,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.accent,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      for (final e in grouped[dayKey]!)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: AppTheme.card(),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      e.productName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          e.barcode,
+                                          style: const TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                            color: AppTheme.textSecondary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: AppTheme.primary
+                                                .withOpacity(0.15),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            e.groupTitle,
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppTheme.primaryLight,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                DateFormat('HH:mm').format(e.addedAt),
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textTertiary),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+    );
+  }
+}
+
+/// Surekli barkod tarama ekrani — Etiket Basim icin.
+/// Normal tarama ekraninin aksine (BarcodeScanPage) bir barkod okununca
+/// ekran KAPANMAZ: ayni veya farkli barkodlar ust uste, art arda okutulabilir.
+/// Her okutmada [onScan] cagrilir (listeye eklenir + gecmise loglanir) ve
+/// O URUNUN GUNCEL ADEDINI doner; bu adet ekranda BUYUK rakam olarak
+/// gosterilir. Rakama dokununca [onEditQuantity] ile buyuk klavyeli adet
+/// giris dialogu acilir (gorme zorlugu olanlar icin).
+/// "Bitti" butonuna basilinca veya geri tusu ile cikilir.
+class _ContinuousScanScreen extends StatefulWidget {
+  final Future<int> Function(String barcode) onScan;
+  final Future<int?> Function(String barcode, int currentQty) onEditQuantity;
+  const _ContinuousScanScreen(
+      {required this.onScan, required this.onEditQuantity});
+
+  @override
+  State<_ContinuousScanScreen> createState() => _ContinuousScanScreenState();
+}
+
+class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.normal,
+    formats: const [
+      BarcodeFormat.ean13,
+      BarcodeFormat.ean8,
+      BarcodeFormat.code128,
+      BarcodeFormat.code39,
+      BarcodeFormat.upcA,
+      BarcodeFormat.upcE,
+    ],
+  );
+
+  int _scanCount = 0;
+  String? _lastBarcode;
+  DateTime? _lastScanTime;
+  String? _banner; // ekranda kisaca gosterilen "eklendi" mesaji
+  Timer? _bannerTimer;
+  int? _lastQuantity; // son okutulan urunun guncel adedi (buyuk rakam icin)
+
+  // Ayni barkodun yanlislikla cift okunmasini onlemek icin minimum sure.
+  static const _cooldown = Duration(milliseconds: 1200);
+
+  @override
+  void dispose() {
+    _bannerTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onDetect(BarcodeCapture capture) async {
+    final barcodes = capture.barcodes;
+    if (barcodes.isEmpty) return;
+    final value = barcodes.first.rawValue?.trim();
+    if (value == null || value.isEmpty) return;
+
+    final now = DateTime.now();
+    if (value == _lastBarcode &&
+        _lastScanTime != null &&
+        now.difference(_lastScanTime!) < _cooldown) {
+      return; // ayni barkod cok kisa surede tekrar okundu, yoksay
+    }
+    _lastBarcode = value;
+    _lastScanTime = now;
+
+    HapticFeedback.mediumImpact();
+    final newQty = await widget.onScan(value);
+    if (!mounted) return;
+
+    setState(() {
+      _scanCount++;
+      _banner = 'Eklendi: $value';
+      _lastQuantity = newQty;
+    });
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _banner = null);
+    });
+  }
+
+  Future<void> _editLastQuantity() async {
+    final barcode = _lastBarcode;
+    final qty = _lastQuantity;
+    if (barcode == null || qty == null) return;
+    final result = await widget.onEditQuantity(barcode, qty);
+    if (result != null && mounted) {
+      setState(() => _lastQuantity = result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        systemOverlayStyle: AppTheme.systemBarForColor(Colors.black),
+        title: Text('Tara  •  $_scanCount eklendi'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Bitti',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(controller: _controller, onDetect: _onDetect),
+          Container(
+            width: 260,
+            height: 160,
+            decoration: BoxDecoration(
+              border: Border.all(color: AppTheme.accent, width: 3),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const Positioned(
+            bottom: 90,
+            child: Text(
+              'Aynı veya farklı ürünleri art arda okutabilirsiniz',
+              style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
+          ),
+          // Son okutulan urunun adedi — BUYUK rakam, dokununca duzenlenir.
+          if (_lastQuantity != null)
+            Positioned(
+              bottom: 130,
+              child: GestureDetector(
+                onTap: _editLastQuantity,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.3), width: 1.5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$_lastQuantity',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 64,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Icon(Icons.edit_rounded,
+                          color: Colors.white70, size: 22),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          // "Eklendi" bandi — ust tarafta kisa sureli gorunur.
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            top: _banner != null ? 16 : -60,
+            left: 16,
+            right: 16,
+            child: AnimatedOpacity(
+              opacity: _banner != null ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.statusSafe,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: AppTheme.shadowMd,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle_rounded,
+                        color: Colors.black, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _banner ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Colors.black, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
