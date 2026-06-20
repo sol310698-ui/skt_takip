@@ -24,13 +24,19 @@ Future<void> main() async {
   await AppLogger.instance
       .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
 
-  // Tam ekran (immersive sticky): status bar VE sistem navigasyon cubugu
-  // tamamen gizlenir. Kullanici ekranin ustunden/altindan kaydirirsa
-  // gecici gorunur, sonra otomatik tekrar gizlenir (sticky davranis).
-  // ONEMLI: await edilmezse native taraf isareti islemeden runApp()
-  // calisabiliyor, bu da ilk acilista status bar'in (siyah serit olarak)
-  // bir an / surekli gorunmesine sebep oluyordu.
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // TAM EKRAN ARTIK FLUTTER UZERINDEN DEGIL, NATIVE TARAFTAN (Android
+  // styles.xml + MainActivity.kt) YONETILIYOR. SystemChrome.setEnabled
+  // SystemUIMode(immersiveSticky) cagrisi buradan KASITLI OLARAK
+  // KALDIRILDI: bu API, bircok Android cihazda (ozellikle Xiaomi/Redmi/
+  // MIUI) status bar alaninda SIYAH SERIT birakan, Flutter'in kendi
+  // resmi GitHub deposunda kayitli, hala acik bir motor hatasidir
+  // (flutter/flutter#177857, #95403). Native tema/kod katmani Flutter'in
+  // bu hatali mekanizmasina hic girmeden, dogrudan Android'in kendi
+  // pencere sistemiyle ayni sonucu guvenilir sekilde sagliyor.
+  //
+  // statusBarColor/systemNavigationBarColor stilini yine de birakiyoruz:
+  // kullanici kenardan kaydirip cubuklari GECICI gosterdiginde
+  // (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE), bu renkler dogru gorunur.
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -133,10 +139,6 @@ class _SktTakipAppState extends State<SktTakipApp>
     // bekleyen alarmi tutar ve burada gosterir.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AlarmFlow.instance.onUiReady();
-      // Tam ekran modunu ilk frame ciziminden SONRA bir kez daha zorla.
-      // main()'deki tek seferlik cagri bazi cihazlarda ilk layout
-      // tarafindan ezilebiliyor; burada tekrar etmek bunu garantiler.
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     });
   }
 
@@ -163,11 +165,8 @@ class _SktTakipAppState extends State<SktTakipApp>
     if (state == AppLifecycleState.resumed) {
       // Uygulama one geldiginde bekleyen alarm varsa goster.
       AlarmFlow.instance.onUiReady();
-
-      // Tam ekran modu bazi cihazlarda/eklentilerde (kamera, sistem
-      // dialoglari vb.) arka plana gidip gelince sifirlanabiliyor.
-      // One her gelindiginde yeniden uygulayarak garanti ediyoruz.
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      // NOT: tam ekran modu artik Dart'tan degil, MainActivity.kt'deki
+      // onResume/onWindowFocusChanged tarafindan native olarak yonetiliyor.
 
       // KRITIK: sadece GERCEKTEN bir sure arka planda kalindiysa kilitle.
       // Biyometri/izin dialogu gibi anlik sistem gecisleri ~1 saniyenin

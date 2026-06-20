@@ -32,15 +32,19 @@ class MainActivity : FlutterFragmentActivity() {
     // CAKISARAK alarm ekraninin acilip kapanmasina ve kilit ekraninin one
     // gecip parola istemesine yol aciyordu. Bu yuzden tamamen kaldirildi.
 
-    // TAM EKRAN (immersive sticky): status bar + sistem nav cubugu gizli.
-    // Dart tarafindaki SystemChrome.setEnabledSystemUIMode cagrisi TEK
-    // BASINA YETERSIZ kalabiliyordu — ilk acilista veya focus degisiminde
-    // Android'in kendi ilk layout/window mekanizmasi bu ayari ezebiliyordu
-    // (kullanicinin bildirdigi "ustte siyah serit kaliyor" hatasi buydu).
-    // Bu yuzden native tarafta da, Activity her zaman onResume + her
-    // pencere odagini (focus) her geri aldiginda, bu modu DOGRUDAN
-    // Android'in kendi API'siyle zorluyoruz. Bu, Dart tarafindan tamamen
-    // bagimsiz, en garantili yontemdir.
+    // TAM EKRAN — IKI KATMANLI COZUM:
+    //  1) styles.xml'deki NormalTheme parent'i Theme.*.Fullscreen +
+    //     android:windowFullscreen=true: status bar'i Flutter motoru hic
+    //     devreye girmeden, pencere OLUSTURULURKEN native olarak kaldirir.
+    //     Bu katman Flutter'in SystemUiMode.immersiveSticky bug'indan
+    //     (flutter/flutter#177857, #95403 - bircok Android cihazda siyah
+    //     serit birakan, resmi olarak bilinen/acik motor hatasi) TAMAMEN
+    //     bagimsizdir.
+    //  2) Bu fonksiyon: sistem navigasyon cubugunu da gizler + "sticky"
+    //     (kullanici kenardan kaydirinca gecici gorunme) davranisini
+    //     ekler. Tema katmani zaten status bar'i kaldirdigi icin burada
+    //     asil is nav bar + swipe davranisidir; status bar icin de ekstra
+    //     bir guvenlik katmani olarak ayni cagriyi tekrarliyoruz.
     private fun applyImmersiveMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Android 11+ (API 30+): modern WindowInsetsController API.

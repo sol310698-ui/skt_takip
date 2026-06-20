@@ -1,9 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar.Fullscreen">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <!-- TAM EKRAN: Flutter'in kendi SystemUiMode.immersiveSticky mekanizmasi
+         bircok cihazda (Xiaomi/Redmi/MIUI dahil, resmi olarak bilinen ve
+         hala acik bir Flutter motoru hatasi - flutter/flutter#177857,
+         flutter/flutter#95403) status bar alaninda SIYAH SERIT birakiyor.
+         Bu yuzden tam ekrani Flutter'in SystemChrome API'si UZERINDEN
+         DEGIL, doogrudan Android'in kendi NATIVE tema mekanizmasi (FLAG_
+         FULLSCREEN) ile, Flutter motoru hic devreye girmeden, pencere ilk
+         olusturulurken ayarliyoruz. Bu yontem Flutter'in bug'indan tamamen
+         BAGIMSIZDIR cunku Flutter'in render/insets hesaplamasina hic
+         girmez; dogrudan Android'in WindowManager'ina yazilir. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar.Fullscreen">
         <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
     </style>
 </resources>
