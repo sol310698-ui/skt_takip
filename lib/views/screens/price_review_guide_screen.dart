@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/theme/app_theme.dart';
