@@ -24,14 +24,10 @@ Future<void> main() async {
   await AppLogger.instance
       .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
 
-  // Edge-to-edge: icerik status bar'in ARKASINA uzanir.
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    statusBarBrightness: Brightness.dark,
-    systemNavigationBarColor: Colors.transparent,
-  ));
+  // Tam ekran (immersive sticky): status bar VE sistem navigasyon cubugu
+  // tamamen gizlenir. Kullanici ekranin ustunden/altindan kaydirirsa
+  // gecici gorunur, sonra otomatik tekrar gizlenir (sticky davranis).
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   // Uygulamayi yalnizca DIKEY moda kilitle.
   await SystemChrome.setPreferredOrientations([
@@ -154,6 +150,11 @@ class _SktTakipAppState extends State<SktTakipApp>
     if (state == AppLifecycleState.resumed) {
       // Uygulama one geldiginde bekleyen alarm varsa goster.
       AlarmFlow.instance.onUiReady();
+
+      // Tam ekran modu bazi cihazlarda/eklentilerde (kamera, sistem
+      // dialoglari vb.) arka plana gidip gelince sifirlanabiliyor.
+      // One her gelindiginde yeniden uygulayarak garanti ediyoruz.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
       // KRITIK: sadece GERCEKTEN bir sure arka planda kalindiysa kilitle.
       // Biyometri/izin dialogu gibi anlik sistem gecisleri ~1 saniyenin

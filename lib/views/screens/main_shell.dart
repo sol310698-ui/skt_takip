@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -173,7 +174,22 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // KRITIK: MainShell'in KENDI bir AnnotatedRegion'i olmasi gerekir.
+    // Eskiden bu yoktu; sadece IndexedStack icindeki HER ekran (HomeScreen,
+    // BarcodeListScreen, ShiftScreen) kendi AnnotatedRegion'ini ayri ayri
+    // set ediyordu. LockScreen'den (AppTheme.background bazli, koyu/duz
+    // renk) MainShell'e gecis bir Navigator push/pop DEGIL, dogrudan
+    // MaterialApp.home icindeki widget'in degismesi seklinde oluyor
+    // (main.dart: _locked ? LockScreen(...) : MainShell()). Bu anlik
+    // kok-widget degisiminde, ic ekranlarin AnnotatedRegion'lari bazi
+    // cihazlarda/karelerde GEC devreye giriyor, bu da status bar'in
+    // LockScreen'in koyu/duz renginde "yapisik" kalmasina (banner'in
+    // gradyaninin status bar arkasinda hic gorunmemesine) sebep
+    // olabiliyordu. MainShell'in kendi AnnotatedRegion'i, IndexedStack
+    // render olmadan ONCE devreye girip dogru rengi hemen garanti eder.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(AppTheme.primary),
+      child: Scaffold(
       extendBody: true,
       backgroundColor: AppTheme.background,
       body: IndexedStack(
@@ -197,6 +213,7 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         child: _buildCustomNavBar(),
+      ),
       ),
     );
   }
