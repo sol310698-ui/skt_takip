@@ -62,6 +62,7 @@ class DatabaseService {
     await _createChecklistTables(db);
     await _createLabelHistoryTable(db);
     await _createLabelPendingQueueTable(db);
+    await _createLabelActiveListsTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -162,6 +163,10 @@ class DatabaseService {
       // Fiyat Degisim ekranindan "Etikete Gonder" ile gelen bekleyen kayitlar.
       await _createLabelPendingQueueTable(db);
     }
+    if (oldVersion < 21) {
+      // Etiket Basim aktif listeleri: ekrandan cikip girince kaybolmasin.
+      await _createLabelActiveListsTable(db);
+    }
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {
@@ -194,6 +199,15 @@ class DatabaseService {
         quantity INTEGER NOT NULL DEFAULT 1,
         source TEXT NOT NULL,
         added_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createLabelActiveListsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.labelActiveListsTable} (
+        group_key TEXT PRIMARY KEY,
+        items_json TEXT NOT NULL
       )
     ''');
   }

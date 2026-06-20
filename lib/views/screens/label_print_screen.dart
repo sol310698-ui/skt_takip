@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/services/label_active_lists_service.dart';
 import '../../core/services/label_history_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -61,6 +62,8 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
   LabelGroup get _active => LabelGroup.values[_tab.index];
   List<LabelItem> get _items => _lists[_active]!;
 
+  bool _restoring = true; // ilk acilista kayitli listeler yuklenirken true
+
   @override
   void initState() {
     super.initState();
@@ -68,20 +71,51 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     _tab.addListener(() {
       if (!_tab.indexIsChanging) setState(() {});
     });
+    _restoreActiveLists();
+  }
+
+  /// Kayitli (kalici) listeleri veritabanindan yukler. Ekrandan cikip
+  /// geri girince veya uygulama kapanip acilinca listeler KAYBOLMAZ.
+  Future<void> _restoreActiveLists() async {
+    final saved = await LabelActiveListsService.instance.loadAll();
+    if (!mounted) return;
+    setState(() {
+      for (final entry in saved.entries) {
+        LabelGroup? group;
+        for (final g in LabelGroup.values) {
+          if (g.name == entry.key) {
+            group = g;
+            break;
+          }
+        }
+        if (group != null) _lists[group] = entry.value;
+      }
+      _restoring = false;
+    });
     // Baska ekranlardan (orn. Fiyat Degisim) "Etikete Gonder" ile
     // gelmis bekleyen urunleri kuyruktan al, ilgili sekmelere ekle.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _drainPendingQueue());
+    await _drainPendingQueue();
+  }
+
+  /// Aktif grubun listesini kalici depoya yazar. Liste degisen HER
+  /// islemden sonra cagrilmalidir (ekleme, adet degisimi, silme).
+  Future<void> _persist(LabelGroup group) async {
+    if (_restoring) return; // ilk yukleme sirasinda gereksiz yazma yapma
+    await LabelActiveListsService.instance
+        .saveGroup(group.name, _lists[group]!);
   }
 
   Future<void> _drainPendingQueue() async {
     final pending = await LabelPendingQueueService.instance.drainAll();
     if (pending.isEmpty || !mounted) return;
+    final touchedGroups = <LabelGroup>{};
     setState(() {
       for (final p in pending) {
         final group = LabelGroup.values.firstWhere(
           (g) => g.name == p.groupKey,
           orElse: () => LabelGroup.a4,
         );
+        touchedGroups.add(group);
         final list = _lists[group]!;
         final idx = list.indexWhere((e) => e.barcode == p.barcode);
         if (idx >= 0) {
@@ -96,6 +130,10 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
         }
       }
     });
+    for (final group in touchedGroups) {
+      await LabelActiveListsService.instance
+          .saveGroup(group.name, _lists[group]!);
+    }
     for (final p in pending) {
       final group = LabelGroup.values.firstWhere(
         (g) => g.name == p.groupKey,
@@ -202,6 +240,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
         ));
       }
     });
+    _persist(_active);
     // Gecmis kaydi: aktif liste sifirlansa bile bu kayit 30 gun durur.
     // Net degisim 0 ise (adet aynen onaylandi) anlamsiz kayit atilmaz.
     if (loggedQuantity != 0) {
@@ -250,7 +289,10 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     await _addByBarcode(entry.barcode);
   }
 
-  void _removeAt(int i) => setState(() => _items.removeAt(i));
+  void _removeAt(int i) {
+    setState(() => _items.removeAt(i));
+    _persist(_active);
+  }
 
   void _changeQty(int i, int delta) {
     setState(() {
@@ -261,6 +303,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
         _items[i].quantity = q;
       }
     });
+    _persist(_active);
   }
 
   /// Adet rakamina dokununca acilan buyuk klavyeli adet giris dialogu.
@@ -277,10 +320,12 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     if (result == null || !mounted) return;
     if (result <= 0) {
       setState(() => _items.removeAt(i));
+      _persist(_active);
       return;
     }
     final delta = result - item.quantity;
     setState(() => item.quantity = result);
+    _persist(_active);
     if (delta != 0) {
       unawaited(LabelHistoryService.instance.log(
         barcode: item.barcode,
@@ -310,7 +355,10 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
       ),
     );
     if (finished == true && mounted) {
+      final clearedGroup = _active;
       setState(() => _items.clear());
+      await LabelActiveListsService.instance.clearGroup(clearedGroup.name);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('"${_active.title}" listesi temizlendi.')),
       );
@@ -1232,6 +1280,11 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   Timer? _bannerTimer;
   int? _lastQuantity; // son okutulan urunun guncel adedi (buyuk rakam icin)
 
+  // Sag ustteki switch ile kontrol edilir: acikken SADECE EAN-13 formati
+  // kabul edilir (12/8 haneli UPC, code128 vb. okutulsa da yoksayilir).
+  // Kapaliyken tum desteklenen formatlar (varsayilan) okunur.
+  bool _ean13Only = false;
+
   // Ayni barkodun yanlislikla cift okunmasini onlemek icin minimum sure.
   static const _cooldown = Duration(milliseconds: 1200);
 
@@ -1245,8 +1298,17 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   Future<void> _onDetect(BarcodeCapture capture) async {
     final barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
-    final value = barcodes.first.rawValue?.trim();
+    final raw = barcodes.first;
+    final value = raw.rawValue?.trim();
     if (value == null || value.isEmpty) return;
+
+    // EAN-13 filtresi acikken: format EAN-13 degilse veya 13 haneli
+    // sayisal degilse, bu okuma tamamen yoksayilir (listeye eklenmez).
+    if (_ean13Only) {
+      final isEan13Format = raw.format == BarcodeFormat.ean13;
+      final isEan13Shape = RegExp(r'^\d{13}$').hasMatch(value);
+      if (!isEan13Format || !isEan13Shape) return;
+    }
 
     final now = DateTime.now();
     if (value == _lastBarcode &&
@@ -1292,6 +1354,20 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
         systemOverlayStyle: AppTheme.systemBarForColor(Colors.black),
         title: Text('Tara  •  $_scanCount eklendi'),
         actions: [
+          // EAN-13 filtresi: acikken sadece 13 haneli EAN-13 barkodlar
+          // kabul edilir, diger formatlar (UPC, code128 vb.) yoksayilir.
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('EAN-13',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+              Switch(
+                value: _ean13Only,
+                onChanged: (v) => setState(() => _ean13Only = v),
+                activeColor: AppTheme.accent,
+              ),
+            ],
+          ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Bitti',

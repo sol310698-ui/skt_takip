@@ -25,4 +25,18 @@ class LabelItem {
         stockCode: stockCode ?? this.stockCode,
         quantity: quantity ?? this.quantity,
       );
+
+  Map<String, Object?> toJson() => {
+        'barcode': barcode,
+        'productName': productName,
+        'stockCode': stockCode,
+        'quantity': quantity,
+      };
+
+  factory LabelItem.fromJson(Map<String, Object?> m) => LabelItem(
+        barcode: m['barcode'] as String,
+        productName: m['productName'] as String,
+        stockCode: m['stockCode'] as String?,
+        quantity: (m['quantity'] as num?)?.toInt() ?? 1,
+      );
 }
