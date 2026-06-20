@@ -1,21 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar.Fullscreen">
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
-    <!-- TAM EKRAN: Flutter'in kendi SystemUiMode.immersiveSticky mekanizmasi
-         bircok cihazda (Xiaomi/Redmi/MIUI dahil, resmi olarak bilinen ve
-         hala acik bir Flutter motoru hatasi - flutter/flutter#177857,
-         flutter/flutter#95403) status bar alaninda SIYAH SERIT birakiyor.
-         Bu yuzden tam ekrani Flutter'in SystemChrome API'si UZERINDEN
-         DEGIL, doogrudan Android'in kendi NATIVE tema mekanizmasi (FLAG_
-         FULLSCREEN) ile, Flutter motoru hic devreye girmeden, pencere ilk
-         olusturulurken ayarliyoruz. Bu yontem Flutter'in bug'indan tamamen
-         BAGIMSIZDIR cunku Flutter'in render/insets hesaplamasina hic
-         girmez; dogrudan Android'in WindowManager'ina yazilir. -->
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar.Fullscreen">
+    <!-- EDGE-TO-EDGE: Status bar GIZLENMIYOR; seffaf yapiliyor ve uygulama
+         icerigi (AppBar/banner gradient) onun arkasina uzaniyor. Boylece
+         status bar, ust bardaki renk neyse onu gosterir; siyah serit OLMAZ.
+         windowFullscreen=true ESKI yontemiydi ve Xiaomi/MIUI'de siyah serit
+         birakiyordu — kaldirildi. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
-        <item name="android:windowFullscreen">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowContentOverlay">@null</item>
     </style>
 </resources>

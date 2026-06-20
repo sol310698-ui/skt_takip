@@ -24,19 +24,13 @@ Future<void> main() async {
   await AppLogger.instance
       .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
 
-  // TAM EKRAN ARTIK FLUTTER UZERINDEN DEGIL, NATIVE TARAFTAN (Android
-  // styles.xml + MainActivity.kt) YONETILIYOR. SystemChrome.setEnabled
-  // SystemUIMode(immersiveSticky) cagrisi buradan KASITLI OLARAK
-  // KALDIRILDI: bu API, bircok Android cihazda (ozellikle Xiaomi/Redmi/
-  // MIUI) status bar alaninda SIYAH SERIT birakan, Flutter'in kendi
-  // resmi GitHub deposunda kayitli, hala acik bir motor hatasidir
-  // (flutter/flutter#177857, #95403). Native tema/kod katmani Flutter'in
-  // bu hatali mekanizmasina hic girmeden, dogrudan Android'in kendi
-  // pencere sistemiyle ayni sonucu guvenilir sekilde sagliyor.
-  //
-  // statusBarColor/systemNavigationBarColor stilini yine de birakiyoruz:
-  // kullanici kenardan kaydirip cubuklari GECICI gosterdiginde
-  // (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE), bu renkler dogru gorunur.
+  // EDGE-TO-EDGE: status bar GIZLENMIYOR, seffaf birakiliyor ve uygulama
+  // icerigi (banner gradient / AppBar) onun arkasina uzaniyor. Boylece
+  // status bar ust bardaki renkle ayni gorunur, siyah serit OLMAZ.
+  // Eski immersiveSticky (tam gizleme) yaklasimi Xiaomi/MIUI'de siyah serit
+  // birakiyordu — kaldirildi. Native taraf (styles.xml + MainActivity) bu
+  // edge-to-edge davranisini ayrica garanti eder.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,

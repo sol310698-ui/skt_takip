@@ -9,8 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -32,60 +30,44 @@ class MainActivity : FlutterFragmentActivity() {
     // CAKISARAK alarm ekraninin acilip kapanmasina ve kilit ekraninin one
     // gecip parola istemesine yol aciyordu. Bu yuzden tamamen kaldirildi.
 
-    // TAM EKRAN — IKI KATMANLI COZUM:
-    //  1) styles.xml'deki NormalTheme parent'i Theme.*.Fullscreen +
-    //     android:windowFullscreen=true: status bar'i Flutter motoru hic
-    //     devreye girmeden, pencere OLUSTURULURKEN native olarak kaldirir.
-    //     Bu katman Flutter'in SystemUiMode.immersiveSticky bug'indan
-    //     (flutter/flutter#177857, #95403 - bircok Android cihazda siyah
-    //     serit birakan, resmi olarak bilinen/acik motor hatasi) TAMAMEN
-    //     bagimsizdir.
-    //  2) Bu fonksiyon: sistem navigasyon cubugunu da gizler + "sticky"
-    //     (kullanici kenardan kaydirinca gecici gorunme) davranisini
-    //     ekler. Tema katmani zaten status bar'i kaldirdigi icin burada
-    //     asil is nav bar + swipe davranisidir; status bar icin de ekstra
-    //     bir guvenlik katmani olarak ayni cagriyi tekrarliyoruz.
-    private fun applyImmersiveMode() {
+    // EDGE-TO-EDGE (status bar GIZLENMEZ, ICERIK ALTINA UZANIR):
+    //  Eski yaklasim status bar'i tamamen gizliyordu (fullscreen +
+    //  immersiveSticky). Bu, Xiaomi/MIUI cihazlarda status bar bolgesinde
+    //  SIYAH SERIT birakiyordu. Yeni yaklasim status bar'i GIZLEMEZ;
+    //  onun yerine SEFFAF yapar ve uygulama icerigini (banner gradient /
+    //  AppBar) status bar'in ARKASINA uzatir. Boylece status bar her zaman
+    //  ust bardaki renkle ayni gorunur; siyah serit OLUSMAZ.
+    //
+    //  setDecorFitsSystemWindows(false): icerigi sistem cubuklari arkasina
+    //  uzat. Cubuk renkleri styles.xml'de transparent. Flutter tarafinda
+    //  MediaQuery.padding.top zaten dogru insets'i verir, banner bu kadar
+    //  yukari uzanir.
+    private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ (API 30+): modern WindowInsetsController API.
             window.setDecorFitsSystemWindows(false)
-            val controller = window.insetsController
-            if (controller != null) {
-                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            }
         } else {
-            // Android 10 ve altı: eski bayrak tabanlı yöntem.
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                     or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
                 )
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyImmersiveMode()
+        applyEdgeToEdge()
     }
 
     override fun onResume() {
         super.onResume()
-        applyImmersiveMode()
+        applyEdgeToEdge()
     }
 
-    // Pencere odagi her geri geldiginde (orn. bildirim cekmecesi kapaninca,
-    // baska bir dialog kapaninca) immersive modu yeniden zorla. Bu, Android'in
-    // sistem UI bayraklarini "sticky" tutmasini saglayan en guvenilir noktadir.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            applyImmersiveMode()
+            applyEdgeToEdge()
         }
     }
 
