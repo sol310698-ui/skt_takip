@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/camera_helper.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -457,7 +458,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
 
   Future<void> _capture() async {
     try {
-      final photo = await ImagePicker().pickImage(
+      final photo = await CameraHelper.pickImage(
         source: ImageSource.camera,
         imageQuality: 100,
       );

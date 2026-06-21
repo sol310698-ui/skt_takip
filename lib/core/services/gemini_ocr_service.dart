@@ -15,7 +15,21 @@ class GeminiOcrService {
 
   static const _storage = FlutterSecureStorage();
   static const _keyName = 'gemini_api_key';
-  static const _model = 'gemini-2.0-flash';
+
+  /// MODEL FALLBACK ZINCIRI.
+  /// Bu liste, kullanicinin KENDI API anahtarinda /models cagrisiyla
+  /// dogrulanan, generateContent (gorseli okuyabilen) modellerden olusur.
+  /// En iyi/hizli olandan baslayip, biri 404 verirse sonrakine gecer.
+  ///   - gemini-2.5-flash      : multimodal, hizli, yuksek token limiti (1M)
+  ///   - gemini-2.0-flash      : saglam yedek
+  ///   - gemini-2.0-flash-001  : kararli surum
+  ///   - gemini-2.0-flash-lite : en hafif/hizli yedek
+  static const List<String> _models = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-001',
+    'gemini-2.0-flash-lite',
+  ];
 
   Future<String?> getApiKey() => _storage.read(key: _keyName);
   Future<void> setApiKey(String key) =>
@@ -24,6 +38,57 @@ class GeminiOcrService {
   Future<bool> hasApiKey() async {
     final k = await getApiKey();
     return k != null && k.isNotEmpty;
+  }
+
+  /// Verilen istek govdesini model listesini deneyerek Gemini'ye gonderir.
+  /// Bir model 404 (model bulunamadi) verirse SONRAKI modele gecer. Diger
+  /// hatalarda (401/403/429 vb.) hemen durur cunku model degisimi cozmez.
+  /// Basarili yanitin metin icerigini doner.
+  Future<String> _generate(String apiKey, String bodyJson) async {
+    GeminiOcrException? lastError;
+
+    for (final model in _models) {
+      final uri = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey');
+
+      final http.Response res;
+      try {
+        res = await http
+            .post(uri,
+                headers: {'Content-Type': 'application/json'},
+                body: bodyJson)
+            .timeout(const Duration(seconds: 45));
+      } catch (e) {
+        lastError = GeminiOcrException('Bağlantı hatası: $e');
+        continue; // ag hatasinda sonraki modeli de dene
+      }
+
+      if (res.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(res.body);
+        final text = data['candidates']?[0]?['content']?['parts']?[0]
+            ?['text'] as String?;
+        if (text == null || text.trim().isEmpty) {
+          throw const GeminiOcrException('Gemini boş yanıt döndü');
+        }
+        return text;
+      }
+
+      // 404 = bu model adi gecersiz -> sonraki modeli dene.
+      if (res.statusCode == 404) {
+        lastError = GeminiOcrException(
+            'Model bulunamadı ($model): ${_shortError(res.body)}');
+        continue;
+      }
+
+      // Diger hatalar (401 anahtar, 403 yetki, 429 kota...) model
+      // degisimiyle cozulmez; hemen bildir.
+      throw GeminiOcrException(
+          'Gemini hatası (${res.statusCode}): ${_shortError(res.body)}');
+    }
+
+    // Tum modeller 404 verdi veya baglanti kurulamadi.
+    throw lastError ??
+        const GeminiOcrException('Hiçbir Gemini modeli yanıt vermedi');
   }
 
   /// A4 fotografini Gemini'ye gonderir, tablo satirlarini dondurur.
@@ -37,9 +102,6 @@ class GeminiOcrService {
 
     final bytes = await image.readAsBytes();
     final b64 = base64Encode(bytes);
-
-    final uri = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent?key=$key');
 
     const prompt = '''
 Bu görüntü bir market fiyat değişim tablosudur. Sütunlar: Barkod, Stok Adı, Stok Kodu, Fiyatı (yeni), Eski Fiyatı, Reyonu.
@@ -69,22 +131,7 @@ Kurallar:
       },
     });
 
-    final res = await http
-        .post(uri,
-            headers: {'Content-Type': 'application/json'}, body: body)
-        .timeout(const Duration(seconds: 45));
-
-    if (res.statusCode != 200) {
-      throw GeminiOcrException(
-          'Gemini hatası (${res.statusCode}): ${_shortError(res.body)}');
-    }
-
-    final Map<String, dynamic> data = jsonDecode(res.body);
-    final text = data['candidates']?[0]?['content']?['parts']?[0]?['text']
-        as String?;
-    if (text == null || text.trim().isEmpty) {
-      throw const GeminiOcrException('Gemini boş yanıt döndü');
-    }
+    final text = await _generate(key, body);
 
     // JSON'i ayikla (bazen ```json bloklari gelir).
     final cleaned = text
@@ -144,9 +191,6 @@ Kurallar:
     final bytes = await image.readAsBytes();
     final b64 = base64Encode(bytes);
 
-    final uri = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent?key=$key');
-
     final today = DateTime.now();
     final prompt = '''
 Bu fotoğraf bir gıda/market ürününün ambalajı veya etiketidir. Üzerinde son kullanma tarihi (SKT / SON KUL. TAR. / TETT / EXP / best before) yazıyor olabilir.
@@ -177,22 +221,7 @@ Kurallar:
       },
     });
 
-    final res = await http
-        .post(uri,
-            headers: {'Content-Type': 'application/json'}, body: body)
-        .timeout(const Duration(seconds: 30));
-
-    if (res.statusCode != 200) {
-      throw GeminiOcrException(
-          'Gemini hatası (${res.statusCode}): ${_shortError(res.body)}');
-    }
-
-    final Map<String, dynamic> data = jsonDecode(res.body);
-    final text = data['candidates']?[0]?['content']?['parts']?[0]?['text']
-        as String?;
-    if (text == null || text.trim().isEmpty) {
-      throw const GeminiOcrException('Gemini boş yanıt döndü');
-    }
+    final text = await _generate(key, body);
 
     final cleaned = text
         .replaceAll(RegExp(r'^```json', multiLine: true), '')

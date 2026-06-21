@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/services/camera_helper.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
@@ -130,8 +131,8 @@ class _PriceChangeSessionScreenState
 
   // ─────────────────────────── A4 ekleme (Gemini -> ML Kit) ──────────
   Future<void> _captureA4() async {
-    final photo = await ImagePicker()
-        .pickImage(source: ImageSource.camera, imageQuality: 92);
+    final photo = await CameraHelper.pickImage(
+        source: ImageSource.camera, imageQuality: 92);
     if (photo == null) return;
 
     setState(() => _busy = true);
@@ -404,8 +405,8 @@ class _PriceChangeSessionScreenState
   Future<void> _confirmChange() async {
     final item = _matched;
     if (item == null || item.id == null) return;
-    final photo = await ImagePicker()
-        .pickImage(source: ImageSource.camera, imageQuality: 80);
+    final photo = await CameraHelper.pickImage(
+        source: ImageSource.camera, imageQuality: 80);
     if (photo == null) return; // foto ZORUNLU
 
     final labelGroup = _sendToLabelGroup;

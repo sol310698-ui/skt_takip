@@ -115,15 +115,10 @@ class _SktTakipAppState extends State<SktTakipApp>
   // yerindeyse). Varsayilan 0 = Anasayfa.
   int _initialNavIndex = 0;
 
-  // Uygulama ne zaman ARKA PLANA gittigini (paused) izaretlemek icin.
-  // Biyometri (BiometricPrompt) dialogu acilirken sistem kisa bir
-  // "paused/inactive" sinyali gonderir, hemen ardindan "resumed" gelir.
-  // Bu DOGAL gecisi "arka plandan gerciden geri donus" ile ayirt
-  // ETMEZSEK, biyometri basarili olup kilit acildiginda bile resumed
-  // tekrar tetiklenip kilidi yeniden kapatiyor, LockScreen yeniden
-  // kuruluyor, initState tekrar biyometriyi otomatik aciyor — SONSUZ
-  // DONGU (kullanicinin bildirdigi "surekli parmak izi soruyor" hatasi
-  // tam olarak buydu).
+  // Uygulama arka plana gitti mi? (Pause/inactive olayinda set edilir,
+  // resume'da okunup temizlenir.) Artik SUREYI degil, sadece "bir pause
+  // yasandi mi" bilgisini tutar; kilit karari niyet sayacindan verilir
+  // (AppLockService.consumeIsSystemActivityResume).
   DateTime? _pausedAt;
 
   @override
@@ -170,21 +165,32 @@ class _SktTakipAppState extends State<SktTakipApp>
       // NOT: tam ekran modu artik Dart'tan degil, MainActivity.kt'deki
       // onResume/onWindowFocusChanged tarafindan native olarak yonetiliyor.
 
-      // SIKI KILIT: kullanici uygulamayi arka plana alip geri donduyse HER
-      // ZAMAN yeniden kilitle (PIN/biyometri iste). Tek istisna: biyometri/
-      // izin dialogu gibi ANLIK sistem gecisleri — bunlar ~1 saniyenin cok
-      // altinda surer ve uygulamayi gercekten arka plana ALMAZ. Bu kisa
-      // flicker'i 800 ms esikle yutuyoruz; bunun uzeri = gercek arka plan =
-      // kilitle. (Eski 2 sn esik fazla gevsekiti; kullanici kisa bir baska
-      // uygulama acip donunce kilit gelmiyordu.)
-      final pausedAt = _pausedAt;
+      final wasPaused = _pausedAt != null;
       _pausedAt = null;
-      if (pausedAt != null) {
-        final elapsed = DateTime.now().difference(pausedAt);
-        if (elapsed > const Duration(milliseconds: 800)) {
-          _relockIfNeeded();
-        }
+
+      // ─── KILIT KARARI (niyet tabanli, kusursuz) ───
+      //
+      // Bu resume, uygulamanin KENDI actigi bir sistem ekranindan mi
+      // (kamera/galeri/biyometri) donus, yoksa kullanicinin uygulamayi
+      // GERCEKTEN arka plana alip donmesi mi? Bunu SUREYE bakarak tahmin
+      // ETMIYORUZ (kirilgan); dogrudan niyet sayacindan OKUYORUZ.
+      //
+      //  - Uygulama ici islem donusu  -> KILITLEME (akis kesilmesin).
+      //  - Gercek arka plandan donus   -> kilit aciksa KILITLE (guvenlik).
+      //
+      // Hic pause olmadan gelen resume (orn. ilk acilis, ic state degisimi)
+      // de kilitleme tetiklemez.
+      if (!wasPaused) return;
+
+      final isAppActivityReturn =
+          AppLockService.consumeIsSystemActivityResume();
+      if (isAppActivityReturn) {
+        // Uygulama ici kamera/galeri/biyometri donusu — kilit yok.
+        return;
       }
+
+      // Gercek arka plandan donus: guvenlik icin kilitle.
+      _relockIfNeeded();
     }
   }
 

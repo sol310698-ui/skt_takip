@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/services/camera_helper.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/waybill_service.dart';
 import '../../core/services/warehouse_service.dart';
@@ -115,8 +116,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     }
 
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
+      final picked = await CameraHelper.pickImage(
         source: source,
         maxWidth: 1600,
         imageQuality: 80,

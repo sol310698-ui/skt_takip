@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/camera_helper.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -84,8 +85,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     if (item.id == null) return;
 
     // Foto ZORUNLU: kamerayi ac, etiket kanitini cek.
-    final picker = ImagePicker();
-    final XFile? shot = await picker.pickImage(
+    final XFile? shot = await CameraHelper.pickImage(
       source: ImageSource.camera,
       imageQuality: 70,
       maxWidth: 1600,

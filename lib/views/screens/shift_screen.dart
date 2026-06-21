@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/camera_helper.dart';
 import '../../core/services/schedule_service.dart';
 import '../../core/services/shift_export_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -59,15 +60,13 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   }
 
   Future<String?> _takePhoto() async {
-    try {
-      final x = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 70,
-      );
-      return x?.path;
-    } catch (_) {
-      return null;
-    }
+    // Merkezi CameraHelper kullanir: kamera donusunde kilit tetiklenmez,
+    // mesai giris/cikis akisi kesintisiz tamamlanir.
+    final x = await CameraHelper.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 70,
+    );
+    return x?.path;
   }
 
   /// Giris yap - foto sor, konum al, kaydet.

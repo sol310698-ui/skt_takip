@@ -3,6 +3,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/camera_helper.dart';
 import '../../core/services/image_preprocess_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
@@ -34,7 +35,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
     String? originalPath;
 
     try {
-      final photo = await ImagePicker().pickImage(
+      final photo = await CameraHelper.pickImage(
         source: source,
         imageQuality: 100,
       );

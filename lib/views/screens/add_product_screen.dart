@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/camera_helper.dart';
 import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -197,13 +198,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Future<void> _scanDateFromPhoto() async {
-    final picker = ImagePicker();
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     List<String> variants = [];
     String? originalPath;
     try {
-      final photo =
-          await picker.pickImage(source: ImageSource.camera, imageQuality: 100);
+      final photo = await CameraHelper.pickImage(
+          source: ImageSource.camera, imageQuality: 100);
       if (photo == null) return;
       originalPath = photo.path;
       variants =

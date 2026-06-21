@@ -18,6 +18,66 @@ class AppLockService {
   AppLockService._();
   static final AppLockService instance = AppLockService._();
 
+  /// ─── UYGULAMA ICI SISTEM AKTIVITESI KORUMASI (reentrant) ───
+  ///
+  /// Kamera (ImagePicker), galeri, dosya secici, biyometri gibi uygulamanin
+  /// KENDI actigi sistem ekranlari sirasinda uygulama kisa sureligine
+  /// "paused" olur. Bu DOGAL gecisi "kullanici uygulamayi arka plana aldi"
+  /// ile karistirmamak gerekir; aksi halde mesai fotosu cekip donunce giris
+  /// yarida kalip kullanici kilit ekranina atiliyordu.
+  ///
+  /// Cozum SURE TAHMINI DEGIL, NIYET tabanli: boyle bir islem baslarken
+  /// sayac artar, biter bitmez azalir. Sayac > 0 ise "uygulama ICI bir
+  /// sistem ekrani aktif" demektir ve kilit TETIKLENMEZ. Sayac == 0 ise
+  /// resume = gercek arka plandan donus = kilitle. Sayac (bool yerine)
+  /// reentrant'tir: ic ice/ardisik islemler dogru sayilir.
+  static int _systemActivityDepth = 0;
+
+  /// Bir resume olayinda sayac > 0 idiyse, o resume "uygulama ici islem
+  /// donusu" olarak islenir VE bu bayrak set edilir. Bir sonraki sayac
+  /// sifirlanmasinda temizlenir. Boylece islem bitiminden HEMEN sonra
+  /// gelen resume'da da kilit tetiklenmez (yaris kosulu korumasi).
+  static bool _pendingActivityResume = false;
+
+  /// Su an uygulama ICI bir sistem ekrani (kamera/galeri/biyometri) aktif mi?
+  static bool get isSystemActivityActive =>
+      _systemActivityDepth > 0 || _pendingActivityResume;
+
+  /// Resume olayinda cagrilir: islem donusu mu, gercek arka plan donusu mu
+  /// oldugunu soyler. Islem donusuyse pending bayragi yonetir.
+  static bool consumeIsSystemActivityResume() {
+    if (_systemActivityDepth > 0) {
+      // Islem hala suruyor (resume, sistem ekrani kapanmadan geldi ya da
+      // tam kapanirken). Kesinlikle uygulama ici.
+      _pendingActivityResume = true;
+      return true;
+    }
+    if (_pendingActivityResume) {
+      // Islem yeni bitti, bu onun donus resume'u. Tuket ve temizle.
+      _pendingActivityResume = false;
+      return true;
+    }
+    return false;
+  }
+
+  /// Kamera/galeri/biyometri gibi bir sistem aktivitesini kilit
+  /// tetiklemeden guvenli calistirmak icin sarmalayici. Reentrant: ic ice
+  /// cagrilabilir. Islem bitince (basari/hata) sayaci guvenle azaltir.
+  static Future<T> runWithoutRelock<T>(Future<T> Function() action) async {
+    _systemActivityDepth++;
+    try {
+      return await action();
+    } finally {
+      if (_systemActivityDepth > 0) _systemActivityDepth--;
+      // Islem bitti ama donus resume'u henuz gelmemis olabilir. Sayac
+      // 0'a dustuyse, bekleyen resume'un yine de "uygulama ici" sayilmasi
+      // icin pending bayragini set et; ilk resume bunu tuketip temizler.
+      if (_systemActivityDepth == 0) {
+        _pendingActivityResume = true;
+      }
+    }
+  }
+
   static const _storage = FlutterSecureStorage();
   static const _kPinHash = 'app_lock_pin_hash';
   static const _kBiometricEnabled = 'app_lock_biometric_enabled';
@@ -96,18 +156,25 @@ class AppLockService {
 
   /// Biyometri dogrulamasini tetikler. Basarili -> true.
   /// Kullanici vazgecerse veya hata olursa -> false (PIN'e dusulur).
+  ///
+  /// runWithoutRelock ile sarmalanir: BiometricPrompt acilirken uygulama
+  /// kisa sure "paused" olur; donuste kilit mantiginin bunu "arka plandan
+  /// donus" sanip yeniden kilitlemesini (ve sonsuz parmak izi dongusunu)
+  /// niyet sayaci uzerinden kusursuz engeller.
   Future<bool> authenticateWithBiometrics() async {
-    try {
-      return await _auth.authenticate(
-        localizedReason: 'Uygulamayı açmak için kimliğinizi doğrulayın',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-        ),
-      );
-    } catch (_) {
-      return false;
-    }
+    return AppLockService.runWithoutRelock(() async {
+      try {
+        return await _auth.authenticate(
+          localizedReason: 'Uygulamayı açmak için kimliğinizi doğrulayın',
+          options: const AuthenticationOptions(
+            biometricOnly: true,
+            stickyAuth: true,
+          ),
+        );
+      } catch (_) {
+        return false;
+      }
+    });
   }
 
   // ─────────────────────────── Is yeri konumu ───────────────────────────
