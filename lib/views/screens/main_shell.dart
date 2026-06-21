@@ -16,7 +16,10 @@ import 'warehouse_list_screen.dart';
 /// "Kontrol" sekmesi sekme DEGISTIRMEZ: kamera otomatik baslamasin diye
 /// bir secim sheet'i acar; secilen ekran tam sayfa (navbar'siz) push edilir.
 class MainShell extends StatefulWidget {
-  const MainShell({super.key});
+  /// Acilista gosterilecek sekme (0=Anasayfa, 1=Barkod, 3=Mesai).
+  /// Kilit ekraninda kullanici is yerindeyse 3 (Mesai) ile acilir.
+  final int initialNavIndex;
+  const MainShell({super.key, this.initialNavIndex = 0});
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -28,6 +31,7 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    _navIndex = widget.initialNavIndex;
     _requestPermissions();
   }
 

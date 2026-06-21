@@ -52,8 +52,12 @@ jobs:
             echo "İmza anahtarı yok, debug imzası kullanılacak."
           fi
 
-      - name: APK derle (release)
-        run: flutter build apk --release
+      - name: APK derle (release - sadece arm64-v8a)
+        # Telefon mimarisi arm64-v8a oldugu icin APK yalnizca bu mimariye
+        # derlenir. Diger mimariler (armeabi-v7a, x86_64) dahil edilmez;
+        # boylece APK boyutu onemli olcude kuculur. Bu cihaza ozeldir —
+        # baska mimarideki bir cihaza kurulamaz.
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4

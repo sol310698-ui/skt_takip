@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -169,4 +170,34 @@ class AppLockService {
   }
 
   double _deg2rad(double deg) => deg * (math.pi / 180);
+
+  /// Su anki konumu alip is yerinde olup olmadigini doner.
+  /// Karar tek noktada: izin/GPS yoksa veya hata olursa SESSIZCE false doner
+  /// (kullaniciya yanlis/gereksiz bilgilendirme YAPILMAZ). Sadece gercekten
+  /// is yeri yariçapi icindeyse true doner.
+  Future<bool> isCurrentlyAtWork() async {
+    try {
+      if (!await hasWorkLocation()) return false;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return false;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) return false;
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 6),
+        ),
+      );
+      return await isWithinWorkLocation(pos.latitude, pos.longitude);
+    } catch (_) {
+      return false;
+    }
+  }
 }

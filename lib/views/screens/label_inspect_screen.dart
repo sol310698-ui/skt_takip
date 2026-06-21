@@ -146,24 +146,40 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // TARAMA MODUNDA: kamera onizlemesi status bar arkasina kadar uzanir.
+    //   - extendBodyBehindAppBar: true -> body, AppBar arkasina uzanir
+    //   - AppBar saydam, golge yok -> kamera ustte status bar'a degeer
+    //   - status bar ikonlari beyaz (kamera koyu zemin)
+    // SONUC MODUNDA: yesil/kirmizi animasyonlu renkli AppBar geri gelir.
+    final isScanning = _parsed == null;
+    final overlay = isScanning
+        ? const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
+          )
+        : AppTheme.systemBarForColor(_appBarColor);
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: AppTheme.systemBarForColor(_appBarColor),
+      value: overlay,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isScanning ? Colors.black : AppTheme.background,
+        extendBodyBehindAppBar: isScanning,
         appBar: AppBar(
           title: const Text('Etiket İnceleme'),
-          backgroundColor: _appBarColor,
+          backgroundColor: isScanning ? Colors.transparent : _appBarColor,
           foregroundColor: Colors.white,
-          // Sistem cubugu (saat/pil) AppBar rengiyle ayni olsun.
-          systemOverlayStyle: AppTheme.systemBarForColor(_appBarColor),
-          // Renk gecisi yumusak olsun (yesil<->kirmizi animasyonlu).
-          flexibleSpace: AnimatedContainer(
-            duration: const Duration(milliseconds: 350),
-            curve: Curves.easeInOut,
-            decoration: BoxDecoration(color: _appBarColor),
-          ),
+          elevation: isScanning ? 0 : null,
+          systemOverlayStyle: overlay,
+          flexibleSpace: isScanning
+              ? null
+              : AnimatedContainer(
+                  duration: const Duration(milliseconds: 350),
+                  curve: Curves.easeInOut,
+                  decoration: BoxDecoration(color: _appBarColor),
+                ),
         ),
-        body: _parsed == null ? _buildScanner() : _buildResult(),
+        body: isScanning ? _buildScanner() : _buildResult(),
       ),
     );
   }

@@ -1348,10 +1348,17 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      // Kamera onizlemesi status bar arkasina kadar uzansin.
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(Colors.black),
+        elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
         title: Text('Tara  •  $_scanCount eklendi'),
         actions: [
           // EAN-13 filtresi: acikken sadece 13 haneli EAN-13 barkodlar

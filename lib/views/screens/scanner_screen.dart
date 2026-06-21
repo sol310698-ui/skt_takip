@@ -191,9 +191,16 @@ class _ScannerScreenState extends State<ScannerScreen>
 
     return Scaffold(
       backgroundColor: Colors.black,
+      // Kamera onizlemesi status bar arkasina kadar uzansin.
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
         title: const Text('SKT Tara'),
         actions: [
           IconButton(
@@ -785,10 +792,17 @@ class _PhotoDateScreenState extends State<_PhotoDateScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
+      // Kamera onizlemesi status bar arkasina kadar uzansin.
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
         title: const Text('Tarihi Gir'),
         actions: [
           // Sag ustte zoom secici (1x / 2x / 3x / 4x)

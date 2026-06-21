@@ -41,6 +41,9 @@
     <application
         android:label="SKT Takip"
         android:icon="@drawable/ic_launcher"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:extractNativeLibs="true">
 
         <activity

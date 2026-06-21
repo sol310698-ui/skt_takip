@@ -111,6 +111,9 @@ class _SktTakipAppState extends State<SktTakipApp>
   // PIN/biyometri ile dogrulanirsa _locked = false olur.
   bool _locked = true;
   bool _lockCheckDone = false;
+  // Kilit acildiginda hangi sekmeyle acilacak (3=Mesai, kullanici is
+  // yerindeyse). Varsayilan 0 = Anasayfa.
+  int _initialNavIndex = 0;
 
   // Uygulama ne zaman ARKA PLANA gittigini (paused) izaretlemek icin.
   // Biyometri (BiometricPrompt) dialogu acilirken sistem kisa bir
@@ -145,8 +148,13 @@ class _SktTakipAppState extends State<SktTakipApp>
     });
   }
 
-  void _onUnlocked() {
-    if (mounted) setState(() => _locked = false);
+  void _onUnlocked({bool goToShift = false}) {
+    if (mounted) {
+      setState(() {
+        _initialNavIndex = goToShift ? 3 : 0;
+        _locked = false;
+      });
+    }
   }
 
   @override
@@ -162,14 +170,18 @@ class _SktTakipAppState extends State<SktTakipApp>
       // NOT: tam ekran modu artik Dart'tan degil, MainActivity.kt'deki
       // onResume/onWindowFocusChanged tarafindan native olarak yonetiliyor.
 
-      // KRITIK: sadece GERCEKTEN bir sure arka planda kalindiysa kilitle.
-      // Biyometri/izin dialogu gibi anlik sistem gecisleri ~1 saniyenin
-      // altinda surer; bu kisa gecisleri kilitleme tetikleyicisi SAYMIYORUZ.
+      // SIKI KILIT: kullanici uygulamayi arka plana alip geri donduyse HER
+      // ZAMAN yeniden kilitle (PIN/biyometri iste). Tek istisna: biyometri/
+      // izin dialogu gibi ANLIK sistem gecisleri — bunlar ~1 saniyenin cok
+      // altinda surer ve uygulamayi gercekten arka plana ALMAZ. Bu kisa
+      // flicker'i 800 ms esikle yutuyoruz; bunun uzeri = gercek arka plan =
+      // kilitle. (Eski 2 sn esik fazla gevsekiti; kullanici kisa bir baska
+      // uygulama acip donunce kilit gelmiyordu.)
       final pausedAt = _pausedAt;
       _pausedAt = null;
       if (pausedAt != null) {
         final elapsed = DateTime.now().difference(pausedAt);
-        if (elapsed > const Duration(seconds: 2)) {
+        if (elapsed > const Duration(milliseconds: 800)) {
           _relockIfNeeded();
         }
       }
@@ -205,7 +217,7 @@ class _SktTakipAppState extends State<SktTakipApp>
             )
           : (_locked
               ? LockScreen(onUnlocked: _onUnlocked)
-              : const MainShell()),
+              : MainShell(initialNavIndex: _initialNavIndex)),
     );
   }
 }
