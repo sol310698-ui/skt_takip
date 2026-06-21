@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 class AppTheme {
   AppTheme._();
 
-  // ─── Ana renkler ───────────────────────────────────────────────────
+  // ─── Ana renkler (her iki temada da ayni) ──────────────────────────
   // Indigo: guven veren, profesyonel; uzun bakista yormaz.
   static const Color primary = Color(0xFF5B6CF0);      // indigo
   static const Color primaryLight = Color(0xFF8693F5);
@@ -21,23 +21,66 @@ class AppTheme {
   static const Color amber = Color(0xFFFBBF24);         // sicak vurgu
   static const Color coral = Color(0xFFFB7185);         // mercan/uyari
 
-  // ─── Zemin katmanlari (mavi-gri tonlu koyu, saf siyah degil) ────────
-  static const Color background = Color(0xFF0E1017);    // en dip
-  static const Color surface = Color(0xFF171A23);       // kart
-  static const Color surfaceAlt = Color(0xFF1F232E);    // input/alt yuzey
-  static const Color surfaceHigh = Color(0xFF2A2F3D);   // menu/yukseltilmis
-  static const Color hairline = Color(0xFF2E3340);      // ince ayrac/kenar
-
-  // ─── Metin ─────────────────────────────────────────────────────────
-  static const Color textPrimary = Color(0xFFF1F3F9);
-  static const Color textSecondary = Color(0xFF9AA1B4);
-  static const Color textTertiary = Color(0xFF5E6577);
-
-  // ─── Durum renkleri (SKT) ──────────────────────────────────────────
+  // ─── Durum renkleri (SKT) — her iki temada ortak ───────────────────
   static const Color statusSafe = Color(0xFF34D399);     // yesil - guvenli
   static const Color statusWarning = Color(0xFFFBBF24);  // amber - yaklasiyor
   static const Color statusCritical = Color(0xFFFB923C); // turuncu - kritik
   static const Color statusExpired = Color(0xFFF43F5E);  // kirmizi - doldu
+
+  // ════════════════════════════════════════════════════════════════════
+  //  TEMAYA GORE DEGISEN RENKLER
+  // ────────────────────────────────────────────────────────────────────
+  //  Bu renkler `const` DEGIL, statik DEGISKEN'dir. Tum ekranlar
+  //  `AppTheme.background` gibi okudugu icin, tema degisince applyMode()
+  //  bu degiskenleri gunceller ve TUM uygulama otomatik dogru rengi alir.
+  //  (Tek dosyada cozum — yuzlerce ekrani tek tek degistirmeye gerek yok.)
+  // ════════════════════════════════════════════════════════════════════
+
+  // Koyu palet (varsayilan).
+  static const Color _dkBackground = Color(0xFF0E1017);
+  static const Color _dkSurface = Color(0xFF171A23);
+  static const Color _dkSurfaceAlt = Color(0xFF1F232E);
+  static const Color _dkSurfaceHigh = Color(0xFF2A2F3D);
+  static const Color _dkHairline = Color(0xFF2E3340);
+  static const Color _dkTextPrimary = Color(0xFFF1F3F9);
+  static const Color _dkTextSecondary = Color(0xFF9AA1B4);
+  static const Color _dkTextTertiary = Color(0xFF5E6577);
+
+  // Aydinlik palet.
+  static const Color _ltBackground = Color(0xFFF4F5FA);  // en dip (acik gri)
+  static const Color _ltSurface = Color(0xFFFFFFFF);     // kart (beyaz)
+  static const Color _ltSurfaceAlt = Color(0xFFEEF0F6);  // input/alt yuzey
+  static const Color _ltSurfaceHigh = Color(0xFFE3E6EF); // menu/yukseltilmis
+  static const Color _ltHairline = Color(0xFFD9DDE8);    // ince ayrac/kenar
+  static const Color _ltTextPrimary = Color(0xFF1A1D27);
+  static const Color _ltTextSecondary = Color(0xFF5E6577);
+  static const Color _ltTextTertiary = Color(0xFF9AA1B4);
+
+  // Aktif renkler (varsayilan koyu; applyMode ile degisir).
+  static Color background = _dkBackground;
+  static Color surface = _dkSurface;
+  static Color surfaceAlt = _dkSurfaceAlt;
+  static Color surfaceHigh = _dkSurfaceHigh;
+  static Color hairline = _dkHairline;
+  static Color textPrimary = _dkTextPrimary;
+  static Color textSecondary = _dkTextSecondary;
+  static Color textTertiary = _dkTextTertiary;
+
+  static bool _isLight = false;
+  static bool get isLight => _isLight;
+
+  /// Aktif renk paletini belirler (ThemeData kurulmadan ONCE cagrilir).
+  static void applyBrightness(bool light) {
+    _isLight = light;
+    background = light ? _ltBackground : _dkBackground;
+    surface = light ? _ltSurface : _dkSurface;
+    surfaceAlt = light ? _ltSurfaceAlt : _dkSurfaceAlt;
+    surfaceHigh = light ? _ltSurfaceHigh : _dkSurfaceHigh;
+    hairline = light ? _ltHairline : _dkHairline;
+    textPrimary = light ? _ltTextPrimary : _dkTextPrimary;
+    textSecondary = light ? _ltTextSecondary : _dkTextSecondary;
+    textTertiary = light ? _ltTextTertiary : _dkTextTertiary;
+  }
 
   // ─── Spacing olcegi (4'un katlari, tutarli ritim) ──────────────────
   static const double s4 = 4;
@@ -151,13 +194,19 @@ class AppTheme {
   // ════════════════════════════════════════════════════════════════════
   //  ThemeData
   // ════════════════════════════════════════════════════════════════════
-  static ThemeData get dark {
+  static ThemeData get dark => _build(Brightness.dark);
+  static ThemeData get light => _build(Brightness.light);
+
+  static ThemeData _build(Brightness brightness) {
+    // Renk paletini bu brightness'e gore aktif et (degiskenler guncellenir).
+    applyBrightness(brightness == Brightness.light);
+
     final base = ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: brightness,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
-        brightness: Brightness.dark,
+        brightness: brightness,
         surface: surface,
         primary: primary,
         secondary: accent,
@@ -165,6 +214,9 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: background,
     );
+
+    final barIcons =
+        brightness == Brightness.light ? Brightness.dark : Brightness.light;
 
     return base.copyWith(
       scaffoldBackgroundColor: background,
@@ -180,17 +232,18 @@ class AppTheme {
           TargetPlatform.windows: _SlideUpTransitionsBuilder(),
         },
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: background,
         foregroundColor: textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        // Status bar AppBar'in arkasindaki rengi alir (seffaf) ve ikonlar acik.
+        // Status bar AppBar'in arkasindaki rengi alir (seffaf); ikonlar
+        // temaya gore acik/koyu.
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
+          statusBarIconBrightness: barIcons,
+          statusBarBrightness: brightness,
         ),
         titleTextStyle: TextStyle(
           color: textPrimary,
@@ -207,8 +260,8 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surfaceAlt,
-        hintStyle: const TextStyle(color: textTertiary),
-        labelStyle: const TextStyle(color: textSecondary),
+        hintStyle: TextStyle(color: textTertiary),
+        labelStyle: TextStyle(color: textSecondary),
         prefixIconColor: textSecondary,
         suffixIconColor: textSecondary,
         border: OutlineInputBorder(
@@ -272,17 +325,17 @@ class AppTheme {
         backgroundColor: surface,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rLg)),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
             color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surface,
         modalBackgroundColor: surface,
         surfaceTintColor: Colors.transparent,
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surfaceHigh,
-        contentTextStyle: const TextStyle(color: textPrimary),
+        contentTextStyle: TextStyle(color: textPrimary),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
         insetPadding: const EdgeInsets.all(16),
@@ -299,11 +352,11 @@ class AppTheme {
           );
         }),
       ),
-      dividerTheme: const DividerThemeData(color: hairline, thickness: 1),
+      dividerTheme: DividerThemeData(color: hairline, thickness: 1),
       chipTheme: ChipThemeData(
         backgroundColor: surfaceAlt,
         side: BorderSide(color: hairline),
-        labelStyle: const TextStyle(color: textSecondary, fontSize: 12),
+        labelStyle: TextStyle(color: textSecondary, fontSize: 12),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(rPill)),
       ),

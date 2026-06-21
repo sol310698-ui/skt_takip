@@ -119,7 +119,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
               const CircularProgressIndicator(color: AppTheme.primary),
               const SizedBox(height: 16),
               Text(_status,
-                  style: const TextStyle(color: AppTheme.textSecondary)),
+                  style: TextStyle(color: AppTheme.textSecondary)),
               const Spacer(),
             ] else if (_candidates.isNotEmpty) ...[
               Align(
@@ -128,7 +128,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
                   _candidates.length == 1
                       ? 'Bulunan tarih:'
                       : 'Bulunan tarihler (en olası üstte):',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: AppTheme.textSecondary),
                 ),
@@ -144,7 +144,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
               const Spacer(),
               if (_status.isNotEmpty)
                 Text(_status,
-                    style: const TextStyle(color: AppTheme.textSecondary)),
+                    style: TextStyle(color: AppTheme.textSecondary)),
               const Spacer(),
             ],
 
@@ -236,7 +236,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
                             fontWeight: FontWeight.w600)),
                   ),
                 const SizedBox(width: 8),
-                const Icon(Icons.arrow_forward_ios_rounded,
+                Icon(Icons.arrow_forward_ios_rounded,
                     size: 16, color: AppTheme.textTertiary),
               ],
             ),

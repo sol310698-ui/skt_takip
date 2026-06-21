@@ -346,7 +346,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
                     child: Text(
                       widget.body,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 14, color: AppTheme.textSecondary),
                     ),
                   ),
@@ -406,7 +406,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen>
                   onPressed: _dismiss,
                   style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14)),
-                  child: const Text('Yoksay',
+                  child: Text('Yoksay',
                       style: TextStyle(color: AppTheme.textSecondary)),
                 ),
               ),

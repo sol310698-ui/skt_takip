@@ -291,7 +291,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
               color: AppTheme.primary.withOpacity(0.08),
               borderRadius: BorderRadius.circular(AppTheme.rMd),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 Icon(Icons.info_outline_rounded,
                     size: 16, color: AppTheme.textTertiary),

@@ -156,7 +156,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                           child: Row(
                             children: [
                               Text('${list.length} kayıt',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       color: AppTheme.textSecondary,
                                       fontWeight: FontWeight.w600)),
                               const Spacer(),
@@ -438,7 +438,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                 Icon(icon, size: 14, color: AppTheme.textSecondary),
                 const SizedBox(width: 6),
                 Text(label,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: AppTheme.textSecondary, fontSize: 12)),
               ],
             ),

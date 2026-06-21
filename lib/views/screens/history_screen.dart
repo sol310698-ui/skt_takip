@@ -82,12 +82,12 @@ class _HistoryCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
                   Text('SKT: $expiryStr  ·  ${product.disposalStatus.label}: $disposalDateStr',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: AppTheme.textSecondary, fontSize: 12)),
                   if (product.disposalNote != null) ...[
                     const SizedBox(height: 2),
                     Text(product.disposalNote!,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 12,
                             fontStyle: FontStyle.italic),

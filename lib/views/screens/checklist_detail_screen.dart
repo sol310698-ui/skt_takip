@@ -286,7 +286,7 @@ class _ChecklistDetailScreenState extends State<ChecklistDetailScreen> {
                 style:
                     TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
-            const Text('Sağ alttaki + ile madde ekle.',
+            Text('Sağ alttaki + ile madde ekle.',
                 style: TextStyle(
                     fontSize: 13, color: AppTheme.textSecondary)),
           ],

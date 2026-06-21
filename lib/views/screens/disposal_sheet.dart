@@ -71,7 +71,7 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
       duration: const Duration(milliseconds: 150),
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -94,7 +94,7 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text('İşlem seçin',
+            Text('İşlem seçin',
                 style: TextStyle(color: AppTheme.textSecondary)),
             const SizedBox(height: 16),
             Row(
@@ -134,7 +134,7 @@ class _DisposalSheetState extends ConsumerState<DisposalSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [

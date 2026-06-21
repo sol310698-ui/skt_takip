@@ -237,7 +237,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: AppTheme.background,
         body: Center(
             child: CircularProgressIndicator(color: AppTheme.primary)),
@@ -252,7 +252,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
           systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
           title: const Text('Fiyat Rehberi'),
         ),
-        body: const Center(
+        body: Center(
           child: Text('Bu oturumda ürün yok',
               style: TextStyle(color: AppTheme.textSecondary)),
         ),
@@ -397,7 +397,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
   }
 
   Widget _noImage() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -436,7 +436,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     return Column(
       children: [
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textTertiary,
@@ -481,7 +481,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     final isDone = item.changed;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -577,7 +577,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
                         _index > 0 ? () => _goTo(_index - 1) : null,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.textSecondary,
-                      side: const BorderSide(color: AppTheme.hairline),
+                      side: BorderSide(color: AppTheme.hairline),
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

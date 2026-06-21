@@ -174,7 +174,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
   }
 
   Widget _emptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -285,7 +285,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
         Icon(icon, size: 20, color: AppTheme.textSecondary),
         const SizedBox(width: 12),
         Text('$label:',
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 15, color: AppTheme.textSecondary)),
         const Spacer(),
         Flexible(
@@ -344,7 +344,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
                       children: [
                         Text(
                           DateFormat('d MMM yyyy', 'tr').format(p.expiryDate),
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12.5,
                               color: AppTheme.textSecondary),
                         ),
@@ -411,7 +411,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
               onPressed: _justDismiss,
               child: Text(
                 hasItems ? 'Şimdi değil, kapat' : 'Kapat',
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 15),
               ),
             ),

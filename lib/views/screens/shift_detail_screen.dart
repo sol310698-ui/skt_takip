@@ -161,7 +161,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
               decoration: AppTheme.card(),
               child: (shift.note != null && shift.note!.isNotEmpty)
                   ? Text(shift.note!)
-                  : const Row(
+                  : Row(
                       children: [
                         Icon(Icons.add_rounded,
                             size: 18, color: AppTheme.textTertiary),
@@ -196,7 +196,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
   Widget _sectionTitle(String t) => Padding(
         padding: const EdgeInsets.only(bottom: 8, left: 4),
         child: Text(t,
-            style: const TextStyle(
+            style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 15,
                 color: AppTheme.textSecondary)),
@@ -256,7 +256,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
             )
           else
             Row(
-              children: const [
+              children: [
                 Icon(Icons.location_off,
                     color: AppTheme.textTertiary, size: 18),
                 SizedBox(width: 8),
@@ -294,7 +294,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
           color: AppTheme.surfaceAlt,
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Center(
+        child: Center(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

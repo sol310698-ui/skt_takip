@@ -105,7 +105,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     : _floor
                         ? 'Palet zemine (yere) konulacak.'
                         : 'Palet bekleme alanına eklenecek.',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppTheme.textSecondary),
               ),
             ],
@@ -346,7 +346,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -369,11 +369,11 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
             Text('${s.palletCount}/${s.shelf.capacity} palet dolu',
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13)),
             const SizedBox(height: 16),
             if (pallets.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Text('Bu raf boş',
                     textAlign: TextAlign.center,
@@ -417,7 +417,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
             ),
             const SizedBox(width: 5),
             Text(t,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 11.5, color: AppTheme.textSecondary)),
           ],
         );
@@ -516,7 +516,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                           fontWeight: FontWeight.w700, fontSize: 14)),
                   const SizedBox(height: 2),
                   Text('${p.itemTypes} çeşit • ${p.totalQty} adet',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppTheme.textTertiary)),
                 ],
               ),
@@ -634,7 +634,7 @@ class _SearchSheetState extends State<_SearchSheet> {
       minChildSize: 0.5,
       expand: false,
       builder: (ctx, scroll) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -656,7 +656,7 @@ class _SearchSheetState extends State<_SearchSheet> {
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Reyon etiketini (QR) veya ürün barkodunu okutun. Etiketten '
               'okunan barkod depoda aranır.',
               style:
@@ -701,11 +701,11 @@ class _SearchSheetState extends State<_SearchSheet> {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Row(
                     children: [
-                      const Icon(Icons.qr_code_2_rounded,
+                      Icon(Icons.qr_code_2_rounded,
                           size: 16, color: AppTheme.textTertiary),
                       const SizedBox(width: 6),
                       Text('Aranan: $_searchedBarcode',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 12.5,
                               color: AppTheme.textSecondary)),
@@ -715,7 +715,7 @@ class _SearchSheetState extends State<_SearchSheet> {
               if (_results!.isEmpty)
                 Column(
                   children: [
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(vertical: 14),
                       child: Column(
                         children: [
@@ -804,7 +804,7 @@ class _SearchSheetState extends State<_SearchSheet> {
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 2),
                   Text('$where  •  Palet: ${loc.pallet.code}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                 ],
               ),

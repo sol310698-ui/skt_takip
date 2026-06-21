@@ -124,7 +124,7 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
   Widget build(BuildContext context) {
     final r = widget.result;
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -171,7 +171,7 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
                     ),
                     if (r.barcode != null)
                       Text(r.barcode!,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 13,
                               color: AppTheme.textSecondary)),
@@ -222,7 +222,7 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
               child: Text(
                 _webStatusMessage ??
                     'Bu barkod için kayıtlı bilgi yok. Webde arayabilir veya ürün ekleyebilirsiniz.',
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13),
               ),
             ),
@@ -267,7 +267,7 @@ class _DetailRow extends StatelessWidget {
           Icon(icon, size: 18, color: AppTheme.textSecondary),
           const SizedBox(width: 10),
           Text(label,
-              style: const TextStyle(color: AppTheme.textSecondary)),
+              style: TextStyle(color: AppTheme.textSecondary)),
           const Spacer(),
           Text(value,
               style: TextStyle(

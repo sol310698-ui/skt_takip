@@ -233,7 +233,7 @@ class _LockScreenState extends State<LockScreen>
                   _lockBadge(),
                   const SizedBox(height: 22),
                   Text(title,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -0.2,
@@ -243,7 +243,7 @@ class _LockScreenState extends State<LockScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 40),
                     child: Text(subtitle,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13.5,
                             height: 1.35,
                             color: AppTheme.textSecondary)),
@@ -399,7 +399,7 @@ class _LockScreenState extends State<LockScreen>
                   child: InkWell(
                     onTap: _onBackspace,
                     customBorder: const CircleBorder(),
-                    child: const Icon(Icons.backspace_outlined,
+                    child: Icon(Icons.backspace_outlined,
                         color: AppTheme.textSecondary, size: 24),
                   ),
                 ),
@@ -416,7 +416,7 @@ class _LockScreenState extends State<LockScreen>
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Material(
         color: AppTheme.surface,
-        shape: const CircleBorder(
+        shape: CircleBorder(
           side: BorderSide(color: AppTheme.hairline, width: 1),
         ),
         child: InkWell(
@@ -429,7 +429,7 @@ class _LockScreenState extends State<LockScreen>
             height: 78,
             child: Center(
               child: Text(digit,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 27,
                       fontWeight: FontWeight.w600,
                       color: AppTheme.textPrimary)),

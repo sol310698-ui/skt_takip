@@ -51,7 +51,7 @@ class EmptyState extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textPrimary,
@@ -62,7 +62,7 @@ class EmptyState extends StatelessWidget {
               Text(
                 subtitle!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   color: AppTheme.textSecondary,
                   height: 1.4,
@@ -100,7 +100,7 @@ class LoadingState extends StatelessWidget {
           if (message != null) ...[
             const SizedBox(height: AppTheme.s16),
             Text(message!,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+                style: TextStyle(color: AppTheme.textSecondary)),
           ],
         ],
       ),
@@ -127,7 +127,7 @@ class ErrorStateView extends StatelessWidget {
             const SizedBox(height: AppTheme.s16),
             Text(message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppTheme.textSecondary)),
+                style: TextStyle(color: AppTheme.textSecondary)),
             if (onRetry != null) ...[
               const SizedBox(height: AppTheme.s20),
               OutlinedButton.icon(
@@ -157,7 +157,7 @@ class SectionLabel extends StatelessWidget {
       padding: padding,
       child: Text(
         text.toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 11.5,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.6,
@@ -211,7 +211,7 @@ class StatTile extends StatelessWidget {
                   height: 1)),
           const SizedBox(height: 3),
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 11.5,
                   fontWeight: FontWeight.w600)),
@@ -263,7 +263,7 @@ class CachedImage extends StatelessWidget {
           ? placeholder!()
           : Container(
               color: AppTheme.surfaceAlt,
-              child: const Icon(Icons.inventory_2_rounded,
+              child: Icon(Icons.inventory_2_rounded,
                   color: AppTheme.textTertiary),
             ),
     );

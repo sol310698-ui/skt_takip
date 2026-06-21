@@ -8,6 +8,7 @@ import '../../core/services/backup_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/services/theme_prefs.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
@@ -183,11 +184,93 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
+  String _themeModeLabel(ThemeMode m) => switch (m) {
+        ThemeMode.light => 'Aydınlık',
+        ThemeMode.dark => 'Koyu',
+        ThemeMode.system => 'Sistem (otomatik)',
+      };
+
+  void _openThemeMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        Widget option(ThemeMode mode, IconData icon, String label) {
+          final selected = ThemePrefs.instance.mode == mode;
+          return ListTile(
+            leading: Icon(icon,
+                color: selected ? AppTheme.primary : AppTheme.textSecondary),
+            title: Text(label,
+                style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontWeight:
+                        selected ? FontWeight.w700 : FontWeight.w500)),
+            trailing: selected
+                ? const Icon(Icons.check_rounded, color: AppTheme.primary)
+                : null,
+            onTap: () async {
+              await ThemePrefs.instance.setMode(mode);
+              if (mounted) setState(() {});
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.textSecondary.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Tema',
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800)),
+                ),
+              ),
+              option(ThemeMode.system, Icons.brightness_auto_rounded,
+                  'Sistem (otomatik)'),
+              option(ThemeMode.light, Icons.light_mode_rounded, 'Aydınlık'),
+              option(ThemeMode.dark, Icons.dark_mode_rounded, 'Koyu'),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── Araçlar sekmesi ────────────────────────────────────────────────
   Widget _buildTools() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        const SectionLabel('Görünüm'),
+        const SizedBox(height: 8),
+        _tile(
+          icon: Icons.brightness_6_rounded,
+          color: AppTheme.primary,
+          title: 'Tema',
+          subtitle: _themeModeLabel(ThemePrefs.instance.mode),
+          onTap: _openThemeMenu,
+        ),
+        const SizedBox(height: 16),
         const SectionLabel('Çalışma'),
         const SizedBox(height: 8),
         _tile(
@@ -256,7 +339,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         Container(
           padding: const EdgeInsets.all(16),
           decoration: AppTheme.card(),
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('SKT Takip',
@@ -310,10 +393,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 fontWeight: FontWeight.w600, fontSize: 14.5)),
         subtitle: subtitle != null
             ? Text(subtitle,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppTheme.textSecondary))
             : null,
-        trailing: const Icon(Icons.chevron_right_rounded,
+        trailing: Icon(Icons.chevron_right_rounded,
             color: AppTheme.textTertiary),
       ),
     );
@@ -394,13 +477,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     overflow: TextOverflow.ellipsis),
                 if (n.body != null)
                   Text(n.body!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12,
                           color: AppTheme.textSecondary),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis),
                 Text('ID: ${n.id}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11, color: AppTheme.textTertiary)),
               ],
             ),
@@ -537,7 +620,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
             activeColor: AppTheme.accent,
             title: const Text('Uygulama Kilidi',
                 style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: const Text('Açılışta PIN/parmak izi sor',
+            subtitle: Text('Açılışta PIN/parmak izi sor',
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
           ),
         ),
@@ -560,7 +643,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
               ),
               title: const Text('PIN Değiştir',
                   style: TextStyle(fontWeight: FontWeight.w700)),
-              trailing: const Icon(Icons.chevron_right_rounded,
+              trailing: Icon(Icons.chevron_right_rounded,
                   color: AppTheme.textTertiary),
             ),
           ),
@@ -574,7 +657,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
                 activeColor: AppTheme.accent,
                 title: const Text('Parmak İzi / Yüz ile Aç',
                     style: TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: const Text('PIN yerine hızlı biyometrik giriş',
+                subtitle: Text('PIN yerine hızlı biyometrik giriş',
                     style: TextStyle(
                         fontSize: 12, color: AppTheme.textSecondary)),
               ),
@@ -601,10 +684,10 @@ class _SecuritySectionState extends State<_SecuritySection> {
                 _hasWorkLocation
                     ? 'Tanımlı — konumdaysanız bilgi notu gösterilir'
                     : 'Tanımlı değil — haritadan işaretleyin',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12, color: AppTheme.textSecondary),
               ),
-              trailing: const Icon(Icons.chevron_right_rounded,
+              trailing: Icon(Icons.chevron_right_rounded,
                   color: AppTheme.textTertiary),
             ),
           ),
@@ -702,7 +785,7 @@ class _ChangePinScreenState extends State<_ChangePinScreen> {
           children: [
             const Spacer(),
             Text(title,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: AppTheme.textPrimary)),
@@ -769,7 +852,7 @@ class _ChangePinScreenState extends State<_ChangePinScreen> {
                 height: 64,
                 child: IconButton(
                   onPressed: _onBackspace,
-                  icon: const Icon(Icons.backspace_outlined,
+                  icon: Icon(Icons.backspace_outlined,
                       color: AppTheme.textSecondary),
                 ),
               ),
@@ -790,12 +873,12 @@ class _ChangePinScreenState extends State<_ChangePinScreen> {
           width: 64,
           height: 64,
           alignment: Alignment.center,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: AppTheme.surface,
           ),
           child: Text(digit,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                   color: AppTheme.textPrimary)),

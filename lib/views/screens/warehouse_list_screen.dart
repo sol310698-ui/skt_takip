@@ -201,7 +201,7 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
                           fontWeight: FontWeight.w700, fontSize: 14)),
                   const SizedBox(height: 2),
                   Text('$whName • ${p.itemTypes} çeşit • ${p.totalQty} adet',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppTheme.textTertiary)),
                 ],
               ),
@@ -256,12 +256,12 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
                   const SizedBox(height: 2),
                   Text(
                       'Oluşturuldu: ${DateFormat('dd.MM.yyyy').format(w.createdAt)}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppTheme.textTertiary)),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded,
+            Icon(Icons.chevron_right_rounded,
                 color: AppTheme.textTertiary),
           ],
         ),
@@ -355,12 +355,12 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
                         fontSize: 16, fontWeight: FontWeight.w700)),
               ),
               Text('${_columns.length} sütun • $_totalShelves raf',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12, color: AppTheme.textTertiary)),
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Her sütun için raf sayısını ve raf başına kaç palet alacağını girin.',
             style:
                 TextStyle(fontSize: 12.5, color: AppTheme.textSecondary),
@@ -394,7 +394,7 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
                           style: const TextStyle(
                               fontWeight: FontWeight.w700, fontSize: 13)),
                       Text('$_totalShelves raf',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 11,
                               color: AppTheme.textTertiary)),
                     ],
@@ -476,7 +476,7 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
       children: [
         Expanded(
           child: Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 13.5, color: AppTheme.textSecondary)),
         ),
         _roundBtn(Icons.remove_rounded, () => onChange(value - 1)),

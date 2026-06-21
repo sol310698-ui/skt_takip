@@ -225,7 +225,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
         builder: (ctx, setSheet) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppTheme.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
@@ -253,7 +253,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                   ),
                   const SizedBox(height: 16),
                   // Alarm tipi
-                  const Text('Alarm Türü',
+                  Text('Alarm Türü',
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -273,14 +273,14 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                   ),
                   const SizedBox(height: 16),
                   // Checklist baglama
-                  const Text('Kapatınca açılacak liste (opsiyonel)',
+                  Text('Kapatınca açılacak liste (opsiyonel)',
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.textSecondary)),
                   const SizedBox(height: 8),
                   if (lists.isEmpty)
-                    const Text('Henüz kontrol listesi yok',
+                    Text('Henüz kontrol listesi yok',
                         style: TextStyle(
                             fontSize: 12.5, color: AppTheme.textTertiary))
                   else
@@ -636,7 +636,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 15)),
-                            const Text(
+                            Text(
                                 'Ayarlar için sağ üstteki ayar simgesine dokun',
                                 style: TextStyle(
                                     fontSize: 12,
@@ -699,7 +699,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Pil optimizasyonu açık. Telefon uykudayken alarm 1-2 saniye '
             'çalıp susabilir. Güvenilir alarm için pil optimizasyonunu KAPAT.',
             style: TextStyle(
@@ -742,7 +742,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
             maxChildSize: 0.92,
             expand: false,
             builder: (ctx, scrollCtrl) => Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppTheme.background,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
@@ -825,7 +825,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                   _soundName ?? 'Varsayılan alarm sesi',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12.5, color: AppTheme.textSecondary),
                 ),
               ],
@@ -900,7 +900,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
             _keepAliveOn
                 ? 'Uygulama kalıcı bir bildirimle arka planda çalışıyor. Alarmların telefonu kullanmadığında bile güvenilir çalmasına yardım eder (biraz pil kullanır).'
                 : 'Alarmlar bazen uygulama kapalıyken çalmıyorsa bunu aç. Kalıcı bir bildirim gösterir ama alarmları daha güvenilir yapar.',
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 12.5, color: AppTheme.textSecondary, height: 1.4),
           ),
         ],
@@ -930,7 +930,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                     color: AppTheme.statusExpired, size: 22),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -971,7 +971,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.schedule_rounded,
+                    Icon(Icons.schedule_rounded,
                         size: 20, color: AppTheme.textSecondary),
                     const SizedBox(width: 12),
                     const Text('Alarm saati',
@@ -986,7 +986,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                           color: AppTheme.primary),
                     ),
                     const SizedBox(width: 6),
-                    const Icon(Icons.edit_rounded,
+                    Icon(Icons.edit_rounded,
                         size: 15, color: AppTheme.textTertiary),
                   ],
                 ),
@@ -1045,7 +1045,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
             _qrLockOn
                 ? 'Alarmı kapatmak için kayıtlı QR kodu taratman gerekir. Sessize alabilirsin ama taratmadan kapatamazsın.'
                 : 'Açarsan, alarmı kapatmak için bir QR kod taratman gerekir (örn. mutfaktaki bir etiket). Uyandığında yataktan kalkmanı sağlar.',
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 12.5, color: AppTheme.textSecondary, height: 1.4),
           ),
           if (_qrValue != null && _qrValue!.isNotEmpty) ...[
@@ -1059,7 +1059,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                   child: Text('QR tanımlı: ${_qrValue!}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12.5, color: AppTheme.textSecondary)),
                 ),
                 TextButton(
@@ -1167,7 +1167,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
             ],
           ),
           if (entries.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text('Program yok',
                   style: TextStyle(
@@ -1218,7 +1218,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
           Expanded(
             child: e.label != null
                 ? Text(e.label!,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12.5,
                         color: AppTheme.textSecondary),
                     maxLines: 1,

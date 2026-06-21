@@ -7,6 +7,7 @@ import 'core/constants/app_constants.dart';
 import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/flow_prefs.dart';
+import 'core/services/theme_prefs.dart';
 import 'core/services/app_lock_service.dart';
 import 'core/services/app_logger.dart';
 import 'core/services/notification_service.dart';
@@ -68,6 +69,10 @@ Future<void> main() async {
 
   // 6) Hizli akis tercihini yukle (SKT Tara ekranindaki toggle hatirlanir).
   await FlowPrefs.instance.load();
+
+  // 7) Tema tercihini yukle (Aydinlik/Koyu/Sistem).
+  await ThemePrefs.instance.load();
+  AppTheme.applyBrightness(ThemePrefs.instance.mode == ThemeMode.light);
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
@@ -213,21 +218,48 @@ class _SktTakipAppState extends State<SktTakipApp>
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppConstants.appName,
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      theme: AppTheme.dark,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.dark,
-      home: !_lockCheckDone
-          ? const Scaffold(
-              backgroundColor: AppTheme.background,
-              body: Center(child: CircularProgressIndicator()),
-            )
-          : (_locked
-              ? LockScreen(onUnlocked: _onUnlocked)
-              : MainShell(initialNavIndex: _initialNavIndex)),
+    return AnimatedBuilder(
+      animation: ThemePrefs.instance,
+      builder: (context, _) {
+        // Aktif renk paletini, GOSTERILECEK temaya gore onceden ayarla.
+        // (Statik AppTheme renkleri ile gosterilen ThemeData ayni palette
+        //  olmali; bu yuzden MaterialApp kurulmadan once dogru paleti set
+        //  ediyoruz.)
+        final mode = ThemePrefs.instance.mode;
+        final platformLight = MediaQuery.maybeOf(context)?.platformBrightness ==
+            Brightness.light;
+        final useLight = switch (mode) {
+          ThemeMode.light => true,
+          ThemeMode.dark => false,
+          ThemeMode.system => platformLight,
+        };
+        AppTheme.applyBrightness(useLight);
+
+        return MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          navigatorKey: navigatorKey,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: ThemePrefs.instance.mode,
+          builder: (context, child) {
+            // MaterialApp icindeki gercek brightness'a gore paleti son kez
+            // sabitle (system modunda dogru taraf secilsin).
+            final isLight =
+                Theme.of(context).brightness == Brightness.light;
+            AppTheme.applyBrightness(isLight);
+            return child ?? const SizedBox.shrink();
+          },
+          home: !_lockCheckDone
+              ? Scaffold(
+                  backgroundColor: AppTheme.background,
+                  body: const Center(child: CircularProgressIndicator()),
+                )
+              : (_locked
+                  ? LockScreen(onUnlocked: _onUnlocked)
+                  : MainShell(initialNavIndex: _initialNavIndex)),
+        );
+      },
     );
   }
 }

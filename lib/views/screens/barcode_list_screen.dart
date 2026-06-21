@@ -234,11 +234,11 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             e.stockCode != null && e.stockCode!.isNotEmpty
                 ? '${e.barcode}  •  Stok: ${e.stockCode}'
                 : e.barcode,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 12,
                 color: AppTheme.textSecondary)),
-        trailing: const Icon(Icons.chevron_right_rounded,
+        trailing: Icon(Icons.chevron_right_rounded,
             color: AppTheme.textTertiary),
         onTap: () async {
           final changed = await Navigator.of(context).push<bool>(

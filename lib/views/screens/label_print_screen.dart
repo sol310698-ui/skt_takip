@@ -481,10 +481,10 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
               size: 64, color: AppTheme.textTertiary),
           const SizedBox(height: 12),
           Text('“${_active.title}” listesi boş',
-              style: const TextStyle(
+              style: TextStyle(
                   color: AppTheme.textSecondary, fontSize: 15)),
           const SizedBox(height: 4),
-          const Text('Tara, Listeden veya Kısa Kod ile ürün ekleyin',
+          Text('Tara, Listeden veya Kısa Kod ile ürün ekleyin',
               style: TextStyle(color: AppTheme.textTertiary, fontSize: 12)),
         ],
       ),
@@ -518,7 +518,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                     const SizedBox(height: 4),
                     Text(
                       it.barcode,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
                         color: AppTheme.textSecondary,
@@ -764,7 +764,7 @@ class _DirectoryPickerSheetState extends State<_DirectoryPickerSheet> {
       maxChildSize: 0.95,
       expand: false,
       builder: (_, controller) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
@@ -791,7 +791,7 @@ class _DirectoryPickerSheetState extends State<_DirectoryPickerSheet> {
             const SizedBox(height: 8),
             Expanded(
               child: list.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text('Sonuç yok',
                           style: TextStyle(color: AppTheme.textSecondary)),
                     )
@@ -1149,7 +1149,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                       Icon(Icons.history_rounded,
                           size: 64, color: AppTheme.textTertiary),
                       const SizedBox(height: 12),
-                      const Text('Son 30 günde kayıt yok',
+                      Text('Son 30 günde kayıt yok',
                           style: TextStyle(
                               color: AppTheme.textSecondary, fontSize: 15)),
                     ],
@@ -1196,7 +1196,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                                       children: [
                                         Text(
                                           e.barcode,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontFamily: 'monospace',
                                             fontSize: 11,
                                             color: AppTheme.textSecondary,
@@ -1228,7 +1228,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                               ),
                               Text(
                                 DateFormat('HH:mm').format(e.addedAt),
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontSize: 12,
                                     color: AppTheme.textTertiary),
                               ),

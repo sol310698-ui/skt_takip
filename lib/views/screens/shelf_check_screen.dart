@@ -314,7 +314,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -388,7 +388,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
           const SizedBox(width: 10),
           Expanded(
               child: Text(label,
-                  style: const TextStyle(color: AppTheme.textSecondary))),
+                  style: TextStyle(color: AppTheme.textSecondary))),
           Text(value,
               style: TextStyle(
                   color: color, fontWeight: FontWeight.w700, fontSize: 15)),
@@ -551,7 +551,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
       bottom: 0,
       child: Container(
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -593,11 +593,11 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
                     ),
                     if (_refPrice != null)
                       Text('Referans: ${_refPrice!.toStringAsFixed(2)} ₺',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: AppTheme.textSecondary, fontSize: 12.5))
                     else if (_productBarcode != null)
                       Text(_productBarcode!,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: AppTheme.textSecondary,
                               fontSize: 12.5,
                               fontFamily: 'monospace')),

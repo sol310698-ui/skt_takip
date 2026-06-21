@@ -187,7 +187,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('Mevcut: ${item.quantity} adet',
-                  style: const TextStyle(color: AppTheme.textSecondary)),
+                  style: TextStyle(color: AppTheme.textSecondary)),
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -328,7 +328,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 'Bu palet mağazadan çıkacak. Alıcı bilgilerini girin; '
                 'irsaliye PDF oluşturulacak.',
                 style: TextStyle(
@@ -454,7 +454,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
         maxChildSize: 0.9,
         expand: false,
         builder: (ctx, scroll) => Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppTheme.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
@@ -476,7 +476,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
               if (transfers.isEmpty)
-                const Center(
+                Center(
                   child: Padding(
                     padding: EdgeInsets.all(20),
                     child: Text('Henüz transfer kaydı yok',
@@ -521,12 +521,12 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 Text(
                   '${t.createdAt.day.toString().padLeft(2, '0')}.${t.createdAt.month.toString().padLeft(2, '0')}.${t.createdAt.year}  •  '
                   '${t.itemsSnapshot.length} çeşit',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11.5, color: AppTheme.textSecondary),
                 ),
                 if (t.note != null)
                   Text(t.note!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11, color: AppTheme.textTertiary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
@@ -681,7 +681,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                             const SizedBox(height: 8),
                             Text(
                                 '${_items.length} çeşit • $_totalQty toplam adet',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontSize: 13,
                                     color: AppTheme.textSecondary)),
                           ],
@@ -781,14 +781,14 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     Text(item.barcode,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 11.5,
                             color: AppTheme.textTertiary)),
                   ],
                 ),
               ),
-              const Icon(Icons.more_vert_rounded,
+              Icon(Icons.more_vert_rounded,
                   color: AppTheme.textTertiary, size: 20),
             ],
           ),
@@ -803,7 +803,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -826,7 +826,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                     fontSize: 16, fontWeight: FontWeight.w700),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
             Text('${item.quantity} adet',
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13)),
             const SizedBox(height: 16),
             _optionTile(
@@ -894,7 +894,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                       style: const TextStyle(
                           fontWeight: FontWeight.w600, fontSize: 14.5)),
                   Text(subtitle,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12, color: AppTheme.textSecondary)),
                 ],
               ),
@@ -1053,7 +1053,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
+              Text(
                 'Ürün, deponun "Zemin" paletine taşınacak. '
                 'Kaç adet alınsın?',
                 style: TextStyle(
@@ -1314,7 +1314,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -1540,7 +1540,7 @@ class _TransferSheetState extends State<_TransferSheet> {
       minChildSize: 0.5,
       expand: false,
       builder: (ctx, scroll) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -1561,7 +1561,7 @@ class _TransferSheetState extends State<_TransferSheet> {
             const Text('Paleti Taşı',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text('Hedef depo ve rafı seçin.',
+            Text('Hedef depo ve rafı seçin.',
                 style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
             const SizedBox(height: 14),
 
@@ -1646,7 +1646,7 @@ class _TransferSheetState extends State<_TransferSheet> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_shelves.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(20),
                 child: Center(
                   child: Text('Bu depoda raf tanımlı değil',

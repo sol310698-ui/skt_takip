@@ -337,7 +337,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: AppTheme.card(),
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.info_outline_rounded,
                       color: AppTheme.textTertiary, size: 18),
@@ -387,7 +387,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12, color: AppTheme.textSecondary)),
                 const SizedBox(height: 2),
                 Text(value,
@@ -401,7 +401,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                     showCode
                         ? 'Kopyalamak için dokun • Kod için basılı tut'
                         : 'Kopyalamak için dokun',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 10.5, color: AppTheme.textTertiary),
                   ),
                 ],
@@ -565,7 +565,7 @@ class _CodeSheet extends StatelessWidget {
     final barcode = preferBarcode ? _pick1DBarcode() : null;
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -586,7 +586,7 @@ class _CodeSheet extends StatelessWidget {
             ),
           ),
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 13, color: AppTheme.textSecondary)),
           const SizedBox(height: 4),
           Text(
@@ -620,7 +620,7 @@ class _CodeSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            const Center(
+            Center(
               child: Text('— veya —',
                   style: TextStyle(
                       color: AppTheme.textTertiary, fontSize: 12)),

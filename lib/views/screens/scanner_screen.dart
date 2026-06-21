@@ -393,7 +393,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       alignment: Alignment.bottomCenter,
       child: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -634,7 +634,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
       duration: const Duration(milliseconds: 150),
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -685,7 +685,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
   Widget _buildBody() {
     switch (_state) {
       case _AiState.idle:
-        return const Text(
+        return Text(
           'Tarihi net çerçeveleyip fotoğraflayın. Görüntü AI ile '
           'okunacak (yakında).',
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
@@ -696,13 +696,13 @@ class _AiScanSheetState extends State<_AiScanSheet> {
             const Icon(Icons.check_circle_rounded,
                 color: AppTheme.statusSafe, size: 40),
             const SizedBox(height: 8),
-            const Text('Fotoğraf hazır. AI\'a göndermek için dokunun.',
+            Text('Fotoğraf hazır. AI\'a göndermek için dokunun.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppTheme.textSecondary)),
           ],
         );
       case _AiState.sending:
-        return const Column(
+        return Column(
           children: [
             CircularProgressIndicator(color: AppTheme.accent),
             SizedBox(height: 12),
@@ -716,7 +716,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
             : '-';
         return Column(
           children: [
-            const Text('AI Sonucu',
+            Text('AI Sonucu',
                 style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13)),
             const SizedBox(height: 4),
@@ -939,7 +939,7 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
       duration: const Duration(milliseconds: 150),
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -959,7 +959,7 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
                 ),
               ),
             ),
-            const Text('Son Kullanma Tarihi',
+            Text('Son Kullanma Tarihi',
                 style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -974,7 +974,7 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
                 if (_error != null) setState(() => _error = null);
               },
               onSubmitted: (_) => _submit(),
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 2,
@@ -982,7 +982,7 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
               textAlign: TextAlign.center,
               decoration: InputDecoration(
                 hintText: 'gg.aa.yyyy',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                     color: AppTheme.textTertiary, letterSpacing: 2),
                 errorText: _error,
                 filled: true,
@@ -991,11 +991,11 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppTheme.hairline),
+                  borderSide: BorderSide(color: AppTheme.hairline),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppTheme.hairline),
+                  borderSide: BorderSide(color: AppTheme.hairline),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),

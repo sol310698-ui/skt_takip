@@ -71,7 +71,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
           padding: EdgeInsets.only(
               bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppTheme.surface,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
@@ -298,14 +298,14 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                           item.total == 0
                               ? 'Henüz madde yok'
                               : '${item.done}/${item.total} tamamlandı',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12.5,
                               color: AppTheme.textSecondary),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right_rounded,
+                  Icon(Icons.chevron_right_rounded,
                       color: AppTheme.textTertiary),
                 ],
               ),
@@ -342,7 +342,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                 style:
                     TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Sabah yapılacaklar, açılış kontrolü, kapanış kontrolü gibi listeler oluştur. Her liste ayrı bir oturumdur.',
               textAlign: TextAlign.center,
               style: TextStyle(

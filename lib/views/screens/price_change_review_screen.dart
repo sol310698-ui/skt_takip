@@ -229,7 +229,7 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
                                                 ? AppTheme.statusWarning
                                                 : AppTheme.textPrimary)),
                                     Text(item.barcode,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                             fontFamily: 'monospace',
                                             fontSize: 11,
                                             color:
@@ -253,7 +253,7 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
                                   if (item.oldPrice != null)
                                     Text(
                                         '${item.oldPrice!.toStringAsFixed(2)} ₺',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                             fontSize: 11,
                                             decoration: TextDecoration
                                                 .lineThrough,
@@ -265,7 +265,7 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
                               InkWell(
                                 onTap: () =>
                                     setState(() => _items.removeAt(i)),
-                                child: const Padding(
+                                child: Padding(
                                   padding: EdgeInsets.all(4),
                                   child: Icon(Icons.close_rounded,
                                       size: 18,

@@ -352,7 +352,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     height: 1)),
             const SizedBox(height: 3),
             Text(label,
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600)),
@@ -478,7 +478,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
@@ -501,7 +501,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'Yedek alarak verilerinizi koruyun.',
               style: TextStyle(
                   color: AppTheme.textSecondary, fontSize: 13),

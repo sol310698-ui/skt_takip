@@ -396,7 +396,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Bu barkoddan ${parties.length} aktif parti:',
-                style: const TextStyle(
+                style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13)),
             const SizedBox(height: 10),
             ...parties.map((p) => Padding(
@@ -772,7 +772,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Widget _label(String t) => Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
         child: Text(t,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textSecondary)),
@@ -820,16 +820,16 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             focusNode: _dateFocus,
             keyboardType: TextInputType.number,
             inputFormatters: [_DateTextInputFormatter()],
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: AppTheme.textPrimary,
                 letterSpacing: 1.5),
             decoration: InputDecoration(
               hintText: 'gg.aa.yyyy',
-              hintStyle: const TextStyle(
+              hintStyle: TextStyle(
                   color: AppTheme.textTertiary, letterSpacing: 1.5),
-              prefixIcon: const Icon(Icons.keyboard_rounded,
+              prefixIcon: Icon(Icons.keyboard_rounded,
                   color: AppTheme.textSecondary),
               filled: true,
               fillColor: AppTheme.background.withOpacity(0.4),

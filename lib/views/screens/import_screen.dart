@@ -267,7 +267,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                       style: TextStyle(fontWeight: FontWeight.w700)),
                 ]),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'A sütunu: Barkod\nB sütunu: Ürün Adı\nC sütunu: Stok Kodu (opsiyonel)\n\nBaşlık satırı opsiyonel. Excel verileri en güvenilir kaynaktır ve internetten gelen bilgilerin üzerine yazar.',
                   style: TextStyle(
                       color: AppTheme.textSecondary, fontSize: 13),
@@ -277,7 +277,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Kayıtlı barkod: $_existingCount',
-                        style: const TextStyle(color: AppTheme.textSecondary)),
+                        style: TextStyle(color: AppTheme.textSecondary)),
                     if (_existingCount > 0)
                       TextButton(
                         onPressed: _clearAll,
@@ -309,7 +309,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
               children: [
                 Expanded(
                   child: Text('Önizleme: ${_preview.length} kayıt — $_fileName',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: AppTheme.textSecondary, fontSize: 13)),
                 ),
               ],
@@ -359,7 +359,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: Row(
                       children: [
-                        const Icon(Icons.qr_code,
+                        Icon(Icons.qr_code,
                             size: 16, color: AppTheme.textSecondary),
                         const SizedBox(width: 8),
                         Text(e.barcode,
@@ -399,7 +399,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
                   '... ve ${_preview.length - 50} kayıt daha',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppTheme.textSecondary, fontSize: 12),
                 ),
               ),
@@ -431,7 +431,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 6),
                   ..._errors.map((e) => Text(e,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: AppTheme.textSecondary,
                           fontSize: 12))),
                 ],

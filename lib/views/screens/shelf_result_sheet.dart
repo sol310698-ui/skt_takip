@@ -72,7 +72,7 @@ class ShelfResultSheet extends StatelessWidget {
     final isProduct = type == ShelfResultType.product;
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -114,7 +114,7 @@ class ShelfResultSheet extends StatelessWidget {
                             color: s.color)),
                     if (productName != null)
                       Text(productName!,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 14,
                               color: AppTheme.textSecondary),
                           maxLines: 1,
@@ -184,7 +184,7 @@ class ShelfResultSheet extends StatelessWidget {
         color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Icon(Icons.info_outline_rounded,
               color: AppTheme.textSecondary, size: 20),
@@ -262,7 +262,7 @@ class ShelfResultSheet extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const Text('Etiket Fiyatı',
+          Text('Etiket Fiyatı',
               style:
                   TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
           const SizedBox(height: 4),
@@ -274,7 +274,7 @@ class ShelfResultSheet extends StatelessWidget {
                   height: 1)),
           if (type == ShelfResultType.matchFirst) ...[
             const SizedBox(height: 6),
-            const Text('Referans olarak kaydedildi',
+            Text('Referans olarak kaydedildi',
                 style: TextStyle(
                     color: AppTheme.textTertiary, fontSize: 12)),
           ],
@@ -303,12 +303,12 @@ class ShelfResultSheet extends StatelessWidget {
             children: [
               Column(
                 children: [
-                  const Text('Önceki',
+                  Text('Önceki',
                       style: TextStyle(
                           color: AppTheme.textSecondary, fontSize: 12)),
                   const SizedBox(height: 4),
                   Text('${oldPrice?.toStringAsFixed(2) ?? "-"} ₺',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w700,
                           color: AppTheme.textTertiary,
@@ -319,7 +319,7 @@ class ShelfResultSheet extends StatelessWidget {
                   color: AppTheme.statusCritical, size: 30),
               Column(
                 children: [
-                  const Text('Yeni',
+                  Text('Yeni',
                       style: TextStyle(
                           color: AppTheme.textSecondary, fontSize: 12)),
                   const SizedBox(height: 4),
@@ -400,7 +400,7 @@ class ShelfResultSheet extends StatelessWidget {
           Icon(icon, size: 13, color: AppTheme.textTertiary),
           const SizedBox(width: 5),
           Text('$label: $value',
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 11.5, color: AppTheme.textSecondary)),
         ],
       ),
@@ -411,7 +411,7 @@ class ShelfResultSheet extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: AppTheme.textSecondary)),
+        Text(label, style: TextStyle(color: AppTheme.textSecondary)),
         Flexible(
           child: Text(value,
               style: TextStyle(
@@ -433,7 +433,7 @@ class ShelfResultSheet extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.qr_code_rounded,
+          Icon(Icons.qr_code_rounded,
               size: 20, color: AppTheme.textSecondary),
           const SizedBox(width: 10),
           Expanded(

@@ -266,7 +266,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                           borderRadius:
                               BorderRadius.circular(AppTheme.rSm),
                         ),
-                        child: const Icon(Icons.inventory_2_rounded,
+                        child: Icon(Icons.inventory_2_rounded,
                             color: AppTheme.textTertiary),
                       ),
                     const SizedBox(width: 14),
@@ -407,7 +407,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11.5, color: AppTheme.textSecondary)),
                 const SizedBox(height: 2),
                 Text(value,

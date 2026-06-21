@@ -188,7 +188,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                 // Barkod + urun adi
                 Row(
                   children: [
-                    const Icon(Icons.qr_code_rounded,
+                    Icon(Icons.qr_code_rounded,
                         size: 18, color: AppTheme.textSecondary),
                     const SizedBox(width: 8),
                     Text(barcode,
@@ -203,7 +203,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                   Padding(
                     padding: const EdgeInsets.only(left: 26),
                     child: Text(productName,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 14, color: AppTheme.textSecondary)),
                   ),
                 ],
@@ -242,14 +242,14 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.info_outline_rounded,
+            Icon(Icons.info_outline_rounded,
                 color: AppTheme.textSecondary, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 'Etiket fiyatı: ${labelPrice.toStringAsFixed(2)} ₺\n'
                 'Kayıtlarda bu ürünün fiyatı bulunamadı, kıyas yapılamıyor.',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13, color: AppTheme.textSecondary, height: 1.4),
               ),
             ),
@@ -327,12 +327,12 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
             Text(
               'Etiketteki fiyat kayıttaki güncel fiyattan ${diff.toStringAsFixed(2)} ₺ düşük. '
               'Müşteri etiket fiyatını talep edebilir — bu fark senin aleyhine olabilir.',
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 12.5, color: AppTheme.textSecondary, height: 1.4),
             ),
           ] else if (!equal) ...[
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Etiket fiyatı kayıttaki fiyata eşit veya daha yüksek. Bir sorun yok.',
               style: TextStyle(
                   fontSize: 12.5, color: AppTheme.textSecondary, height: 1.4),
@@ -348,7 +348,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 14, color: AppTheme.textSecondary)),
         Text(
           '${price.toStringAsFixed(2)} ₺',
@@ -393,7 +393,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                   neverSeen
                       ? 'Bu barkod hiçbir fiyat değişim oturumunda yer almamış. Yeni fiyat etiketi henüz uygulanmamış olabilir.'
                       : 'Bu ürün bir oturuma eklenmiş ama fiyatı değiştirildi olarak işaretlenmemiş. Eski fiyattan satılıyor olabilir — dikkat.',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13, color: AppTheme.textSecondary, height: 1.4),
                 ),
               ],
@@ -436,7 +436,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        const Text('Değişim tarihleri:',
+        Text('Değişim tarihleri:',
             style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
         const SizedBox(height: 8),
         ...changed.map((item) {
@@ -464,7 +464,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                       ),
                       Text(
                         DateFormat('EEEE • HH:mm', 'tr').format(date),
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12.5, color: AppTheme.textTertiary),
                       ),
                     ],
@@ -528,7 +528,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'A4 tablolarını yüksek doğrulukla okumak için Gemini API '
               'anahtarı gerekir. Ücretsiz: aistudio.google.com → '
               '"Get API key". Anahtar cihazda şifreli saklanır.',
@@ -721,7 +721,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                       Text(
                         '${fmtTime.format(s.session.createdAt)}'
                         '${s.session.a4Count > 0 ? "  •  ${s.session.a4Count} A4" : ""}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12, color: AppTheme.textTertiary),
                       ),
                     ],
@@ -774,7 +774,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                 ],
               ),
             ] else
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 10),
                 child: Text('Henüz A4 eklenmedi',
                     style: TextStyle(
@@ -794,7 +794,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                 fontSize: 14, fontWeight: FontWeight.w800, color: color)),
         const SizedBox(width: 4),
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 11.5, color: AppTheme.textTertiary)),
       ],
     );

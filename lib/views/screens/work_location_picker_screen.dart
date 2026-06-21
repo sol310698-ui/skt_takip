@@ -123,7 +123,7 @@ class _WorkLocationPickerScreenState extends State<WorkLocationPickerScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                const Padding(
+                Padding(
                   padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
                   child: Text(
                     'Haritayı kaydırarak iş yerinizi ortadaki pine getirin.',
@@ -174,10 +174,10 @@ class _WorkLocationPickerScreenState extends State<WorkLocationPickerScreen> {
                 ),
                 Container(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  decoration: const BoxDecoration(color: AppTheme.surface),
+                  decoration: BoxDecoration(color: AppTheme.surface),
                   child: Row(
                     children: [
-                      const Text('Yarıçap:',
+                      Text('Yarıçap:',
                           style: TextStyle(
                               color: AppTheme.textSecondary, fontSize: 13)),
                       Expanded(
@@ -193,7 +193,7 @@ class _WorkLocationPickerScreenState extends State<WorkLocationPickerScreen> {
                         ),
                       ),
                       Text('${_radiusMeters.round()} m',
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: AppTheme.textPrimary,
                               fontWeight: FontWeight.w700)),
                     ],

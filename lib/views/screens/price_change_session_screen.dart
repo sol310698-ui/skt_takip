@@ -661,7 +661,7 @@ class _PriceChangeSessionScreenState
         minChildSize: 0.4,
         expand: false,
         builder: (ctx, scrollCtrl) => Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppTheme.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
@@ -702,7 +702,7 @@ class _PriceChangeSessionScreenState
               SectionLabel('Etiket Kanıtları (${proofs.length})'),
               const SizedBox(height: 8),
               if (proofs.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.all(20),
                   child: Center(
                     child: Text('Henüz kanıt fotoğrafı yok',
@@ -750,7 +750,7 @@ class _PriceChangeSessionScreenState
                   width: width ?? 86,
                   height: height ?? 86,
                   color: AppTheme.surfaceAlt,
-                  child: const Icon(Icons.broken_image_rounded,
+                  child: Icon(Icons.broken_image_rounded,
                       color: AppTheme.textTertiary),
                 ),
         ),
@@ -888,7 +888,7 @@ class _PriceChangeSessionScreenState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Kalan: $pending / $total',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontWeight: FontWeight.w700,
                             color: AppTheme.textSecondary)),
                     const SizedBox(height: 4),
@@ -978,10 +978,10 @@ class _PriceChangeSessionScreenState
             children: [
               if (item.oldPrice != null) ...[
                 Text('${item.oldPrice!.toStringAsFixed(2)} ₺',
-                    style: const TextStyle(
+                    style: TextStyle(
                         decoration: TextDecoration.lineThrough,
                         color: AppTheme.textTertiary)),
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
                   child: Icon(Icons.arrow_forward_rounded,
                       size: 16, color: AppTheme.textSecondary),
@@ -1127,7 +1127,7 @@ class _PriceChangeSessionScreenState
                       Text(
                           '${item.barcode}'
                           '${item.aisle != null ? "  •  ${item.aisle}" : ""}',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 11,
                               color: AppTheme.textTertiary)),
@@ -1314,7 +1314,7 @@ class _EditItemSheetState extends State<_EditItemSheet>
         child: Container(
           margin: EdgeInsets.only(bottom: bottomInset),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppTheme.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),

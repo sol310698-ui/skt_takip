@@ -91,7 +91,7 @@ class ProductCard extends StatelessWidget {
                               size: 12, color: AppTheme.textTertiary),
                           const SizedBox(width: 5),
                           Text(dateStr,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 12.5,
                                   color: AppTheme.textSecondary,
                                   fontWeight: FontWeight.w500)),
@@ -249,7 +249,7 @@ class ProductCard extends StatelessWidget {
 
   Widget _menu() {
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert_rounded, color: AppTheme.textTertiary),
+      icon: Icon(Icons.more_vert_rounded, color: AppTheme.textTertiary),
       color: AppTheme.surfaceHigh,
       shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
