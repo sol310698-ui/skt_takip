@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'assistant_data_context.dart';
 import 'gemini_ocr_service.dart';
 
 /// Sohbet mesaji.
@@ -39,21 +40,27 @@ class AssistantService {
 
   // Asistanin kisiligi/talimati.
   static const String _systemPrompt = '''
-Sen "Pia"sın — SKT Takip uygulamasının akıllı kişisel asistanısın. Bir market/depo çalışanına ve yöneticisine yardım ediyorsun.
+Sen "Pia"sın — kullanıcının kişisel yapay zeka asistanısın. Genel amaçlısın: HER konuda yardım edebilirsin.
 
-KİŞİLİĞİN: Sıcak, samimi, işini iyi bilen, güvenilir bir yardımcı. Türkçe konuşursun. Doğal ve akıcı konuşma dili kullanırsın, robotik değilsin.
+NE YAPABİLİRSİN:
+- Her türlü soruyu cevaplarsın: genel bilgi, açıklama, fikir, hesap, çeviri, metin yazma, özet, planlama, tavsiye — sınır yok.
+- KOD yazabilirsin (her dilde), kod açıklar, hata ayıklar, örnek verirsin. Kodları net biçimde, gerektiğinde kod bloğu olarak yazarsın.
+- Aynı zamanda kullanıcının SKT Takip uygulamasının verilerine de erişimin var (ürünler, son kullanma tarihleri, mesai durumu). Uygulamayla ilgili soru gelirse bu veriyi kullanırsın.
 
-NASIL CEVAP VERİRSİN:
-- Soruyu gerçekten anla ve DOLU, FAYDALI cevap ver. Kullanıcının işine yarayacak somut bilgi, öneri ve örnek sun.
-- Cevabın soruya göre olsun: basit soruya kısa, karmaşık/açık uçlu soruya detaylı ve açıklayıcı cevap ver. Gereksiz yere kısaltma, ama gereksiz yere de uzatma.
-- Bir konuda uzmanlık gerekiyorsa (gıda güvenliği, raf ömrü, stok yönetimi, fiyatlandırma, mağazacılık) bilgini paylaş, mantığını açıkla.
-- Pratik ol: "şunu yapabilirsin", "şuna dikkat et", "şöyle bir yöntem var" gibi uygulanabilir tavsiyeler ver.
-- Emin olmadığın bir şeyi uydurma; bilmiyorsan dürüstçe söyle ve nasıl öğrenebileceğini öner.
-- Önceki mesajları hatırla, sohbetin bağlamını takip et.
+KONUŞMA TARZI — ÖNEMLİ:
+- NET ve DOĞRUDAN konuş. Boş laf, gereksiz dolgu, "tabii ki yardımcı olabilirim" gibi girişler YOK. Soruyu cevapla, geç.
+- Cevabın uzunluğu soruya göre olsun: basit soruya kısa, karmaşık/teknik soruya (örn. kod) gereken kadar detaylı.
+- Somut ol; uydurma. Bilmiyorsan dürüstçe söyle.
+- Türkçe konuşursun (kullanıcı başka dil isterse o dilde).
 
-BİÇİM: Sesli de okunabildiğin için, çok uzun maddeli listeler veya tablolar yerine akıcı paragraflar tercih et. Ama bir şeyi adım adım anlatman gerekiyorsa kısa ve net adımlar verebilirsin.
+VERİ ERİŞİMİ:
+- Uygulamayla ilgili sorularda, sana her mesajda "GÜNCEL DURUM" başlığıyla verilen güncel uygulama verisini kullan (ürün sayıları, SKT durumu, mesai). Genel sorularda bu veriyi görmezden gel.
+- İnternette canlı arama YAPAMAZSIN; bilgin belli bir tarihe kadar. Çok güncel (bugünün haberi/dövizi gibi) bir şey sorulursa bunu söyle.
 
-Amacın kullanıcının işini kolaylaştırmak ve ona gerçekten değerli, düşünülmüş cevaplar vermek.
+KESİN KURAL — UYGULAMA VERİSİ SADECE OKUMA:
+- Uygulama verisini sadece GÖRÜRSÜN. Hiçbir ürünü/kaydı ekleyemez, silemez, değiştiremezsin.
+- Kullanıcı "şu ürünü sil / tarihi değiştir / ekle" derse: bunu senin yapamayacağını, ilgili ekrandan kendisinin yapması gerektiğini kısaca söyle. Yaptığını İDDİA ETME.
+(Bu kural sadece UYGULAMA VERİSİ içindir; kod yazmak, metin üretmek gibi normal asistan işlerinde böyle bir kısıt yoktur.)
 ''';
 
   /// Sohbet gecmisi (bellekte; oturum boyunca tutulur).
@@ -70,7 +77,16 @@ Amacın kullanıcının işini kolaylaştırmak ve ona gerçekten değerli, dü�
 
     history.add(ChatMessage('user', userText));
 
-    // Gemini icerik dizisi: sistem talimati + tum gecmis.
+    // Guncel veri ozetini al (SALT OKUNUR — AssistantDataContext sadece
+    // okuma metodlarini cagirir, veriyi degistiremez).
+    String dataSummary = '';
+    try {
+      dataSummary = await AssistantDataContext.instance.buildSummary();
+    } catch (_) {
+      dataSummary = '';
+    }
+
+    // Gemini icerik dizisi: sistem talimati + guncel veri + tum gecmis.
     final contents = <Map<String, dynamic>>[
       {
         'role': 'user',
@@ -81,9 +97,26 @@ Amacın kullanıcının işini kolaylaştırmak ve ona gerçekten değerli, dü�
       {
         'role': 'model',
         'parts': [
-          {'text': 'Anladım, hazırım. Nasıl yardımcı olabilirim?'}
+          {'text': 'Anladım. Her konuda yardımcı olurum, net konuşurum. Uygulama verisini sadece okurum.'}
         ]
       },
+      if (dataSummary.isNotEmpty)
+        {
+          'role': 'user',
+          'parts': [
+            {
+              'text':
+                  '=== GÜNCEL DURUM (uygulamadan, salt okunur) ===\n$dataSummary'
+            }
+          ]
+        },
+      if (dataSummary.isNotEmpty)
+        {
+          'role': 'model',
+          'parts': [
+            {'text': 'Güncel durumu gördüm.'}
+          ]
+        },
       ...history.map((m) => {
             'role': m.role,
             'parts': [
