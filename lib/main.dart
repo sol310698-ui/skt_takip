@@ -306,9 +306,9 @@ class _AssistantOverlayState extends State<_AssistantOverlay> {
         // Asistan ekrani aciksa veya kilitliyken FAB'i gizle.
         if (!_open && _assistantAllowed)
           Positioned(
-            // Sag alt: SKT Tara'daki "Hizli Akis" toggle'i sol altta oldugu
-            // icin cakismamasi adina sag tarafa konuldu.
-            right: 16,
+            // Sol alt (kullanici istegi). Not: SKT Tara'daki "Hizli Akis"
+            // toggle'i da sol altta; cakismamasi icin FAB biraz yukarida.
+            left: 16,
             bottom: 88 + MediaQuery.of(context).padding.bottom,
             child: _AssistantFab(onTap: _openAssistant),
           ),

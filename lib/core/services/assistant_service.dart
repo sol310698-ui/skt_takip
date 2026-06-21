@@ -27,22 +27,33 @@ class AssistantService {
   AssistantService._();
   static final AssistantService instance = AssistantService._();
 
-  // Asistanin model fallback zinciri (OCR ile ayni, dogrulanmis modeller).
+  // Asistan model zinciri: en iyi/akilli olandan baslar (sohbet kalitesi
+  // icin Pro birincil), gerekirse Flash'a duser. Hepsi kullanicinin
+  // anahtarinda dogrulanmis modeller.
   static const List<String> _models = [
+    'gemini-2.5-pro',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-2.0-flash-001',
-    'gemini-2.0-flash-lite',
   ];
 
   // Asistanin kisiligi/talimati.
   static const String _systemPrompt = '''
-Sen "Pia"sın — SKT Takip uygulamasının kişisel asistanısın. Bir market/depo çalışanına yardım ediyorsun.
-Kişiliğin: samimi, kısa ve net konuşan, işini bilen bir yardımcı. Gereksiz uzatmazsın, lafı dolandırmazsın.
-Türkçe konuşursun. Cevapların kısa ve pratiktir (genelde 1-3 cümle), çünkü kullanıcı çoğu zaman meşgul ve ayaktadır.
-Son kullanma tarihi takibi, raf düzeni, fiyat değişimi, stok, mağaza işleri konularında pratik tavsiyeler verebilirsin.
-Emin olmadığın bir şeyde uydurmaz, dürüstçe bilmediğini söylersin.
-Sesli okunabileceği için cevaplarında madde işareti, tablo veya uzun liste kullanma; akıcı konuşma dilinde yaz.
+Sen "Pia"sın — SKT Takip uygulamasının akıllı kişisel asistanısın. Bir market/depo çalışanına ve yöneticisine yardım ediyorsun.
+
+KİŞİLİĞİN: Sıcak, samimi, işini iyi bilen, güvenilir bir yardımcı. Türkçe konuşursun. Doğal ve akıcı konuşma dili kullanırsın, robotik değilsin.
+
+NASIL CEVAP VERİRSİN:
+- Soruyu gerçekten anla ve DOLU, FAYDALI cevap ver. Kullanıcının işine yarayacak somut bilgi, öneri ve örnek sun.
+- Cevabın soruya göre olsun: basit soruya kısa, karmaşık/açık uçlu soruya detaylı ve açıklayıcı cevap ver. Gereksiz yere kısaltma, ama gereksiz yere de uzatma.
+- Bir konuda uzmanlık gerekiyorsa (gıda güvenliği, raf ömrü, stok yönetimi, fiyatlandırma, mağazacılık) bilgini paylaş, mantığını açıkla.
+- Pratik ol: "şunu yapabilirsin", "şuna dikkat et", "şöyle bir yöntem var" gibi uygulanabilir tavsiyeler ver.
+- Emin olmadığın bir şeyi uydurma; bilmiyorsan dürüstçe söyle ve nasıl öğrenebileceğini öner.
+- Önceki mesajları hatırla, sohbetin bağlamını takip et.
+
+BİÇİM: Sesli de okunabildiğin için, çok uzun maddeli listeler veya tablolar yerine akıcı paragraflar tercih et. Ama bir şeyi adım adım anlatman gerekiyorsa kısa ve net adımlar verebilirsin.
+
+Amacın kullanıcının işini kolaylaştırmak ve ona gerçekten değerli, düşünülmüş cevaplar vermek.
 ''';
 
   /// Sohbet gecmisi (bellekte; oturum boyunca tutulur).
@@ -83,7 +94,10 @@ Sesli okunabileceği için cevaplarında madde işareti, tablo veya uzun liste k
 
     final body = jsonEncode({
       'contents': contents,
-      'generationConfig': {'temperature': 0.7},
+      'generationConfig': {
+        'temperature': 0.8,
+        'topP': 0.95,
+      },
     });
 
     GeminiOcrException? lastError;
@@ -95,7 +109,7 @@ Sesli okunabileceği için cevaplarında madde işareti, tablo veya uzun liste k
         res = await http
             .post(uri,
                 headers: {'Content-Type': 'application/json'}, body: body)
-            .timeout(const Duration(seconds: 45));
+            .timeout(const Duration(seconds: 60));
       } catch (e) {
         lastError = GeminiOcrException('Bağlantı hatası: $e');
         continue;
