@@ -39,9 +39,9 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _torchOn = false;
   final GlobalKey _previewKey = GlobalKey();
 
-  // Foto cekilince uygulanacak otomatik zoom — secim hafizada kalir.
-  static double _preferredZoom = 2.0;
-  static const List<double> _zoomLevels = [1, 2, 3, 4];
+  // Foto cekilince _PhotoDateScreen'e gecirilen baslangic dijital zoom'u.
+  // Artik kullanici canli slider'da ne kadar yakinlastirdiysa o yansir.
+  static double _preferredZoom = 1.0;
 
   // CANLI YAKINLASTIRMA (kucuk yazilari gozle okumak icin).
   // Alttaki kaydirilabilir slider ile canli onizleme buyutulur. Boylece
@@ -66,21 +66,34 @@ class _ScannerScreenState extends State<ScannerScreen>
   }
 
   // Uygulama arka plana gidince kamerayi birak, donunce yeniden kur.
+  // Kilit/parmak izi/foto cekme gibi gecislerde de tetiklenir; bu yuzden
+  // yeniden kurulum YARIS'a dayanikli olmali (asagidaki _initCamera tek
+  // seferde calisir, ust uste cagrilsa bile bozulmaz).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      c.dispose();
-      _controller = null;
-      if (mounted) setState(() {});
+      final c = _controller;
+      if (c != null) {
+        _controller = null;
+        _initFuture = null;
+        c.dispose();
+        if (mounted) setState(() {});
+      }
     } else if (state == AppLifecycleState.resumed) {
+      // One donunce kamerayi yeniden kur (zaten kuruluysa _initCamera
+      // kendini korur).
       _initCamera();
     }
   }
 
+  bool _initializing = false;
+
   Future<void> _initCamera() async {
+    // Zaten kurulu veya kuruluyorsa tekrar baslatma (yaris korumasi).
+    if (_initializing) return;
+    if (_controller != null && _controller!.value.isInitialized) return;
+    _initializing = true;
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) return;
@@ -95,24 +108,35 @@ class _ScannerScreenState extends State<ScannerScreen>
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      _initFuture = controller.initialize();
-      await _initFuture;
+      final initFuture = controller.initialize();
+      _initFuture = initFuture;
+      await initFuture;
       if (!mounted) {
         controller.dispose();
         return;
       }
-      setState(() => _controller = controller);
+      // Bu init sirasinda ekran arka plana gidip controller sifirlandiysa
+      // (yaris), yeni controller'i birak ve cik.
+      if (_controller != null) {
+        controller.dispose();
+        return;
+      }
+      // Onceki zoom'u koru.
+      setState(() {
+        _controller = controller;
+        _liveZoom = 1.0;
+      });
 
       // Canli zoom araligini al (cihaza gore degisir, genelde 1x..~8x).
       try {
         final maxZ = await controller.getMaxZoomLevel();
         final minZ = await controller.getMinZoomLevel();
+        await controller.setZoomLevel(minZ);
         if (mounted) {
           setState(() {
             _minZoom = minZ;
-            // Cok yuksek zoomlar bulanik olur; makul bir tavan koy (8x).
             _maxZoom = maxZ > 8.0 ? 8.0 : maxZ;
-            _liveZoom = _liveZoom.clamp(_minZoom, _maxZoom).toDouble();
+            _liveZoom = minZ;
           });
         }
       } catch (_) {
@@ -120,6 +144,8 @@ class _ScannerScreenState extends State<ScannerScreen>
       }
     } catch (_) {
       // Kamera acilamadi — kullanici elle girebilir.
+    } finally {
+      _initializing = false;
     }
   }
 
@@ -128,7 +154,11 @@ class _ScannerScreenState extends State<ScannerScreen>
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
     final z = value.clamp(_minZoom, _maxZoom).toDouble();
-    setState(() => _liveZoom = z);
+    setState(() {
+      _liveZoom = z;
+      // Foto cekilirse de ayni yakinlik yansisin.
+      _preferredZoom = z;
+    });
     try {
       await c.setZoomLevel(z);
     } catch (_) {}
@@ -296,83 +326,12 @@ class _ScannerScreenState extends State<ScannerScreen>
               ),
             ),
 
-          // ── Ust ipucu (sade, goz yormayan) ──
-          if (ready)
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.13,
-              left: 24,
-              right: 24,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.55),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: const Text(
-                    'Tarihi çerçeveye getirin · alttan yakınlaştırın',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            ),
+          // (Ust ipucu kaldirildi — gereksiz bilgi, ekrani sadelestirdik.)
 
-          // ── Sol ust: otomatik zoom secici (foto cekilince uygulanir) ──
-          if (ready)
-            Positioned(
-              top: 12,
-              left: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 2),
-                      child: Icon(Icons.zoom_in_rounded,
-                          color: Colors.white70, size: 18),
-                    ),
-                    ..._zoomLevels.map((z) {
-                      final active = _preferredZoom == z;
-                      return GestureDetector(
-                        onTap: () => setState(() => _preferredZoom = z),
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 2),
-                          width: 38,
-                          padding: const EdgeInsets.symmetric(vertical: 7),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: active
-                                ? AppTheme.primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Text(
-                            '${z.toInt()}x',
-                            style: TextStyle(
-                              color: active ? Colors.white : Colors.white60,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ),
+
+          // (Sol ust foto-zoom secici kaldirildi — alttaki canli slider
+          //  zaten zoom isini goruyor; ust kisim sadelesti.)
+
 
           // ── Canli yakinlastirma slider'i (kucuk yazilari okumak icin) ──
           if (ready && _maxZoom > _minZoom) _buildZoomSlider(),
@@ -436,8 +395,8 @@ class _ScannerScreenState extends State<ScannerScreen>
     return Positioned(
       left: 16,
       right: 16,
-      // Aksiyon cubugunun ustunde dursun.
-      bottom: 190,
+      // Aksiyon cubugunun (Hizli Akis + butonlar) ustunde dursun.
+      bottom: 210,
       child: SafeArea(
         top: false,
         child: Container(
