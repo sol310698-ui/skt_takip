@@ -43,6 +43,14 @@ class _ScannerScreenState extends State<ScannerScreen>
   static double _preferredZoom = 2.0;
   static const List<double> _zoomLevels = [1, 2, 3, 4];
 
+  // CANLI YAKINLASTIRMA (kucuk yazilari gozle okumak icin).
+  // Alttaki kaydirilabilir slider ile canli onizleme buyutulur. Boylece
+  // kullanici etiketteki kucuk SKT'yi yakinlastirip KENDI gozuyle okur,
+  // sonra normal akistan (Foto/AI/Elle) devam eder.
+  double _liveZoom = 1.0;
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
+
   @override
   void initState() {
     super.initState();
@@ -94,9 +102,36 @@ class _ScannerScreenState extends State<ScannerScreen>
         return;
       }
       setState(() => _controller = controller);
+
+      // Canli zoom araligini al (cihaza gore degisir, genelde 1x..~8x).
+      try {
+        final maxZ = await controller.getMaxZoomLevel();
+        final minZ = await controller.getMinZoomLevel();
+        if (mounted) {
+          setState(() {
+            _minZoom = minZ;
+            // Cok yuksek zoomlar bulanik olur; makul bir tavan koy (8x).
+            _maxZoom = maxZ > 8.0 ? 8.0 : maxZ;
+            _liveZoom = _liveZoom.clamp(_minZoom, _maxZoom).toDouble();
+          });
+        }
+      } catch (_) {
+        // Zoom desteklenmiyorsa slider gizlenir.
+      }
     } catch (_) {
       // Kamera acilamadi — kullanici elle girebilir.
     }
+  }
+
+  /// Canli onizleme zoom'unu uygular (slider'dan cagrilir).
+  Future<void> _setLiveZoom(double value) async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final z = value.clamp(_minZoom, _maxZoom).toDouble();
+    setState(() => _liveZoom = z);
+    try {
+      await c.setZoomLevel(z);
+    } catch (_) {}
   }
 
   Future<void> _toggleTorch() async {
@@ -261,7 +296,7 @@ class _ScannerScreenState extends State<ScannerScreen>
               ),
             ),
 
-          // ── Ust ipucu ──
+          // ── Ust ipucu (sade, goz yormayan) ──
           if (ready)
             Positioned(
               top: MediaQuery.of(context).size.height * 0.13,
@@ -270,18 +305,19 @@ class _ScannerScreenState extends State<ScannerScreen>
               child: Center(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 12),
+                      horizontal: 18, vertical: 10),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary,
+                    color: Colors.black.withOpacity(0.55),
                     borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white12),
                   ),
                   child: const Text(
-                    'Son kullanma tarihini çerçeveye getirin',
+                    'Tarihi çerçeveye getirin · alttan yakınlaştırın',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 15,
-                        fontWeight: FontWeight.w700),
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -338,6 +374,9 @@ class _ScannerScreenState extends State<ScannerScreen>
               ),
             ),
 
+          // ── Canli yakinlastirma slider'i (kucuk yazilari okumak icin) ──
+          if (ready && _maxZoom > _minZoom) _buildZoomSlider(),
+
           // ── Alt aksiyon cubugu ──
           if (ready) _buildActionBar(),
         ],
@@ -385,6 +424,70 @@ class _ScannerScreenState extends State<ScannerScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Canli yakinlastirma slider'i. Alt aksiyon cubugunun hemen ustunde,
+  /// parmakla kaydirilabilir. Kucuk yazilari (SKT) gozle okumak icin canli
+  /// onizlemeyi buyutur. Sade ve goz yormayan tasarim.
+  Widget _buildZoomSlider() {
+    return Positioned(
+      left: 16,
+      right: 16,
+      // Aksiyon cubugunun ustunde dursun.
+      bottom: 190,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.55),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.zoom_out_rounded,
+                  color: Colors.white70, size: 22),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: AppTheme.primary,
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: Colors.white,
+                    overlayColor: AppTheme.primary.withOpacity(0.2),
+                    trackHeight: 4,
+                    thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 12),
+                  ),
+                  child: Slider(
+                    value: _liveZoom.clamp(_minZoom, _maxZoom).toDouble(),
+                    min: _minZoom,
+                    max: _maxZoom,
+                    onChanged: _setLiveZoom,
+                  ),
+                ),
+              ),
+              const Icon(Icons.zoom_in_rounded,
+                  color: Colors.white70, size: 22),
+              const SizedBox(width: 8),
+              // Mevcut zoom seviyesi (ornek "2.4x").
+              SizedBox(
+                width: 44,
+                child: Text(
+                  '${_liveZoom.toStringAsFixed(1)}x',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
