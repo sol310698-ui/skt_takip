@@ -752,7 +752,20 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Barkod ile Ara')),
+      backgroundColor: Colors.black,
+      // Kamera onizlemesi status bar arkasina kadar uzansin.
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: const Text('Barkod ile Ara'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
+      ),
       body: Stack(
         alignment: Alignment.center,
         children: [

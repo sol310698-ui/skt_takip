@@ -57,7 +57,49 @@ jobs:
         # derlenir. Diger mimariler (armeabi-v7a, x86_64) dahil edilmez;
         # boylece APK boyutu onemli olcude kuculur. Bu cihaza ozeldir —
         # baska mimarideki bir cihaza kurulamaz.
-        run: flutter build apk --release --target-platform android-arm64
+        #
+        # Cikti hem ekrana hem build.log dosyasina yazilir (tee). Boylece
+        # build basarisiz olursa asagidaki adimlar hatalari ayiklayip
+        # kolayca kopyalanabilir bir ozet ve indirilebilir log uretir.
+        run: |
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee build.log
+
+      - name: Hata özeti (yalnızca build başarısızsa)
+        # Bu adim SADECE onceki adim coktugunde calisir (if: failure()).
+        # build.log icinden hata satirlarini ayiklayip GitHub Actions
+        # "Summary" sayfasina kod blogu olarak basar. O sayfadaki kod
+        # bloklarinin sag ustunde GitHub'in kendi KOPYALA butonu cikar —
+        # tek tikla tum hatayi kopyalayip yapistirabilirsin.
+        if: failure()
+        run: |
+          {
+            echo "## ❌ Build başarısız — hata özeti"
+            echo ""
+            echo "Aşağıdaki bloğun sağ üstündeki kopyala simgesine basarak hataları kopyalayabilirsin:"
+            echo ""
+            echo '```'
+            # 'error', 'Error', 'FAILURE', 'Exception', 'hata' iceren
+            # satirlari ve etrafindaki birkac satiri topla. Hicbiri yoksa
+            # son 60 satiri goster (genel cokme durumu).
+            if grep -niE "error:|FAILURE|Exception|what went wrong|> Task .* FAILED" build.log > /dev/null; then
+              grep -niE "error:|FAILURE|Exception|what went wrong|> Task .* FAILED|\.xml:[0-9]+:|\.dart:[0-9]+:|\.kt:[0-9]+:" build.log | head -80
+            else
+              echo "(Belirgin hata satırı bulunamadı, son 60 satır:)"
+              tail -60 build.log
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build log dosyasını yükle (yalnızca başarısızsa)
+        # build.log'u indirilebilir artifact olarak yukler. Telefondan
+        # GitHub uygulamasi/sitesi uzerinden indirip tam logu inceleyebilir
+        # veya paylasabilirsin.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4

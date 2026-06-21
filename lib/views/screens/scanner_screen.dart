@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -7,6 +8,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/services/gemini_ocr_service.dart';
 import '../../core/theme/app_theme.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -472,9 +474,9 @@ class _AiScanSheetState extends State<_AiScanSheet> {
     }
   }
 
-  /// AI'a gonderme - PLACEHOLDER.
-  /// TODO(ai): Burada cekilen fotograf (_photoPath) AI servisine gonderilip
-  /// donen tarih _result'a yazilacak. Su an baglanti yok.
+  /// AI'a gonderme — cekilen fotograf Gemini'ye gonderilir, donen SKT
+  /// tarihi _result'a yazilir. Anahtar yoksa/okuma basarisizsa kullaniciya
+  /// mesaj gosterilir ve elle girise yonlendirilir.
   Future<void> _sendToAi() async {
     if (_photoPath == null) return;
     setState(() {
@@ -482,17 +484,42 @@ class _AiScanSheetState extends State<_AiScanSheet> {
       _message = '';
     });
 
-    // Simulasyon: kisa bir bekleme, ardindan "henuz baglanmadi" durumu.
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
+    try {
+      final hasKey = await GeminiOcrService.instance.hasApiKey();
+      if (!hasKey) {
+        if (!mounted) return;
+        setState(() {
+          _state = _AiState.failed;
+          _message =
+              'Gemini API anahtarı tanımlı değil. Fiyat Değişim ekranındaki '
+              'AI/Gemini ayarından anahtarınızı girin, ya da elle giriş '
+              'kullanın.';
+        });
+        return;
+      }
 
-    // AI baglanti kurulmadigi icin simdilik basarisiz dur.
-    setState(() {
-      _state = _AiState.failed;
-      _message =
-          'AI okuma yakında aktif olacak. Şimdilik "Detaylı Tara" veya '
-          'elle giriş kullanabilirsiniz.';
-    });
+      final date = await GeminiOcrService.instance
+          .extractExpiryDate(File(_photoPath!));
+      if (!mounted) return;
+      setState(() {
+        _result = date;
+        _state = _AiState.done;
+        _message = '';
+      });
+    } on GeminiOcrException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _state = _AiState.failed;
+        _message = '${e.message}. Tekrar çekebilir veya elle '
+            'girebilirsiniz.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _state = _AiState.failed;
+        _message = 'Beklenmeyen hata: $e';
+      });
+    }
   }
 
   void _confirm() {
