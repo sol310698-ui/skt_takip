@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -9,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/services/camera_helper.dart';
+import '../../core/services/flow_prefs.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -182,7 +184,8 @@ class _ScannerScreenState extends State<ScannerScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const _AiScanSheet(),
+      isDismissible: !FlowPrefs.instance.fastFlow,
+      builder: (_) => _AiScanSheet(fastFlow: FlowPrefs.instance.fastFlow),
     );
     if (result != null && mounted) Navigator.of(context).pop(result);
   }
@@ -342,6 +345,51 @@ class _ScannerScreenState extends State<ScannerScreen>
     );
   }
 
+  /// Sol altta "Hizli Akis" gecisi. Acik iken AI akisi otomatik ilerler.
+  /// Tercih kalicidir (FlowPrefs).
+  Widget _buildFastFlowToggle() {
+    final on = FlowPrefs.instance.fastFlow;
+    return InkWell(
+      onTap: () async {
+        await FlowPrefs.instance.setFastFlow(!on);
+        if (mounted) setState(() {});
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: on
+              ? AppTheme.accent.withOpacity(0.18)
+              : AppTheme.background.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: on ? AppTheme.accent : AppTheme.hairline,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              on ? Icons.bolt_rounded : Icons.bolt_outlined,
+              size: 18,
+              color: on ? AppTheme.accent : AppTheme.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              on ? 'Hızlı Akış: Açık' : 'Hızlı Akış: Kapalı',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: on ? AppTheme.accent : AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionBar() {
     return Align(
       alignment: Alignment.bottomCenter,
@@ -357,6 +405,12 @@ class _ScannerScreenState extends State<ScannerScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // ── Hizli Akis gecisi (sol altta, kalici) ──
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _buildFastFlowToggle(),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   // Foto cek + elle gir (gorme dostu ana akis)
@@ -444,7 +498,10 @@ class _CameraPreviewFitted extends StatelessWidget {
 enum _AiState { idle, captured, sending, done, failed }
 
 class _AiScanSheet extends StatefulWidget {
-  const _AiScanSheet();
+  /// Hizli akis: acilir acilmaz otomatik foto cek -> otomatik gonder ->
+  /// tarih okununca 2 sn geri sayimla otomatik kabul.
+  final bool fastFlow;
+  const _AiScanSheet({this.fastFlow = false});
 
   @override
   State<_AiScanSheet> createState() => _AiScanSheetState();
@@ -456,17 +513,44 @@ class _AiScanSheetState extends State<_AiScanSheet> {
   DateTime? _result;
   String _message = '';
 
+  // Hizli akista otomatik kabul geri sayimi.
+  Timer? _autoAcceptTimer;
+  int _countdown = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.fastFlow) {
+      // Acilir acilmaz dogrudan foto cekmeyi baslat (ara ekran yok).
+      WidgetsBinding.instance.addPostFrameCallback((_) => _capture());
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoAcceptTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _capture() async {
     try {
       final photo = await CameraHelper.pickImage(
         source: ImageSource.camera,
         imageQuality: 100,
       );
-      if (photo == null) return;
+      if (photo == null) {
+        // Hizli akista foto iptal edilirse sheet'i kapat (kullanici vazgecti).
+        if (widget.fastFlow && mounted) Navigator.of(context).pop();
+        return;
+      }
       setState(() {
         _photoPath = photo.path;
         _state = _AiState.captured;
       });
+      // Hizli akis: foto cekilir cekilmez otomatik gonder.
+      if (widget.fastFlow) {
+        _sendToAi();
+      }
     } catch (e) {
       setState(() {
         _state = _AiState.failed;
@@ -507,6 +591,11 @@ class _AiScanSheetState extends State<_AiScanSheet> {
         _state = _AiState.done;
         _message = '';
       });
+      // Hizli akis: tarih okundu, 2 sn geri sayimla otomatik kabul.
+      // Kullanici bu sure icinde "Dur" derse iptal eder, yanlissa duzeltir.
+      if (widget.fastFlow) {
+        _startAutoAccept();
+      }
     } on GeminiOcrException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -523,11 +612,39 @@ class _AiScanSheetState extends State<_AiScanSheet> {
     }
   }
 
+  /// Hizli akis: tarih okununca 2 sn geri sayim baslatir, sure dolunca
+  /// otomatik kabul eder. Kullanici "Dur"a basarsa iptal olur.
+  void _startAutoAccept() {
+    _countdown = 2;
+    setState(() {});
+    _autoAcceptTimer?.cancel();
+    _autoAcceptTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _countdown--);
+      if (_countdown <= 0) {
+        t.cancel();
+        _confirm();
+      }
+    });
+  }
+
+  void _cancelAutoAccept() {
+    _autoAcceptTimer?.cancel();
+    setState(() => _countdown = 0);
+  }
+
   void _confirm() {
+    _autoAcceptTimer?.cancel();
     if (_result != null) Navigator.of(context).pop(_result);
   }
 
-  void _manual() => Navigator.of(context).pop(DateTime(1900));
+  void _manual() {
+    _autoAcceptTimer?.cancel();
+    Navigator.of(context).pop(DateTime(1900));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -627,6 +744,14 @@ class _AiScanSheetState extends State<_AiScanSheet> {
                     fontSize: 32,
                     fontWeight: FontWeight.w900,
                     color: AppTheme.statusSafe)),
+            if (_countdown > 0) ...[
+              const SizedBox(height: 8),
+              Text('$_countdown sn içinde otomatik kaydedilecek',
+                  style: const TextStyle(
+                      color: AppTheme.accent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)),
+            ],
           ],
         );
       case _AiState.failed:
@@ -687,6 +812,27 @@ class _AiScanSheetState extends State<_AiScanSheet> {
       case _AiState.sending:
         return const SizedBox.shrink();
       case _AiState.done:
+        // Hizli akista geri sayim suruyorsa: buyuk "Dur" + kucuk "Şimdi Kaydet".
+        if (_countdown > 0) {
+          return Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _cancelAutoAccept,
+                  icon: const Icon(Icons.pause_rounded, size: 18),
+                  label: const Text('Dur'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _confirm,
+                  child: const Text('Şimdi Kaydet'),
+                ),
+              ),
+            ],
+          );
+        }
         return Row(
           children: [
             Expanded(

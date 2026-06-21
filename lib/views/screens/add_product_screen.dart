@@ -10,6 +10,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
+import '../../core/services/flow_prefs.dart';
 import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -51,6 +52,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late final TextEditingController _barcodeCtrl;
   late final TextEditingController _categoryCtrl;
   late final TextEditingController _locationCtrl;
+  // Elle hizli tarih girisi icin (gg.aa.yyyy). Numerik klavye + oto nokta.
+  late final TextEditingController _dateTextCtrl;
   late int _quantity;
   DateTime? _expiryDate;
 
@@ -60,6 +63,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   String? _lookupInfo;
   String? _previewImageUrl;
   String _lastLookedUp = '';
+
+  // Hizli manuel akis: ekran acilinca tarih kutusuna odaklan, tarih
+  // girilince otomatik barkod taramaya gec, barkod taraninca oto kaydet.
+  final FocusNode _dateFocus = FocusNode();
+  bool _fastManual = false;
+  bool _fastBarcodeStarted = false; // tarih sonrasi tek sefer tetikle
 
   @override
   void initState() {
@@ -73,6 +82,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _locationCtrl = TextEditingController(text: e?.location ?? '');
     _quantity = e?.quantity ?? 1;
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;
+    // Mevcut tarih varsa metin kutusunu da doldur (gg.aa.yyyy).
+    _dateTextCtrl = TextEditingController(
+      text: _expiryDate != null
+          ? DateFormat('dd.MM.yyyy').format(_expiryDate!)
+          : '',
+    );
+    _dateTextCtrl.addListener(_onDateTextChanged);
 
     final initialBarcode = _barcodeCtrl.text.trim();
     if (initialBarcode.isNotEmpty && _nameCtrl.text.trim().isEmpty) {
@@ -84,6 +100,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           .addPostFrameCallback((_) => _smartLookup(initialBarcode));
     }
     _barcodeCtrl.addListener(_onBarcodeChanged);
+
+    // HIZLI MANUEL AKIS: sadece yeni ve bos formda (duzenleme degil, barkod/
+    // tarih onceden gelmemis). Acilir acilmaz tarih kutusuna odaklan; boylece
+    // klavye dogrudan tarih girisinde acilir.
+    _fastManual = FlowPrefs.instance.fastFlow &&
+        widget.existing == null &&
+        initialBarcode.isEmpty &&
+        widget.scannedExpiry == null;
+    if (_fastManual) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _dateFocus.requestFocus();
+      });
+    }
   }
 
   @override
@@ -94,7 +123,55 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _barcodeCtrl.dispose();
     _categoryCtrl.dispose();
     _locationCtrl.dispose();
+    _dateTextCtrl.removeListener(_onDateTextChanged);
+    _dateTextCtrl.dispose();
+    _dateFocus.dispose();
     super.dispose();
+  }
+
+  /// Elle yazilan tarih metnini (gg.aa.yyyy) grecerli bir tarihe cevirir.
+  /// 8 hane (gg+aa+yyyy) tamamlaninca ve gercekten gecerli bir tarihse
+  /// _expiryDate'i gunceller. Eksik/gecersizse _expiryDate'e dokunmaz
+  /// (kullanici yazmaya devam ediyor olabilir).
+  void _onDateTextChanged() {
+    final digits = _dateTextCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 8) return;
+    final d = int.tryParse(digits.substring(0, 2));
+    final m = int.tryParse(digits.substring(2, 4));
+    final y = int.tryParse(digits.substring(4, 8));
+    if (d == null || m == null || y == null) return;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return;
+    if (y < 2000 || y > 2100) return;
+    // Gercekten var olan bir gun mu? (orn. 31.02 reddedilir)
+    final candidate = DateTime(y, m, d);
+    if (candidate.day != d || candidate.month != m || candidate.year != y) {
+      return;
+    }
+    if (_expiryDate != candidate) {
+      setState(() => _expiryDate = candidate);
+    }
+    // Hizli manuel akis: gecerli tarih girildi -> otomatik barkod taramaya
+    // gec (tek sefer). Klavyeyi kapat, tarayiciyi ac.
+    if (_fastManual && !_fastBarcodeStarted) {
+      _fastBarcodeStarted = true;
+      _dateFocus.unfocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scanBarcode();
+      });
+    }
+  }
+
+  /// Takvim/Foto/Hassas ile tarih secildiginde metin kutusunu da senkronla.
+  void _syncDateText() {
+    final newText = _expiryDate != null
+        ? DateFormat('dd.MM.yyyy').format(_expiryDate!)
+        : '';
+    if (_dateTextCtrl.text != newText) {
+      _dateTextCtrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+    }
   }
 
   void _onBarcodeChanged() {
@@ -184,6 +261,23 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         _categoryCtrl.text = category;
       }
     });
+
+    // HIZLI MANUEL AKIS: barkod tarandi + tarih zaten var. Isim de bulunduysa
+    // otomatik kaydet. Isim bulunamadiysa kullanici ekranda kalir ve elle
+    // isim girer (bos isimle kaydetmeyiz). Tek sefer calisir.
+    if (_fastManual && _fastBarcodeStarted && !_saving) {
+      final hasName = _nameCtrl.text.trim().isNotEmpty;
+      final hasDate = _expiryDate != null;
+      if (hasName && hasDate) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_saving) _save();
+        });
+      } else if (!hasName && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ürün adı bulunamadı, lütfen elle girip kaydedin'),
+        ));
+      }
+    }
   }
 
   Future<void> _pickDate() async {
@@ -194,7 +288,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 10),
     );
-    if (picked != null) setState(() => _expiryDate = picked);
+    if (picked != null) {
+      setState(() => _expiryDate = picked);
+      _syncDateText();
+    }
   }
 
   Future<void> _scanDateFromPhoto() async {
@@ -220,6 +317,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       if (!mounted) return;
       if (date != null) {
         setState(() => _expiryDate = date);
+        _syncDateText();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content:
               Text('Tarih okundu: ${DateFormat('dd.MM.yyyy').format(date)}'),
@@ -249,6 +347,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
     if (result != null && result.year != 1900 && mounted) {
       setState(() => _expiryDate = result);
+      _syncDateText();
     }
   }
 
@@ -708,6 +807,43 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             ],
           ),
           const SizedBox(height: 14),
+          // Elle hizli tarih girisi: numerik klavye, otomatik nokta (gg.aa.yyyy).
+          TextField(
+            controller: _dateTextCtrl,
+            focusNode: _dateFocus,
+            keyboardType: TextInputType.number,
+            inputFormatters: [_DateTextInputFormatter()],
+            style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+                letterSpacing: 1.5),
+            decoration: InputDecoration(
+              hintText: 'gg.aa.yyyy',
+              hintStyle: const TextStyle(
+                  color: AppTheme.textTertiary, letterSpacing: 1.5),
+              prefixIcon: const Icon(Icons.keyboard_rounded,
+                  color: AppTheme.textSecondary),
+              filled: true,
+              fillColor: AppTheme.background.withOpacity(0.4),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppTheme.hairline),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: AppTheme.hairline),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                    const BorderSide(color: AppTheme.primary, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -934,6 +1070,28 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// gg.aa.yyyy formatinda otomatik nokta ekleyen tarih input formatter'i.
+/// Kullanici sadece rakam yazar; 2. ve 4. rakamdan sonra otomatik "." gelir.
+/// En fazla 8 rakam (gun+ay+yil) kabul eder.
+class _DateTextInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final trimmed = digits.length > 8 ? digits.substring(0, 8) : digits;
+    final buf = StringBuffer();
+    for (int i = 0; i < trimmed.length; i++) {
+      if (i == 2 || i == 4) buf.write('.');
+      buf.write(trimmed[i]);
+    }
+    final text = buf.toString();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
     );
   }
 }

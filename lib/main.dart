@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
+import 'core/services/flow_prefs.dart';
 import 'core/services/app_lock_service.dart';
 import 'core/services/app_logger.dart';
 import 'core/services/notification_service.dart';
@@ -64,6 +65,9 @@ Future<void> main() async {
   _ensureSktDisposalAlarm();
   _ensureWeeklyAlarms();
   _ensureKeepAlive();
+
+  // 6) Hizli akis tercihini yukle (SKT Tara ekranindaki toggle hatirlanir).
+  await FlowPrefs.instance.load();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
