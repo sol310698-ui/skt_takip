@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -35,13 +33,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     with WidgetsBindingObserver {
   CameraController? _controller;
   Future<void>? _initFuture;
-  bool _capturing = false;
   bool _torchOn = false;
-  final GlobalKey _previewKey = GlobalKey();
-
-  // Foto cekilince _PhotoDateScreen'e gecirilen baslangic dijital zoom'u.
-  // Artik kullanici canli slider'da ne kadar yakinlastirdiysa o yansir.
-  static double _preferredZoom = 1.0;
 
   // CANLI YAKINLASTIRMA (kucuk yazilari gozle okumak icin).
   // Alttaki kaydirilabilir slider ile canli onizleme buyutulur. Boylece
@@ -156,8 +148,6 @@ class _ScannerScreenState extends State<ScannerScreen>
     final z = value.clamp(_minZoom, _maxZoom).toDouble();
     setState(() {
       _liveZoom = z;
-      // Foto cekilirse de ayni yakinlik yansisin.
-      _preferredZoom = z;
     });
     try {
       await c.setZoomLevel(z);
@@ -174,75 +164,21 @@ class _ScannerScreenState extends State<ScannerScreen>
     } catch (_) {}
   }
 
-  /// Fotograf cek: tam ekran sayfada yatay goster, kullanici tarihi girsin.
-  Future<void> _capture() async {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized || _capturing) return;
-    if (c.value.isTakingPicture) return;
-    setState(() => _capturing = true);
-    try {
-      final shot = await c.takePicture();
-      final bytes = await shot.readAsBytes();
-      if (!mounted) return;
-      final cropped = await _cropCenterBand(bytes);
-      if (!mounted) return;
-      setState(() => _capturing = false);
-
-      // Foto ekrani acilirken kamerayi kapat (kaynak/pil tasarrufu).
-      await _controller?.dispose();
-      _controller = null;
-      if (mounted) setState(() {});
-
-      // Tam ekran sayfa: yatay foto + tarih girisi (secili zoom ile).
-      final result = await Navigator.of(context).push<DateTime>(
-        MaterialPageRoute(
-          builder: (_) =>
-              _PhotoDateScreen(photo: cropped ?? bytes, initialZoom: _preferredZoom),
-        ),
-      );
-      if (!mounted) return;
-      if (result != null) {
-        Navigator.of(context).pop(result);
-      } else {
-        // Iptal: foto ekranindan dönüldü, kamerayi yeniden baslat.
-        await _initCamera();
-      }
-    } catch (_) {
-      if (mounted) setState(() => _capturing = false);
+  /// "Elle gir": kamera ekranindan AYRILMADAN hizli tarih giris kutusu acar.
+  /// Kullanici tarihi burada girer; kamera bırakilip o tarihle forma gecilir.
+  /// Boylece form acilirken (kamera kapanma + yeni ekran + klavye) ust uste
+  /// yuklenmez, kasma olmaz.
+  Future<void> _manual() async {
+    final picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _QuickDateSheet(),
+    );
+    if (picked != null && mounted) {
+      Navigator.of(context).pop(picked);
     }
   }
-
-  /// Cekilen foto'nun MERKEZ yatay bandini kirpar (cerceveye denk gelen yer).
-  /// Cerceve ekranda yatay genis bir bant; foto'nun ortasini alir.
-  Future<Uint8List?> _cropCenterBand(Uint8List jpeg) async {
-    try {
-      final decoded = img.decodeImage(jpeg);
-      if (decoded == null) return null;
-      // EXIF yonelimini duzelt (telefon foto'lari donuk gelebilir).
-      final oriented = img.bakeOrientation(decoded);
-      final w = oriented.width;
-      final h = oriented.height;
-
-      // Cerceve orani: ekranda genislik %96, yukseklik genisligin %50'si.
-      // Foto'da: tam genislik, ortada o orana denk yukseklikte bant.
-      // Biraz pay birak (tarih + ust/alt satir icin).
-      final bandH = (w * 0.62).round().clamp(1, h); // yatay bant yuksekligi
-      final top = ((h - bandH) / 2).round().clamp(0, h - 1);
-
-      final cropped = img.copyCrop(
-        oriented,
-        x: 0,
-        y: top,
-        width: w,
-        height: bandH,
-      );
-      return Uint8List.fromList(img.encodeJpg(cropped, quality: 92));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  void _manual() => Navigator.of(context).pop(DateTime(1900));
 
   Future<void> _openAi() async {
     final result = await showModalBottomSheet<DateTime>(
@@ -475,53 +411,36 @@ class _ScannerScreenState extends State<ScannerScreen>
               const SizedBox(height: 10),
               Row(
                 children: [
-                  // Foto cek + elle gir (gorme dostu ana akis)
+                  // AI ile oku (otomatik)
                   Expanded(
-                    flex: 3,
                     child: FilledButton.icon(
-                      onPressed: _capturing ? null : _capture,
+                      onPressed: _openAi,
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AppTheme.accent,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                       ),
-                      icon: _capturing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.photo_camera_rounded, size: 20),
-                      label: Text(_capturing ? 'Çekiliyor...' : 'Fotoğraf Çek',
-                          style: const TextStyle(
+                      icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+                      label: const Text('AI ile Oku',
+                          style: TextStyle(
                               fontSize: 16, fontWeight: FontWeight.w800)),
                     ),
                   ),
                   const SizedBox(width: 10),
-                  // AI ile oku
+                  // Elle gir (kamerada gozle okuyup yaz)
                   Expanded(
-                    flex: 2,
                     child: FilledButton.icon(
-                      onPressed: _openAi,
+                      onPressed: _manual,
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.accent.withOpacity(0.2),
-                        foregroundColor: AppTheme.accent,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: AppTheme.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                       ),
-                      icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                      label: const Text('AI',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      icon: const Icon(Icons.keyboard_rounded, size: 20),
+                      label: const Text('Elle Gir',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w800)),
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 6),
-              TextButton.icon(
-                onPressed: _manual,
-                icon: const Icon(Icons.keyboard_rounded,
-                    color: AppTheme.textSecondary, size: 18),
-                label: const Text('Elle gir',
-                    style: TextStyle(color: AppTheme.textSecondary)),
               ),
             ],
           ),
@@ -955,311 +874,149 @@ class _DateInputFormatter extends TextInputFormatter {
   }
 }
 
+
 /// ════════════════════════════════════════════════════════════════════
-///  FOTOĞRAF + TARİH — tam ekran sayfa.
-///  Ust: cekilen foto YATAY (alt kismi sola gelecek sekilde 90° donuk),
-///       buyuk, yakinlastirilabilir.
-///  Alt: "Devam" -> tarih giris alani + Tamamla.
+///  HIZLI TARİH GİRİŞİ — kamera ekranindan AYRILMADAN acilan alt sheet.
+///
+///  "Elle Gir" deyince kamera kapanmadan bu sheet acilir; klavye dogrudan
+///  acilir, kullanici tarihi yazar (gg.aa.yyyy, otomatik nokta), "Devam Et"
+///  ile o tarih dondurulur. Boylece form acilirken kamera kapanma + yeni
+///  ekran + klavye ust uste yuklenmez; gecis akici olur (kasma cozuldu).
 /// ════════════════════════════════════════════════════════════════════
-class _PhotoDateScreen extends StatefulWidget {
-  final Uint8List photo;
-  final double initialZoom;
-  const _PhotoDateScreen({required this.photo, this.initialZoom = 1.0});
+class _QuickDateSheet extends StatefulWidget {
+  const _QuickDateSheet();
 
   @override
-  State<_PhotoDateScreen> createState() => _PhotoDateScreenState();
+  State<_QuickDateSheet> createState() => _QuickDateSheetState();
 }
 
-class _PhotoDateScreenState extends State<_PhotoDateScreen> {
+class _QuickDateSheetState extends State<_QuickDateSheet> {
   final _ctrl = TextEditingController();
-  final TransformationController _tc = TransformationController();
-  DateTime? _parsed;
-  bool _entering = false; // false: foto+Devam, true: tarih girisi
-  double _zoom = 1.0;
-  Size _viewport = Size.zero;
-  static const List<double> _zoomLevels = [1, 2, 3, 4];
+  final _focus = FocusNode();
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _zoom = widget.initialZoom;
-    // Otomatik zoom, viewport boyutu hazir olunca LayoutBuilder'da uygulanir.
+    // Sheet acilir acilmaz klavyeyi ac.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
-    _tc.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
-  /// Zoom'u gorselin MERKEZINE odakli uygular.
-  void _applyZoom(double z) {
-    setState(() => _zoom = z);
-    if (_viewport == Size.zero) {
-      _tc.value = Matrix4.identity()..scale(z);
+  DateTime? _parse() {
+    final digits = _ctrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 8) return null;
+    final d = int.tryParse(digits.substring(0, 2));
+    final m = int.tryParse(digits.substring(2, 4));
+    final y = int.tryParse(digits.substring(4, 8));
+    if (d == null || m == null || y == null) return null;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    if (y < 2000 || y > 2100) return null;
+    final c = DateTime(y, m, d);
+    if (c.day != d || c.month != m || c.year != y) return null;
+    return c;
+  }
+
+  void _submit() {
+    final date = _parse();
+    if (date == null) {
+      setState(() => _error = 'Geçerli bir tarih girin (gg.aa.yyyy)');
       return;
     }
-    // Merkez nokta etrafinda olcekle: translate(-merkez*(z-1)), scale(z).
-    final cx = _viewport.width / 2;
-    final cy = _viewport.height / 2;
-    _tc.value = Matrix4.identity()
-      ..translate(-cx * (z - 1), -cy * (z - 1))
-      ..scale(z);
-  }
-
-  void _parse() {
-    final txt = _ctrl.text.trim();
-    DateTime? d;
-    try {
-      final p = txt.split('.');
-      if (p.length == 3 && p[2].length == 4) {
-        d = DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-      }
-    } catch (_) {}
-    setState(() => _parsed = d);
-  }
-
-  void _confirm() {
-    if (_parsed != null) Navigator.of(context).pop(_parsed);
+    Navigator.of(context).pop(date);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      // Kamera onizlemesi status bar arkasina kadar uzansin.
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        systemOverlayStyle: const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 150),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        title: const Text('Tarihi Gir'),
-        actions: [
-          // Sag ustte zoom secici (1x / 2x / 3x / 4x)
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Row(
-              children: _zoomLevels.map((z) {
-                final active = _zoom == z;
-                return GestureDetector(
-                  onTap: () => _applyZoom(z),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: active
-                          ? AppTheme.primary
-                          : Colors.white.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${z.toInt()}x',
-                      style: TextStyle(
-                        color: active ? Colors.white : Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ── Foto: yatay (alt kismi sola), buyuk, yakinlastirilabilir ──
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              color: Colors.black,
-              padding: const EdgeInsets.all(8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final newSize =
-                        Size(constraints.maxWidth, constraints.maxHeight);
-                    if (newSize != _viewport) {
-                      _viewport = newSize;
-                      // Boyut hazir olunca otomatik zoom'u uygula.
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (_zoom > 1.0 &&
-                            _tc.value.getMaxScaleOnAxis() == 1.0) {
-                          _applyZoom(_zoom);
-                        }
-                      });
-                    }
-                    return InteractiveViewer(
-                      transformationController: _tc,
-                      minScale: 1,
-                      maxScale: 6,
-                      onInteractionEnd: (_) {
-                        final s = _tc.value.getMaxScaleOnAxis();
-                        if ((s - _zoom).abs() > 0.05) {
-                          setState(() => _zoom = s);
-                        }
-                      },
-                      child: RotatedBox(
-                        quarterTurns: 3, // 270° dondur
-                        child: Image.memory(
-                          widget.photo,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    );
-                  },
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: AppTheme.textSecondary.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-          ),
-
-          // ── Alt panel ──
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              color: AppTheme.surface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-            child: SafeArea(
-              top: false,
-              child: !_entering
-                  ? _buildContinue()
-                  : _buildDateEntry(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 1. asama: foto goster, "Devam" ile tarih girisine gec.
-  Widget _buildContinue() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.zoom_in_rounded,
-                size: 16, color: AppTheme.textTertiary),
-            SizedBox(width: 6),
-            Text('Tarihi görmek için iki parmakla büyüt',
+            const Text('Son Kullanma Tarihi',
                 style: TextStyle(
-                    color: AppTheme.textTertiary, fontSize: 13)),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              keyboardType: TextInputType.number,
+              inputFormatters: [_DateInputFormatter()],
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
+              onSubmitted: (_) => _submit(),
+              style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2,
+                  color: AppTheme.textPrimary),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: 'gg.aa.yyyy',
+                hintStyle: const TextStyle(
+                    color: AppTheme.textTertiary, letterSpacing: 2),
+                errorText: _error,
+                filled: true,
+                fillColor: AppTheme.background.withOpacity(0.4),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.hairline),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppTheme.hairline),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      const BorderSide(color: AppTheme.primary, width: 1.5),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: const Text('Devam Et',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            ),
           ],
         ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () => setState(() => _entering = true),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-            label: const Text('Devam',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // 2. asama: tarih girisi + tamamla.
-  Widget _buildDateEntry() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: _ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [_DateInputFormatter()],
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.5,
-          ),
-          onChanged: (_) => _parse(),
-          decoration: InputDecoration(
-            hintText: 'GG.AA.YYYY',
-            hintStyle: TextStyle(
-              fontSize: 22,
-              color: AppTheme.textTertiary.withOpacity(0.5),
-              letterSpacing: 1.5,
-            ),
-            filled: true,
-            fillColor: AppTheme.surfaceAlt,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 13),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppTheme.primary, width: 2),
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        AnimatedOpacity(
-          opacity: _parsed != null ? 1 : 0,
-          duration: const Duration(milliseconds: 200),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.check_circle_rounded,
-                  color: AppTheme.statusSafe, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                _parsed != null
-                    ? DateFormat('d MMMM yyyy', 'tr').format(_parsed!)
-                    : '',
-                style: const TextStyle(
-                    color: AppTheme.statusSafe,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: _parsed != null ? _confirm : null,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.statusSafe,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            child: const Text('Tamamla',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

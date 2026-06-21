@@ -101,17 +101,24 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
     _barcodeCtrl.addListener(_onBarcodeChanged);
 
-    // HIZLI MANUEL AKIS: sadece yeni ve bos formda (duzenleme degil, barkod/
-    // tarih onceden gelmemis). Acilir acilmaz tarih kutusuna odaklan; boylece
-    // klavye dogrudan tarih girisinde acilir.
+    // HIZLI MANUEL AKIS (yeni urun, duzenleme degil, barkod onceden yok).
     _fastManual = FlowPrefs.instance.fastFlow &&
         widget.existing == null &&
-        initialBarcode.isEmpty &&
-        widget.scannedExpiry == null;
+        initialBarcode.isEmpty;
     if (_fastManual) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _dateFocus.requestFocus();
-      });
+      if (widget.scannedExpiry != null) {
+        // Tarih zaten geldi (kamera ekranindaki hizli giristen veya AI'dan).
+        // Dogrudan barkod taramaya gec — tarihi tekrar sormaya gerek yok.
+        _fastBarcodeStarted = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scanBarcode();
+        });
+      } else {
+        // Tarih yok: tarih kutusuna odaklan (klavye dogrudan acilir).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _dateFocus.requestFocus();
+        });
+      }
     }
   }
 
