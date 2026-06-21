@@ -185,11 +185,11 @@ class _LockScreenState extends State<LockScreen>
     );
 
     if (_loading) {
-      return const AnnotatedRegion<SystemUiOverlayStyle>(
+      return AnnotatedRegion<SystemUiOverlayStyle>(
         value: overlay,
         child: Scaffold(
           backgroundColor: AppTheme.background,
-          body: Center(child: CircularProgressIndicator()),
+          body: const Center(child: CircularProgressIndicator()),
         ),
       );
     }
