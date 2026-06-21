@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 12+ (API 31+) icin yedekleme/aktarim kurallari.
      cloud-backup: Google Drive otomatik yedek.
-     device-transfer: telefondan telefona aktarim. -->
+     device-transfer: telefondan telefona aktarim.
+     Sadece acikca dahil edilenler yedeklenir; gerisi otomatik haric. -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="database" path="skt_takip.db" />
         <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-        <exclude domain="sharedpref" path="skt_native_prefs.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="skt_takip.db" />
         <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-        <exclude domain="sharedpref" path="skt_native_prefs.xml" />
     </device-transfer>
 </data-extraction-rules>

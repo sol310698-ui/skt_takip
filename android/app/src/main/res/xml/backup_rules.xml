@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 11 ve altinda kullanilan eski Auto Backup kural dosyasi.
-     SQLite veritabanini (urun/SKT/checklist verileri) yedekler.
-     flutter_secure_storage (PIN, alarm ayari, API anahtari) cihaza ozel
-     sifrelidir; baska cihazda cozulemeyecegi icin HARIC tutulur. -->
+     Sadece acikca dahil edilenler yedeklenir; listelenmemis her sey
+     (orn. flutter_secure_storage'in cihaza ozel sifreli verileri)
+     otomatik olarak yedek DISIDIR — ayrica <exclude> yazmaya gerek yok.
+     (Onceki surumde yazilan <exclude>, dahil edilmemis bir yolu hedefledigi
+     icin Android lint hatasi veriyordu; kaldirildi.) -->
 <full-backup-content>
     <include domain="database" path="skt_takip.db" />
     <include domain="sharedpref" path="FlutterSharedPreferences.xml" />
-    <!-- Sifreli/cihaza ozel veriler ve gecici yedekler haric -->
-    <exclude domain="sharedpref" path="skt_native_prefs.xml" />
 </full-backup-content>
