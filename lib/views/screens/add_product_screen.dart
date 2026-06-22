@@ -142,24 +142,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   /// (kullanici yazmaya devam ediyor olabilir).
   void _onDateTextChanged() {
     final digits = _dateTextCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length != 8) return;
-    final d = int.tryParse(digits.substring(0, 2));
-    final m = int.tryParse(digits.substring(2, 4));
-    final y = int.tryParse(digits.substring(4, 8));
-    if (d == null || m == null || y == null) return;
-    if (m < 1 || m > 12 || d < 1 || d > 31) return;
-    if (y < 2000 || y > 2100) return;
-    // Gercekten var olan bir gun mu? (orn. 31.02 reddedilir)
-    final candidate = DateTime(y, m, d);
-    if (candidate.day != d || candidate.month != m || candidate.year != y) {
-      return;
-    }
-    if (_expiryDate != candidate) {
+    // Esnek ayristirici: gg.aa.yyyy, gg.aa.yy, aa.yy (ay/yil) hepsini cozer.
+    final candidate = du.DateUtils.parseManual(_dateTextCtrl.text);
+    if (candidate != null && _expiryDate != candidate) {
       setState(() => _expiryDate = candidate);
     }
-    // Hizli manuel akis: gecerli tarih girildi -> otomatik barkod taramaya
-    // gec (tek sefer). Klavyeyi kapat, tarayiciyi ac.
-    if (_fastManual && !_fastBarcodeStarted) {
+    // Hizli manuel akis: kullanici YETERINCE yazinca (en az 6 hane =
+    // gg.aa.yy, ya da 4 hane ay/yil) ve gecerli tarih olunca otomatik
+    // barkod taramaya gec. Erken (2-3 hane) tetiklemeyiz ki kullanici
+    // yazmayi bitirsin.
+    if (_fastManual &&
+        !_fastBarcodeStarted &&
+        candidate != null &&
+        digits.length >= 4) {
       _fastBarcodeStarted = true;
       _dateFocus.unfocus();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -501,14 +496,20 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       if (product.barcode != null &&
           product.name.isNotEmpty &&
           ScanResult.looksLikeBarcode(product.barcode!)) {
-        await ref.read(barcodeDirectoryRepositoryProvider).importAll([
-          BarcodeEntry(
-            barcode: product.barcode!,
-            productName: product.name,
-            importedAt: DateTime.now(),
-            source: BarcodeSource.manual,
-          ),
-        ]);
+        // Kullanici urunu ELLE ekledi -> girdigi isim en dogru/guncel tanim.
+        // forceOverwrite: true ile, barkod rehberinde mevcut kayit (Excel
+        // dahil) varsa bile urun adi bunun uzerine yazilir.
+        await ref.read(barcodeDirectoryRepositoryProvider).importAll(
+          [
+            BarcodeEntry(
+              barcode: product.barcode!,
+              productName: product.name,
+              importedAt: DateTime.now(),
+              source: BarcodeSource.manual,
+            ),
+          ],
+          forceOverwrite: true,
+        );
       }
       if (mounted) Navigator.of(context).pop(true);
     } finally {

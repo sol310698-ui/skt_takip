@@ -14,16 +14,11 @@ import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
 import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
-import 'views/screens/assistant_chat_screen.dart';
 import 'views/screens/lock_screen.dart';
 import 'views/screens/main_shell.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
-/// Asistan FAB'inin gosterilebilir olup olmadigi. Kilitliyken veya kilit
-/// kontrolu bitmeden FAB cikmamali (kullanici henuz uygulamaya girmedi).
-bool _assistantAllowed = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -240,9 +235,6 @@ class _SktTakipAppState extends State<SktTakipApp>
         };
         AppTheme.applyBrightness(useLight);
 
-        // Asistan yalnizca giris yapilmis (kilit acik) durumda gorunur.
-        _assistantAllowed = _lockCheckDone && !_locked;
-
         return MaterialApp(
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
@@ -256,8 +248,7 @@ class _SktTakipAppState extends State<SktTakipApp>
             final isLight =
                 Theme.of(context).brightness == Brightness.light;
             AppTheme.applyBrightness(isLight);
-            // Asistan FAB'ini her ekranin uzerine bindir (sol alt).
-            return _AssistantOverlay(child: child ?? const SizedBox.shrink());
+            return child ?? const SizedBox.shrink();
           },
           home: !_lockCheckDone
               ? Scaffold(
@@ -269,83 +260,6 @@ class _SktTakipAppState extends State<SktTakipApp>
                   : MainShell(initialNavIndex: _initialNavIndex)),
         );
       },
-    );
-  }
-}
-
-/// Asistan FAB'ini her ekranin uzerine bindiren overlay.
-/// Sol altta yuzen buton; basinca asistan sohbet ekranini acar.
-/// Asistan ekraninin KENDISINDE gizlenir (kendi uzerinde tekrar cikmasin).
-class _AssistantOverlay extends StatefulWidget {
-  final Widget child;
-  const _AssistantOverlay({required this.child});
-
-  @override
-  State<_AssistantOverlay> createState() => _AssistantOverlayState();
-}
-
-class _AssistantOverlayState extends State<_AssistantOverlay> {
-  bool _open = false;
-
-  Future<void> _openAssistant() async {
-    if (_open) return;
-    final nav = navigatorKey.currentState;
-    if (nav == null) return;
-    setState(() => _open = true);
-    await nav.push(MaterialPageRoute(
-      builder: (_) => const AssistantChatScreen(),
-    ));
-    if (mounted) setState(() => _open = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        widget.child,
-        // Asistan ekrani aciksa veya kilitliyken FAB'i gizle.
-        if (!_open && _assistantAllowed)
-          Positioned(
-            // Sol alt (kullanici istegi). Not: SKT Tara'daki "Hizli Akis"
-            // toggle'i da sol altta; cakismamasi icin FAB biraz yukarida.
-            left: 16,
-            bottom: 88 + MediaQuery.of(context).padding.bottom,
-            child: _AssistantFab(onTap: _openAssistant),
-          ),
-      ],
-    );
-  }
-}
-
-class _AssistantFab extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AssistantFab({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(30),
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            gradient: AppTheme.accentGradient,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.accent.withOpacity(0.45),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: const Icon(Icons.auto_awesome_rounded,
-              color: Colors.white, size: 26),
-        ),
-      ),
     );
   }
 }

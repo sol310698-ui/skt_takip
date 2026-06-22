@@ -12,8 +12,9 @@ class BarcodeDirectoryRepository {
       _local.findEntryByBarcode(barcode);
   Future<BarcodeEntry?> findEntryByStockCode(String stockCode) =>
       _local.findEntryByStockCode(stockCode);
-  Future<int> importAll(List<BarcodeEntry> entries) =>
-      _local.importAll(entries);
+  Future<int> importAll(List<BarcodeEntry> entries,
+          {bool forceOverwrite = false}) =>
+      _local.importAll(entries, forceOverwrite: forceOverwrite);
   Future<List<BarcodeEntry>> getAll() => _local.getAll();
   Future<int> count() => _local.count();
   Future<void> clearAll() => _local.clearAll();

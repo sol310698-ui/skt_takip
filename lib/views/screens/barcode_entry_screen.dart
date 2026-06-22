@@ -159,15 +159,20 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
     }
     setState(() => _saving = true);
     try {
-      await ref.read(barcodeDirectoryRepositoryProvider).importAll([
-        BarcodeEntry(
-          barcode: barcode,
-          productName: name,
-          stockCode: stock.isEmpty ? null : stock,
-          importedAt: DateTime.now(),
-          source: BarcodeSource.manual,
-        ),
-      ]);
+      // Kullanici rehbere ELLE kayit giriyor -> en dogru tanim. Mevcut
+      // (Excel dahil) kaydin uzerine yaz.
+      await ref.read(barcodeDirectoryRepositoryProvider).importAll(
+        [
+          BarcodeEntry(
+            barcode: barcode,
+            productName: name,
+            stockCode: stock.isEmpty ? null : stock,
+            importedAt: DateTime.now(),
+            source: BarcodeSource.manual,
+          ),
+        ],
+        forceOverwrite: true,
+      );
       if (mounted) {
         Navigator.of(context).pop(true);
       }

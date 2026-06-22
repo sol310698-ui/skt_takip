@@ -74,7 +74,13 @@ class BarcodeDirectoryDataSource {
   ///       (internet, Excel verisini bozmaz).
   ///  - Stok kodu: gelen kayitta DOLU ise ve (gelen kaynak >= mevcut kaynak)
   ///    ise yazilir; aksi halde mevcut stok kodu KORUNUR (asla bos ile silinmez).
-  Future<int> importAll(List<BarcodeEntry> entries) async {
+  /// [forceOverwrite] true ise: gelen kaydin urun adi (ve dolu ise stok
+  /// kodu) kaynak onceligine BAKILMAKSIZIN mevcut kaydin uzerine yazilir.
+  /// Bu, kullanicinin etiket kagidindan ELLE girdigi durum icindir — en
+  /// guncel/dogru tanim odur, Excel kaydinin bile uzerine yazar.
+  /// false (varsayilan) ise eski oncelik mantigi gecerlidir (Excel korunur).
+  Future<int> importAll(List<BarcodeEntry> entries,
+      {bool forceOverwrite = false}) async {
     final db = await _dbService.database;
     await db.transaction((txn) async {
       for (final e in entries) {
@@ -109,17 +115,18 @@ class BarcodeDirectoryDataSource {
         }
 
         final existing = BarcodeEntry.fromMap(existingRows.first);
-        final incomingWins = e.source.priority >= existing.source.priority;
+        // forceOverwrite: gelen her zaman kazanir (kullanici elle girdi).
+        final incomingWins =
+            forceOverwrite || e.source.priority >= existing.source.priority;
 
-        // Urun adi: gelen kaynak en az mevcut kadar guveniliyse degisir.
+        // Urun adi: gelen kazandiysa degisir (en dogru tanim = elle girilen).
         final newName = incomingWins ? e.productName : existing.productName;
         // Kaynak: yalnizca gelen kazandiysa guncellenir.
         final newSource = incomingWins ? e.source : existing.source;
         // Stok kodu: gelen dolu VE kazandiysa yaz; aksi halde eskiyi koru.
-        final newStock =
-            (incomingStock != null && incomingWins)
-                ? incomingStock
-                : existing.stockCode;
+        final newStock = (incomingStock != null && incomingWins)
+            ? incomingStock
+            : existing.stockCode;
 
         await txn.update(
           AppConstants.barcodeTable,

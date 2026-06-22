@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import '../../core/services/camera_helper.dart';
 import '../../core/services/flow_prefs.dart';
 import '../../core/services/gemini_ocr_service.dart';
+import '../../core/utils/date_utils.dart' as date_utils;
 import '../../core/theme/app_theme.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -909,24 +910,13 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
     super.dispose();
   }
 
-  DateTime? _parse() {
-    final digits = _ctrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length != 8) return null;
-    final d = int.tryParse(digits.substring(0, 2));
-    final m = int.tryParse(digits.substring(2, 4));
-    final y = int.tryParse(digits.substring(4, 8));
-    if (d == null || m == null || y == null) return null;
-    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
-    if (y < 2000 || y > 2100) return null;
-    final c = DateTime(y, m, d);
-    if (c.day != d || c.month != m || c.year != y) return null;
-    return c;
-  }
+  DateTime? _parse() => date_utils.DateUtils.parseManual(_ctrl.text);
 
   void _submit() {
     final date = _parse();
     if (date == null) {
-      setState(() => _error = 'Geçerli bir tarih girin (gg.aa.yyyy)');
+      setState(() => _error =
+          'Geçerli tarih girin. Örn: 15.03.27 veya sadece 03.27 (ay/yıl)');
       return;
     }
     Navigator.of(context).pop(date);

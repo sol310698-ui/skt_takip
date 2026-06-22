@@ -11,6 +11,82 @@ class DateUtils {
     return target.difference(today).inDays;
   }
 
+  /// ESNEK MANUEL TARIH AYRISTIRICI.
+  /// Kullanicinin elle girdigi rakamlardan akilli tarih uretir; yili her
+  /// seferinde tam yazmak gerekmez. Desteklenen girisler (sadece rakamlar
+  /// sayilir, nokta/bosluk onemli degil):
+  ///   8 hane  ggaayyyy  -> tam tarih           (15.03.2027)
+  ///   6 hane  ggaayy    -> 2 haneli yil -> 20yy (15.03.27 -> 2027)
+  ///   4 hane  aayyyy    -> ay + 4 haneli yil, ayin SON gunu (03.2027)
+  ///   4 hane  ggaa      -> gun+ay, yil = bu yil ya da gelecek (ay gectiyse +1)
+  ///   2 hane  aa        -> sadece ay, yil = bu yil/gelecek, ayin son gunu
+  /// Gecersizse null doner.
+  static DateTime? parseManual(String input) {
+    final s = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (s.isEmpty) return null;
+    final now = DateTime.now();
+
+    int? day, month, year;
+
+    if (s.length == 8) {
+      day = int.tryParse(s.substring(0, 2));
+      month = int.tryParse(s.substring(2, 4));
+      year = int.tryParse(s.substring(4, 8));
+    } else if (s.length == 6) {
+      day = int.tryParse(s.substring(0, 2));
+      month = int.tryParse(s.substring(2, 4));
+      final yy = int.tryParse(s.substring(4, 6));
+      if (yy != null) year = 2000 + yy; // 27 -> 2027
+    } else if (s.length == 4) {
+      // Belirsiz: "aayyyy" (ay+yil) mi yoksa "ggaa" (gun+ay) mi?
+      final a = int.tryParse(s.substring(0, 2));
+      final b = int.tryParse(s.substring(2, 4));
+      if (a != null && b != null) {
+        if (a >= 1 && a <= 12 && b >= 20 && b <= 99) {
+          // ay + 2 haneli yil (orn. 03 27 -> Mart 2027), ayin son gunu
+          month = a;
+          year = 2000 + b;
+          day = _lastDay(year, month);
+        } else {
+          // gun + ay (orn. 15 03), yil otomatik
+          day = a;
+          month = b;
+          year = _autoYear(now, day, month);
+        }
+      }
+    } else if (s.length == 2) {
+      // sadece ay -> ayin son gunu, yil otomatik
+      month = int.tryParse(s);
+      if (month != null) {
+        year = (month >= now.month) ? now.year : now.year + 1;
+        day = _lastDay(year, month);
+      }
+    } else {
+      return null;
+    }
+
+    if (day == null || month == null || year == null) return null;
+    if (month < 1 || month > 12) return null;
+    if (day < 1 || day > 31) return null;
+    if (year < 2000 || year > 2100) return null;
+    final c = DateTime(year, month, day);
+    if (c.day != day || c.month != month || c.year != year) return null;
+    return c;
+  }
+
+  static int _lastDay(int year, int month) {
+    final firstNext =
+        (month == 12) ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
+    return firstNext.subtract(const Duration(days: 1)).day;
+  }
+
+  // Gun+ay verildi, yil yok: bu yilin o tarihi gectiyse gelecek yil.
+  static int _autoYear(DateTime now, int day, int month) {
+    final thisYear = DateTime(now.year, month, day);
+    final todayMid = DateTime(now.year, now.month, now.day);
+    return thisYear.isBefore(todayMid) ? now.year + 1 : now.year;
+  }
+
   static ExpiryStatus statusFor(DateTime expiry) {
     final days = daysUntil(expiry);
     if (days < 0) return ExpiryStatus.expired;
