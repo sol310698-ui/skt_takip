@@ -125,9 +125,15 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
     } catch (_) {}
   }
 
+  /// PERFORMANS: refresh() ARTIK loading durumuna gecmiyor. Eskiden her
+  /// ekleme/silme/guncellemede state=AsyncLoading() set ediliyordu; bu da
+  /// listenin EKRANDAN TAMAMEN KAYBOLUP yeniden gelmesine (flicker) yol
+  /// aciyordu — buyuk listelerde bu his "kasma" gibi algilanir. Simdi
+  /// yeni veri DB'den gelene kadar ESKI LISTE EKRANDA KALIR, sadece veri
+  /// hazir olunca tek seferde degisir (kullanici icin akici gecis).
   Future<void> refresh() async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(_repo.getProducts);
+    final result = await AsyncValue.guard(_repo.getProducts);
+    state = result;
   }
 
   Future<int> add(Product product) async {

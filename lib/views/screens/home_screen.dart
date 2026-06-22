@@ -93,22 +93,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         Expanded(child: _buildEmpty())
                       ]);
                     }
+                    // PERFORMANS: sectioned liste BIR KERE hesaplanir,
+                    // itemBuilder icinde DEGIL (orada her satir icin
+                    // yeniden cagrilirsa O(N^2) olur ve listede kasmaya
+                    // yol acar). 'data' closure'i zaten her build'de bir
+                    // kez calistigi icin ekstra Builder widget'ina gerek
+                    // yok.
+                    final sectioned = _buildSectionedItems(filtered);
                     return RefreshIndicator(
                       onRefresh: () =>
                           ref.read(productListProvider.notifier).refresh(),
                       child: ListView.builder(
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.only(top: 4, bottom: 100),
-                        itemCount: _buildSectionedItems(filtered).length + 2,
+                        itemCount: sectioned.length + 2,
                         itemBuilder: (context, i) {
                           if (i == 0) return _buildStats(products);
-                          if (i == 1) return _buildFilterBanner(activeFilter);
-                          final item = _buildSectionedItems(filtered)[i - 2];
+                          if (i == 1) {
+                            return _buildFilterBanner(activeFilter);
+                          }
+                          final item = sectioned[i - 2];
                           if (item is _SectionHeader) {
-                            return _buildGroupHeader(item.label, item.color);
+                            return _buildGroupHeader(
+                                item.label, item.color);
                           }
                           final product = item as Product;
                           return ProductCard(
+                            key: ValueKey(product.id),
                             product: product,
                             onDelete: () => _confirmDelete(product),
                             onTap: () => _openEditSheet(product),
@@ -250,17 +261,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildStats(List<Product> products) {
-    final expired = products.where((p) => p.daysUntilExpiry < 0).length;
-    final critical = products
-        .where((p) =>
-            p.daysUntilExpiry >= 0 &&
-            p.daysUntilExpiry <= AppConstants.criticalDays)
-        .length;
-    final warning = products
-        .where((p) =>
-            p.daysUntilExpiry > AppConstants.criticalDays &&
-            p.daysUntilExpiry <= AppConstants.warningDays)
-        .length;
+    // PERFORMANS: tek geciste say (3 ayri .where() taramasi yerine).
+    int expired = 0, critical = 0, warning = 0;
+    for (final p in products) {
+      final days = p.daysUntilExpiry;
+      if (days < 0) {
+        expired++;
+      } else if (days <= AppConstants.criticalDays) {
+        critical++;
+      } else if (days <= AppConstants.warningDays) {
+        warning++;
+      }
+    }
 
     final activeFilter = ref.watch(statusFilterProvider);
 
@@ -407,21 +419,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   /// Urunleri durum gruplarina ayirir: [Header, Product, Product, Header, ...]
+  /// PERFORMANS: tek geciste (O(N)) durumlara gore gruplar. Eskiden her
+  /// durum icin ayri .where() taramasi yapiliyordu (O(4N)); buyuk
+  /// listelerde (100+ urun) bu fark scroll/kasma uzerinde hissedilir.
   List<dynamic> _buildSectionedItems(List<Product> products) {
-    final sections = <_SectionDef>[
-      _SectionDef('Süresi Doldu', ExpiryStatus.expired,
-          AppTheme.statusExpired),
-      _SectionDef('Kritik (≤3 gün)', ExpiryStatus.critical,
-          AppTheme.statusCritical),
-      _SectionDef('Yaklaşan (≤7 gün)', ExpiryStatus.warning,
-          AppTheme.statusWarning),
+    final byStatus = <ExpiryStatus, List<Product>>{};
+    for (final p in products) {
+      (byStatus[p.status] ??= <Product>[]).add(p);
+    }
+
+    const sections = <_SectionDef>[
+      _SectionDef(
+          'Süresi Doldu', ExpiryStatus.expired, AppTheme.statusExpired),
+      _SectionDef(
+          'Kritik (≤3 gün)', ExpiryStatus.critical, AppTheme.statusCritical),
+      _SectionDef(
+          'Yaklaşan (≤7 gün)', ExpiryStatus.warning, AppTheme.statusWarning),
       _SectionDef('Güvenli', ExpiryStatus.safe, AppTheme.statusSafe),
     ];
+
     final result = <dynamic>[];
     for (final section in sections) {
-      final items =
-          products.where((p) => p.status == section.status).toList();
-      if (items.isEmpty) continue;
+      final items = byStatus[section.status];
+      if (items == null || items.isEmpty) continue;
       result.add(_SectionHeader(section.label, section.color));
       result.addAll(items);
     }
@@ -819,5 +839,5 @@ class _SectionDef {
   final String label;
   final ExpiryStatus status;
   final Color color;
-  _SectionDef(this.label, this.status, this.color);
+  const _SectionDef(this.label, this.status, this.color);
 }
