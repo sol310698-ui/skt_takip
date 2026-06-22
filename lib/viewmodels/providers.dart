@@ -117,9 +117,11 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
 
   Future<void> _migrateNotificationsIfNeeded(List<Product> products) async {
     final ids = products.map((p) => p.id).whereType<int>().toList();
-    if (ids.isEmpty) return;
     try {
       await NotificationService.instance.migrateOldSchemaIfNeeded(ids);
+      // Yetim alarm temizligi: ids bos olsa da (urun yoksa) calistir, ki
+      // tum eski alarmlar bos liste ile temizlensin (hicbiri "valid" degil).
+      await NotificationService.instance.purgeOrphanProductAlarms(ids);
     } catch (_) {}
   }
 

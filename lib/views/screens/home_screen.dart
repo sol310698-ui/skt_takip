@@ -657,15 +657,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  /// SKT Tara akisi: ÖNCE barkod taranir, SONRA SKT (son kullanma tarihi)
+  /// tarama ekranina gecilir. Kullanici barkodu taramak istemezse (kamera
+  /// acilmazsa/Geri'ye basarsa) yine de SKT akisina devam edebilir; bu
+  /// durumda barkod formda elle girilir.
   Future<void> _openScanner() async {
+    // Adim 1: Once barkod tara.
+    final barcode = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
+    );
+    if (!mounted) return;
+
+    // Adim 2: Sonra SKT (son kullanma tarihi) tarama ekranina gec.
     final result = await Navigator.of(context).push<DateTime>(
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+      MaterialPageRoute(
+        builder: (_) => ScannerScreen(prefillBarcode: barcode),
+      ),
     );
     if (result == null || !mounted) return;
     final scanned = result.year == 1900 ? null : result;
+
+    // Adim 3: Barkod + SKT tarihi birlikte forma gonderilir. Ikisi de
+    // hazir oldugundan ProductFormScreen otomatik kaydetme akisini
+    // tetikleyebilir.
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ProductFormScreen(scannedExpiry: scanned),
+        builder: (_) => ProductFormScreen(
+          scannedExpiry: scanned,
+          prefillBarcode: barcode,
+        ),
       ),
     );
   }

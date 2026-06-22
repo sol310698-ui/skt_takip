@@ -87,15 +87,22 @@ class NotificationService {
       ],
     );
 
-    await _plugin.zonedSchedule(
-      _shiftNotifId(shiftId),
-      'Mesai Çıkışı',
-      'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
-      tzTime,
-      NotificationDetails(android: androidDetails),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      payload: 'shift_checkout:$shiftId',
-    );
+    // Onceki ayni shiftId icin kurulmus olabilecek alarmi once iptal et
+    // (idempotent: tekrar cagrilirsa cakisma/birikme olmasin).
+    await _plugin.cancel(_shiftNotifId(shiftId));
+    try {
+      await _plugin.zonedSchedule(
+        _shiftNotifId(shiftId),
+        'Mesai Çıkışı',
+        'Çıkış yapmayı unutma! Mesain bitti gibi görünüyor.',
+        tzTime,
+        NotificationDetails(android: androidDetails),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: 'shift_checkout:$shiftId',
+      );
+    } catch (e) {
+      // Limit/izin hatasinda uygulama crash olmasin.
+    }
   }
 
   Future<void> cancelShiftCheckout(int shiftId) async {
@@ -119,6 +126,33 @@ class NotificationService {
     }
   }
 
+  /// YETİM ALARM TEMİZLİĞİ: artık var olmayan (silinmiş/eskiden kalmış)
+  /// ürünlere ait SKT alarmlarını topluca temizler. "concurrent alarms 500
+  /// reached" crashinin asil kaynagi budur — mukerrer kayit/guncelleme
+  /// donemlerinde biriken yetim alarmlar gercek urun sayisinin cok ustune
+  /// cikabilir. Uygulama acilisinda bir kez, mevcut urun id listesiyle
+  /// cagrilir (ProductListNotifier.build).
+  Future<void> purgeOrphanProductAlarms(List<int> validProductIds) async {
+    if (!_initialized) await init();
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      final validIds = validProductIds.toSet();
+      for (final req in pending) {
+        // Sadece urun-SKT alarm araligi (id < 900000; mesai/grup alarmlari
+        // farkli araliklarda, onlara dokunma).
+        if (req.id >= 900000) continue;
+        final productId = req.id ~/ 1000;
+        if (productId <= 0) continue; // grup/diger sema disinda kalsin
+        if (!validIds.contains(productId)) {
+          await _plugin.cancel(req.id);
+        }
+      }
+    } catch (_) {
+      // Pending sorgusu basarisiz olursa sessizce gec, bir sonraki
+      // acilista tekrar denenir.
+    }
+  }
+
   /// Tum bildirimleri iptal eder (APK guncellemesinde temiz baslangic).
   Future<void> cancelAll() async {
     if (!_initialized) await init();
@@ -126,9 +160,14 @@ class NotificationService {
   }
 
   /// Bir ürün için eşik günlerinde bildirim planlar.
+  /// ÖNCE bu ürüne ait olası TÜM eski alarmları iptal eder (mükerrer
+  /// kayıt / tekrar kaydetme durumlarında alarm birikip Android'in
+  /// "concurrent alarms" limitine çarpmasını önlemek için). Böylece bu
+  /// fonksiyon her zaman güvenle tekrar çağrılabilir (idempotent).
   Future<void> scheduleForProduct(Product product) async {
     if (product.id == null) return;
     await init();
+    await cancelForProduct(product.id!);
 
     for (final threshold in AppConstants.defaultNotifyThresholds) {
       final notifyDate = product.expiryDate.subtract(Duration(days: threshold));
@@ -145,29 +184,56 @@ class NotificationService {
 
       final notifId = _notificationId(product.id!, threshold);
 
-      await _plugin.zonedSchedule(
-        notifId,
-        'SKT Yaklaşıyor: ${product.name}',
-        '$threshold gün kaldı (${_formatDate(product.expiryDate)})',
-        scheduled,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'skt_channel',
-            'SKT Uyarıları',
-            channelDescription: 'Son kullanma tarihi uyarıları',
-            importance: Importance.high,
-            priority: Priority.high,
+      try {
+        await _plugin.zonedSchedule(
+          notifId,
+          'SKT Yaklaşıyor: ${product.name}',
+          '$threshold gün kaldı (${_formatDate(product.expiryDate)})',
+          scheduled,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'skt_channel',
+              'SKT Uyarıları',
+              channelDescription: 'Son kullanma tarihi uyarıları',
+              importance: Importance.high,
+              priority: Priority.high,
+            ),
           ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+      } catch (e) {
+        // Android "concurrent alarms" limitine cakilsa bile uygulama
+        // CRASH OLMASIN: bu esigi atla, digerlerine devam et. Boylece
+        // kullanici en azindan urunu kaydedebilir, sadece bildirim
+        // kurulamaz (kritik degil).
+      }
     }
   }
 
   /// Bir ürünün tüm planlanmış bildirimlerini iptal eder.
+  /// Sadece güncel eşik listesiyle değil, o ürüne ait GERÇEKTEN bekleyen
+  /// (pending) alarmları sorgulayıp hepsini iptal ederek de güvenceye alır.
+  /// Böylece eski ayar/sürümlerden kalan "yetim" alarmlar da temizlenir ve
+  /// birikip Android'in 500 concurrent-alarm limitine çarpması önlenir.
   Future<void> cancelForProduct(int productId) async {
+    if (!_initialized) await init();
     for (final threshold in AppConstants.defaultNotifyThresholds) {
       await _plugin.cancel(_notificationId(productId, threshold));
+    }
+    // Guvenlik taramasi: bu urune ait baska (eski sema/esik) bekleyen
+    // alarm var mi diye gercek pending listesine bak ve onlari da iptal et.
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      final prefix = productId * 1000;
+      for (final req in pending) {
+        // _notificationId semasi: productId * 1000 + threshold (threshold<1000
+        // oldugu icin bu aralik sadece bu urune ait olabilir).
+        if (req.id >= prefix && req.id < prefix + 1000) {
+          await _plugin.cancel(req.id);
+        }
+      }
+    } catch (_) {
+      // pending sorgusu basarisizsa yukaridaki sabit-esik temizligi yeterli.
     }
   }
 
@@ -199,23 +265,27 @@ class NotificationService {
       if (entry.value.length < 3) continue;
       final notifyAt = tz.TZDateTime(
           tz.local, entry.key.year, entry.key.month, entry.key.day, 9);
-      await _plugin.zonedSchedule(
-        _groupNotifId(entry.key),
-        'SKT Uyarısı: ${entry.value.length} ürün',
-        '${entry.value.map((p) => p.name.split(' ').first).take(3).join(', ')} ve diğerleri yaklaşıyor',
-        notifyAt,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'skt_group_channel',
-            'SKT Grup Uyarıları',
-            channelDescription: 'Toplu son kullanma tarihi bildirimleri',
-            importance: Importance.high,
-            priority: Priority.high,
-            groupKey: 'skt_group',
+      try {
+        await _plugin.zonedSchedule(
+          _groupNotifId(entry.key),
+          'SKT Uyarısı: ${entry.value.length} ürün',
+          '${entry.value.map((p) => p.name.split(' ').first).take(3).join(', ')} ve diğerleri yaklaşıyor',
+          notifyAt,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'skt_group_channel',
+              'SKT Grup Uyarıları',
+              channelDescription: 'Toplu son kullanma tarihi bildirimleri',
+              importance: Importance.high,
+              priority: Priority.high,
+              groupKey: 'skt_group',
+            ),
           ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        );
+      } catch (e) {
+        // Limit/izin hatasinda uygulama crash olmasin, sonraki gune devam.
+      }
     }
   }
 

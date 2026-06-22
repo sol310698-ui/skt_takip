@@ -22,9 +22,14 @@ import '../../core/theme/app_theme.dart';
 ///
 ///  Kamera yonetimi tamamen "camera" paketi ile, net yasam dongusu:
 ///  initState -> init, dispose -> birak, app arka plan -> duraklat/devam.
+///
+///  prefillBarcode: bu ekrana gelmeden once barkod zaten tarandiysa
+///  (yeni akis: once barkod, sonra SKT), bilgi amacli basliktirilir.
 /// ════════════════════════════════════════════════════════════════════
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  final String? prefillBarcode;
+
+  const ScannerScreen({super.key, this.prefillBarcode});
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -209,7 +214,11 @@ class _ScannerScreenState extends State<ScannerScreen>
           statusBarIconBrightness: Brightness.light,
           statusBarBrightness: Brightness.dark,
         ),
-        title: const Text('SKT Tara'),
+        title: Text(
+          widget.prefillBarcode != null && widget.prefillBarcode!.isNotEmpty
+              ? 'SKT Tara · ${widget.prefillBarcode}'
+              : 'SKT Tara',
+        ),
         actions: [
           IconButton(
             icon: Icon(_torchOn
@@ -497,7 +506,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
 
   // Hizli akista otomatik kabul geri sayimi.
   Timer? _autoAcceptTimer;
-  int _countdown = 0;
+  int _countdownMs = 0;
 
   @override
   void initState() {
@@ -573,7 +582,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
         _state = _AiState.done;
         _message = '';
       });
-      // Hizli akis: tarih okundu, 2 sn geri sayimla otomatik kabul.
+      // Hizli akis: tarih okundu, 1.5 sn geri sayimla otomatik kabul.
       // Kullanici bu sure icinde "Dur" derse iptal eder, yanlissa duzeltir.
       if (widget.fastFlow) {
         _startAutoAccept();
@@ -594,19 +603,22 @@ class _AiScanSheetState extends State<_AiScanSheet> {
     }
   }
 
-  /// Hizli akis: tarih okununca 2 sn geri sayim baslatir, sure dolunca
+  /// Hizli akis: tarih okununca 1.5 sn geri sayim baslatir, sure dolunca
   /// otomatik kabul eder. Kullanici "Dur"a basarsa iptal olur.
   void _startAutoAccept() {
-    _countdown = 2;
+    const totalMs = 1500;
+    const tickMs = 100;
+    _countdownMs = totalMs;
     setState(() {});
     _autoAcceptTimer?.cancel();
-    _autoAcceptTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+    _autoAcceptTimer =
+        Timer.periodic(const Duration(milliseconds: tickMs), (t) {
       if (!mounted) {
         t.cancel();
         return;
       }
-      setState(() => _countdown--);
-      if (_countdown <= 0) {
+      setState(() => _countdownMs -= tickMs);
+      if (_countdownMs <= 0) {
         t.cancel();
         _confirm();
       }
@@ -615,7 +627,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
 
   void _cancelAutoAccept() {
     _autoAcceptTimer?.cancel();
-    setState(() => _countdown = 0);
+    setState(() => _countdownMs = 0);
   }
 
   void _confirm() {
@@ -726,9 +738,10 @@ class _AiScanSheetState extends State<_AiScanSheet> {
                     fontSize: 32,
                     fontWeight: FontWeight.w900,
                     color: AppTheme.statusSafe)),
-            if (_countdown > 0) ...[
+            if (_countdownMs > 0) ...[
               const SizedBox(height: 8),
-              Text('$_countdown sn içinde otomatik kaydedilecek',
+              Text(
+                  '${(_countdownMs / 1000).toStringAsFixed(1)} sn içinde otomatik kaydedilecek',
                   style: const TextStyle(
                       color: AppTheme.accent,
                       fontSize: 13,
@@ -795,7 +808,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
         return const SizedBox.shrink();
       case _AiState.done:
         // Hizli akista geri sayim suruyorsa: buyuk "Dur" + kucuk "Şimdi Kaydet".
-        if (_countdown > 0) {
+        if (_countdownMs > 0) {
           return Row(
             children: [
               Expanded(

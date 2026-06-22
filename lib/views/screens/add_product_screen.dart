@@ -103,19 +103,25 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
     _barcodeCtrl.addListener(_onBarcodeChanged);
 
-    // HIZLI MANUEL AKIS (yeni urun, duzenleme degil, barkod onceden yok).
-    _fastManual = FlowPrefs.instance.fastFlow &&
-        widget.existing == null &&
-        initialBarcode.isEmpty;
+    // HIZLI AKIS (yeni urun, duzenleme degil). Yeni siralama: ÖNCE barkod
+    // tarandi (home_screen'de), SONRA SKT tarama ekranina gecildi; ikisi de
+    // burada widget parametreleri olarak hazir gelir.
+    _fastManual = FlowPrefs.instance.fastFlow && widget.existing == null;
     if (_fastManual) {
-      if (widget.scannedExpiry != null) {
-        // Tarih zaten geldi (kamera ekranindaki hizli giristen veya AI'dan).
-        // Dogrudan barkod taramaya gec — tarihi tekrar sormaya gerek yok.
+      if (initialBarcode.isNotEmpty && widget.scannedExpiry != null) {
+        // Barkod + SKT ikisi de hazir: tekrar tarama EKRANINA gitme,
+        // dogrudan isim/kategori aranip (_smartLookup zaten yukarida
+        // tetiklendi) bulununca otomatik kaydet. _scanBarcode'a GEREK YOK
+        // (mukerrer barkod tarama ekrani acilmasin).
+        _fastBarcodeStarted = true;
+      } else if (widget.scannedExpiry != null && initialBarcode.isEmpty) {
+        // SKT var ama barkod yok (kullanici barkod taramayi atladi):
+        // barkod taramaya gec.
         _fastBarcodeStarted = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _scanBarcode();
         });
-      } else {
+      } else if (widget.scannedExpiry == null) {
         // Tarih yok: tarih kutusuna odaklan (klavye dogrudan acilir).
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _dateFocus.requestFocus();
