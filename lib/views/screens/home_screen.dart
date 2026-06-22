@@ -669,22 +669,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (!mounted) return;
 
     // Adim 2: Sonra SKT (son kullanma tarihi) tarama ekranina gec.
-    final result = await Navigator.of(context).push<DateTime>(
+    final outcome = await Navigator.of(context).push<ScanOutcome>(
       MaterialPageRoute(
         builder: (_) => ScannerScreen(prefillBarcode: barcode),
       ),
     );
-    if (result == null || !mounted) return;
-    final scanned = result.year == 1900 ? null : result;
+    if (outcome == null || !mounted) return;
+    final scanned = outcome.date.year == 1900 ? null : outcome.date;
 
-    // Adim 3: Barkod + SKT tarihi birlikte forma gonderilir. Ikisi de
-    // hazir oldugundan ProductFormScreen otomatik kaydetme akisini
-    // tetikleyebilir.
+    // Adim 3: Barkod + SKT tarihi + (varsa) etiket fotografi birlikte
+    // forma gonderilir. Urun adi barkod aramasindan bulunamazsa, form
+    // bu fotografi kullanarak OCR ile adi otomatik cikarmayi deneyebilir.
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ProductFormScreen(
           scannedExpiry: scanned,
           prefillBarcode: barcode,
+          labelPhotoPath: outcome.labelPhotoPath,
         ),
       ),
     );

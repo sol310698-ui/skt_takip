@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
 import '../../core/services/flow_prefs.dart';
+import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -33,6 +35,10 @@ class ProductFormScreen extends ConsumerStatefulWidget {
   final DateTime? scannedExpiry;
   final String? prefillBarcode;
   final String? prefillName;
+  /// SKT tarama akisinda Gemini AI ile cekilmis etiket fotografinin yolu
+  /// (varsa). Barkod aramasi urun adini bulamazsa, bu fotograf isim OCR'i
+  /// icin otomatik kullanilir.
+  final String? labelPhotoPath;
 
   const ProductFormScreen({
     super.key,
@@ -40,6 +46,7 @@ class ProductFormScreen extends ConsumerStatefulWidget {
     this.scannedExpiry,
     this.prefillBarcode,
     this.prefillName,
+    this.labelPhotoPath,
   });
 
   @override
@@ -71,6 +78,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   bool _fastManual = false;
   bool _fastBarcodeStarted = false; // tarih sonrasi tek sefer tetikle
   bool _autoSaveTriggered = false; // hizli akista oto-kaydet tek sefer
+
+  // URUN ADI OCR (etiketten otomatik/elle okuma).
+  // Barkod aramasi isim bulamazsa: once elimizdeki etiket fotografiyla
+  // (varsa) sessizce dene; bulamazsa "Etiketten Oku" butonu goster.
+  bool _nameOcrTried = false; // ayni foto ile tekrar tekrar denemeyi onler
+  bool _nameOcrRunning = false;
+  bool _nameOcrFailed = false; // buton gosterimi icin
 
   @override
   void initState() {
@@ -287,11 +301,114 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_saving && !_saved) _save();
         });
-      } else if (!hasName && mounted) {
+      } else if (!hasName) {
+        // ISIM BULUNAMADI: once etiket fotografi varsa sessizce OCR dene.
+        // Foto yoksa veya OCR de basarisiz olursa kullaniciya "Etiketten
+        // Oku" butonu gosterilir (bkz. _tryAutoNameOcr).
+        await _tryAutoNameOcr();
+      }
+    } else if (_nameCtrl.text.trim().isEmpty) {
+      // Hizli akis disinda da (manuel duzenleme/normal akis) isim
+      // bulunamadiysa ayni otomatik deneme + buton mantigi gecerli olsun.
+      await _tryAutoNameOcr();
+    }
+  }
+
+  /// ISIM OCR — ONCE OTOMATIK DENE, BULAMAZSA BUTON GOSTER.
+  /// SKT tarama akisindan gelen etiket fotografi (widget.labelPhotoPath)
+  /// varsa, kullaniciya hic sormadan sessizce Gemini'ye gonderip urun
+  /// adini cikarmayi dener. Basarili olursa _nameCtrl otomatik doldurulur.
+  /// Foto yoksa, anahtar yoksa veya okuma basarisiz olursa sessizce
+  /// _nameOcrFailed=true yapilir; bu da formda "Etiketten Oku" butonunun
+  /// gorunmesini saglar (kullanici elle fotograf cekip deneyebilir).
+  Future<void> _tryAutoNameOcr() async {
+    if (_nameOcrTried) return; // ayni foto ile tekrar tekrar denenmesin
+    if (_nameCtrl.text.trim().isNotEmpty) return; // bu arada isim geldi
+    final path = widget.labelPhotoPath;
+    if (path == null || path.isEmpty) {
+      // Otomatik denenecek foto yok: direkt buton gosterimine gec.
+      if (mounted) setState(() => _nameOcrFailed = true);
+      return;
+    }
+    _nameOcrTried = true;
+    final file = File(path);
+    final exists = await file.exists();
+    if (!exists) {
+      // Gecici dosya artik yoksa (sistem temizlemis olabilir) sessizce
+      // butona dus.
+      if (mounted) setState(() => _nameOcrFailed = true);
+      return;
+    }
+    final hasKey = await GeminiOcrService.instance.hasApiKey();
+    if (!hasKey) {
+      if (mounted) setState(() => _nameOcrFailed = true);
+      return;
+    }
+    if (mounted) setState(() => _nameOcrRunning = true);
+    try {
+      final name =
+          await GeminiOcrService.instance.extractProductName(file);
+      if (!mounted) return;
+      setState(() {
+        _nameOcrRunning = false;
+        if (_nameCtrl.text.trim().isEmpty) _nameCtrl.text = name;
+      });
+      // Isim simdi geldi: hizli akista otomatik kaydet zincirini tekrar
+      // tetikle (tarih de hazirsa kaydedilir).
+      if (_fastManual &&
+          _fastBarcodeStarted &&
+          !_autoSaveTriggered &&
+          !_saving &&
+          !_saved &&
+          _expiryDate != null) {
+        _autoSaveTriggered = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_saving && !_saved) _save();
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _nameOcrRunning = false;
+        _nameOcrFailed = true;
+      });
+    }
+  }
+
+  /// "Etiketten Oku" butonu: kullanici elle fotograf cekip urun adini
+  /// OCR ile doldurmayi tekrar dener (otomatik deneme basarisiz olduysa
+  /// veya hic etiket fotografi yoksa kullanilir).
+  Future<void> _scanNameFromPhoto() async {
+    final hasKey = await GeminiOcrService.instance.hasApiKey();
+    if (!hasKey) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ürün adı bulunamadı, lütfen elle girip kaydedin'),
+          content: Text(
+              'Gemini API anahtarı tanımlı değil. Ayarlardan ekleyin veya '
+              'ürün adını elle girin.'),
         ));
       }
+      return;
+    }
+    final photo = await CameraHelper.pickImage(
+        source: ImageSource.camera, imageQuality: 100);
+    if (photo == null || !mounted) return;
+    setState(() => _nameOcrRunning = true);
+    try {
+      final name = await GeminiOcrService.instance
+          .extractProductName(File(photo.path));
+      if (!mounted) return;
+      setState(() {
+        _nameOcrRunning = false;
+        _nameOcrFailed = false;
+        _nameCtrl.text = name;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _nameOcrRunning = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Ürün adı okunamadı: $e'),
+      ));
     }
   }
 
@@ -570,13 +687,52 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
                           fontSize: 17, fontWeight: FontWeight.w600),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Ürün adı',
-                        prefixIcon: Icon(Icons.shopping_bag_outlined),
+                        prefixIcon: const Icon(Icons.shopping_bag_outlined),
+                        suffixIcon: _nameOcrRunning
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppTheme.accent),
+                                ),
+                              )
+                            : null,
                       ),
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? '' : null,
+                      onChanged: (_) {
+                        // Kullanici elle yazmaya basladiysa OCR basarisizlik
+                        // butonunu gizle (artik gerek yok).
+                        if (_nameOcrFailed && _nameCtrl.text.trim().isNotEmpty) {
+                          setState(() => _nameOcrFailed = false);
+                        }
+                      },
                     ),
+                    // ETIKETTEN OKU: isim bos + otomatik OCR de basarisiz
+                    // olduysa (veya hic etiket fotografi yoksa) bu buton
+                    // gorunur; kullanici elle fotograf cekip deneyebilir.
+                    if (_nameOcrFailed &&
+                        _nameCtrl.text.trim().isEmpty &&
+                        !_nameOcrRunning)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _scanNameFromPhoto,
+                            icon: const Icon(Icons.document_scanner_rounded,
+                                size: 18),
+                            label: const Text('Etiketten Oku'),
+                            style: TextButton.styleFrom(
+                                foregroundColor: AppTheme.accent),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 18),
                     _label('Barkod'),
                     TextFormField(

@@ -1192,11 +1192,11 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   }
 
   Future<void> _scanExpiry() async {
-    final result = await Navigator.of(context).push<DateTime>(
+    final outcome = await Navigator.of(context).push<ScanOutcome>(
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
-    if (result == null || !mounted) return;
-    final d = result.year == 1900 ? null : result;
+    if (outcome == null || !mounted) return;
+    final d = outcome.date.year == 1900 ? null : outcome.date;
     if (d != null) {
       _expiryCtrl.text =
           '${d.day.toString().padLeft(2,"0")}.${d.month.toString().padLeft(2,"0")}.${d.year}';

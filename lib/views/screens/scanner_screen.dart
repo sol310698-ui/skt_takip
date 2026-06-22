@@ -13,6 +13,15 @@ import '../../core/services/gemini_ocr_service.dart';
 import '../../core/utils/date_utils.dart' as date_utils;
 import '../../core/theme/app_theme.dart';
 
+/// SKT tarama ekraninin donus sonucu: tarih (zorunlu) + varsa cekilen
+/// etiket fotografinin yolu (urun adi OCR'i icin formda yeniden kullanilir).
+/// DateTime(1900) = "elle gir" secildi (tarih yok, formda manuel girilecek).
+class ScanOutcome {
+  final DateTime date;
+  final String? labelPhotoPath;
+  const ScanOutcome(this.date, {this.labelPhotoPath});
+}
+
 /// ════════════════════════════════════════════════════════════════════
 ///  SKT TARA — basit, gorme dostu manuel tarih okuma ekrani.
 ///
@@ -182,12 +191,12 @@ class _ScannerScreenState extends State<ScannerScreen>
       builder: (_) => const _QuickDateSheet(),
     );
     if (picked != null && mounted) {
-      Navigator.of(context).pop(picked);
+      Navigator.of(context).pop(ScanOutcome(picked));
     }
   }
 
   Future<void> _openAi() async {
-    final result = await showModalBottomSheet<DateTime>(
+    final result = await showModalBottomSheet<ScanOutcome>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -632,12 +641,19 @@ class _AiScanSheetState extends State<_AiScanSheet> {
 
   void _confirm() {
     _autoAcceptTimer?.cancel();
-    if (_result != null) Navigator.of(context).pop(_result);
+    if (_result != null) {
+      Navigator.of(context)
+          .pop(ScanOutcome(_result!, labelPhotoPath: _photoPath));
+    }
   }
 
   void _manual() {
     _autoAcceptTimer?.cancel();
-    Navigator.of(context).pop(DateTime(1900));
+    // Elle gir secildi: tarih yok ama cekilmis fotograf varsa (AI okuma
+    // basarisiz oldu ama foto cekildi) onu da tasiyalim; isim OCR'i icin
+    // ise yarayabilir.
+    Navigator.of(context)
+        .pop(ScanOutcome(DateTime(1900), labelPhotoPath: _photoPath));
   }
 
   @override

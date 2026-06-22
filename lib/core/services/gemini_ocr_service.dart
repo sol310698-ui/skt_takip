@@ -263,6 +263,69 @@ Kurallar:
     return result;
   }
 
+  /// ÜRÜN ADI OKUMA (raf etiketinden).
+  /// Etiket fotografindan urun adini okuyup duzgun bir metin dondurur.
+  /// Bulamazsa/hata olursa GeminiOcrException firlatir (cagiran elle
+  /// girise veya "Etiketten Oku" butonuna yonlendirir).
+  Future<String> extractProductName(File image) async {
+    final key = await getApiKey();
+    if (key == null || key.isEmpty) {
+      throw const GeminiOcrException('API anahtarı yok');
+    }
+
+    final bytes = await image.readAsBytes();
+    final b64 = base64Encode(bytes);
+
+    const prompt = '''
+Bu fotoğraf bir market raf etiketi veya ürün ambalajıdır. Üzerinde ürün adı yazıyor olabilir (örnek: "ÜLK.DANKEK POTİ MUFFİN SADE 20GR" veya ürün paketindeki marka+isim).
+Görüntüdeki ÜRÜN ADINI bul ve SADECE şu formatta tek satır JSON döndür (başka hiçbir şey yazma):
+{"name":"ÜRÜN ADI","found":true}
+Kurallar:
+- found: ürün adı net okunduysa true, okunamadıysa false.
+- name: kısaltmaları AÇMA, etikette/ambalajda yazdığı gibi bırak. Gramaj/ebat bilgisini (örn. "20GR") da isme dahil et.
+- Fiyat, barkod, tarih gibi diğer alanları YAZMA, sadece ürün adını ver.
+- found false ise name boş string olabilir.
+''';
+
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {'text': prompt},
+            {
+              'inline_data': {'mime_type': 'image/jpeg', 'data': b64}
+            },
+          ]
+        }
+      ],
+      'generationConfig': {
+        'temperature': 0.0,
+        'responseMimeType': 'application/json',
+      },
+    });
+
+    final text = await _generate(key, body);
+
+    final cleaned = text
+        .replaceAll(RegExp(r'^```json', multiLine: true), '')
+        .replaceAll(RegExp(r'^```', multiLine: true), '')
+        .trim();
+
+    Map<String, dynamic> obj;
+    try {
+      obj = jsonDecode(cleaned) as Map<String, dynamic>;
+    } catch (_) {
+      throw const GeminiOcrException('Gemini yanıtı çözümlenemedi');
+    }
+
+    final found = obj['found'] == true;
+    final name = _str(obj['name']);
+    if (!found || name == null || name.isEmpty) {
+      throw const GeminiOcrException('Etikette ürün adı okunamadı');
+    }
+    return name;
+  }
+
   static int _lastDayOfMonth(int year, int month) {
     final firstNext = (month == 12)
         ? DateTime(year + 1, 1, 1)
