@@ -31,6 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   List<PendingNotificationRequest> _notifications = [];
   bool _loadingNotifs = true;
   bool _exporting = false;
+  bool _deduping = false;
 
   @override
   void initState() {
@@ -110,6 +111,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  /// Mukerrer (ayni barkod + ayni SKT) urunleri temizler. Once onay sorar.
+  Future<void> _removeDuplicates() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tekrar Eden Ürünleri Temizle'),
+        content: const Text(
+            'Aynı barkoda VE aynı son kullanma tarihine sahip kayıtlardan '
+            'her birinden yalnızca bir tane bırakılacak, fazlalıklar '
+            'silinecek.\n\nFarklı tarihli aynı barkodlar (gerçek farklı '
+            'partiler) korunur. Bu işlem geri alınamaz. Devam edilsin mi?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Temizle')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _deduping = true);
+    try {
+      final removed =
+          await ref.read(productRepositoryProvider).removeDuplicates();
+      // Listeyi yenile ki ekranlar guncellensin.
+      await ref.read(productListProvider.notifier).refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(removed > 0
+                ? '$removed tekrar eden kayıt silindi'
+                : 'Tekrar eden kayıt bulunamadı'),
+            backgroundColor:
+                removed > 0 ? AppTheme.statusSafe : AppTheme.surfaceHigh,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Hata: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _deduping = false);
     }
   }
 
@@ -310,6 +361,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           title: 'Yedek Al / Geri Yükle',
           subtitle: 'Veritabanını yedekle veya önceki yedeği yükle',
           onTap: _openBackupMenu,
+        ),
+        _tile(
+          icon: Icons.cleaning_services_outlined,
+          color: AppTheme.amber,
+          title: 'Tekrar Eden Ürünleri Temizle',
+          subtitle: 'Aynı barkod ve aynı SKT\'li mükerrer kayıtlardan birini bırakır',
+          loading: _deduping,
+          onTap: _deduping ? null : _removeDuplicates,
         ),
         const SizedBox(height: 16),
         const SectionLabel('Geçmiş'),

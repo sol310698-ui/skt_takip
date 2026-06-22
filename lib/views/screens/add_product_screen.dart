@@ -60,6 +60,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Timer? _debounce;
   bool _looking = false;
   bool _saving = false;
+  bool _saved = false; // kayit tamamlandi -> tekrar kayit/pop garantisi
   String? _lookupInfo;
   String? _previewImageUrl;
   String _lastLookedUp = '';
@@ -69,6 +70,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   final FocusNode _dateFocus = FocusNode();
   bool _fastManual = false;
   bool _fastBarcodeStarted = false; // tarih sonrasi tek sefer tetikle
+  bool _autoSaveTriggered = false; // hizli akista oto-kaydet tek sefer
 
   @override
   void initState() {
@@ -265,14 +267,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     });
 
     // HIZLI MANUEL AKIS: barkod tarandi + tarih zaten var. Isim de bulunduysa
-    // otomatik kaydet. Isim bulunamadiysa kullanici ekranda kalir ve elle
-    // isim girer (bos isimle kaydetmeyiz). Tek sefer calisir.
-    if (_fastManual && _fastBarcodeStarted && !_saving) {
+    // otomatik kaydet. TEK SEFER tetiklenir (_autoSaveTriggered), boylece
+    // _smartLookup birden cok kez calissa bile mukerrer kayit olmaz.
+    if (_fastManual &&
+        _fastBarcodeStarted &&
+        !_autoSaveTriggered &&
+        !_saving &&
+        !_saved) {
       final hasName = _nameCtrl.text.trim().isNotEmpty;
       final hasDate = _expiryDate != null;
       if (hasName && hasDate) {
+        _autoSaveTriggered = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_saving) _save();
+          if (mounted && !_saving && !_saved) _save();
         });
       } else if (!hasName && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -449,6 +456,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Future<void> _save() async {
+    // MUKERRER KAYIT KORUMASI: zaten kaydediliyor veya kaydedildiyse cik.
+    // (Hizli akista otomatik + kullanicinin elle basmasi ust uste gelebilir.)
+    if (_saving || _saved) return;
+
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Ürün adı zorunlu')),
@@ -511,9 +522,20 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           forceOverwrite: true,
         );
       }
+      // Kayit tamamlandi: bayragi isaretle (tekrar kayit engellenir) ve
+      // ekrani kapat -> cagiran ekran (SKT Tara) otomatik geri doner.
+      _saved = true;
       if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      // Hata olursa kullanici tekrar deneyebilsin diye bayraklari sifirla.
+      _saved = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Kaydedilemedi: $e')),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted && !_saved) setState(() => _saving = false);
     }
   }
 
