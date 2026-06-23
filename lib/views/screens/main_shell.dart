@@ -10,6 +10,7 @@ import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
 import 'price_change_screen.dart';
+import 'price_check_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
 import 'warehouse_list_screen.dart';
@@ -113,6 +114,15 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'Yapılacaklar listeleri oluştur, maddeleri işaretle (açılış, kapanış, sabah...)',
               onTap: () => _push(const ChecklistScreen()),
+            ),
+            const SizedBox(height: 10),
+            _sheetOption(
+              icon: Icons.price_change_rounded,
+              color: AppTheme.statusSafe,
+              title: 'Fiyat Kontrol (Sesli)',
+              subtitle:
+                  'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
+              onTap: () => _push(const PriceCheckScreen()),
             ),
           ],
         ),

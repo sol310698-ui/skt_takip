@@ -7,8 +7,12 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Vibrator
+import android.os.VibrationEffect
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.view.View
+import java.util.Locale
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,6 +25,12 @@ import io.flutter.plugin.common.MethodChannel
 // gecerliligini koruyor, sadece temel Activity sinifi degisti).
 class MainActivity : FlutterFragmentActivity() {
     private val channel = "skt_takip/fullscreen"
+
+    // FIYAT KONTROL ASISTANI icin ayri kanal. Mevcut "fullscreen" kanaliyla
+    // hicbir ilgisi yoktur; bagimsiz calisir.
+    private val priceChannel = "skt_takip/price_check"
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
 
     // ONEMLI: Activity'ye kilit ekrani bayraklari (setShowWhenLocked /
     // setTurnScreenOn) EKLEMIYORUZ. "alarm" paketi 5.x, alarm calarken kilit
@@ -103,6 +113,111 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // ── FIYAT KONTROL ASISTANI KANALI ───────────────────────────────
+        // Mevcut "fullscreen" kanalindan tamamen bagimsiz. Flutter tarafi
+        // bu kanal uzerinden: erisilebilirlik servisinin durumunu sorar,
+        // son okunan sistem fiyatini ceker, ayar sayfasini acar, sesli
+        // okuma (TTS) ve titresim tetikler.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, priceChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isAccessibilityServiceRunning" ->
+                        result.success(PriceAccessibilityService.serviceRunning)
+                    "openAccessibilitySettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "getLastSystemPrice" -> {
+                        val map = HashMap<String, Any?>()
+                        map["price"] = PriceAccessibilityService.lastSystemPrice
+                        map["raw"] = PriceAccessibilityService.lastSystemPriceRaw
+                        result.success(map)
+                    }
+                    "clearLastSystemPrice" -> {
+                        PriceAccessibilityService.clearLastPrice()
+                        result.success(true)
+                    }
+                    "speak" -> {
+                        val text = call.argument<String>("text") ?: ""
+                        speak(text)
+                        result.success(true)
+                    }
+                    "vibrate" -> {
+                        val mismatch = call.argument<Boolean>("mismatch") ?: false
+                        vibrate(mismatch)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    // ── TTS (sesli okuma) ───────────────────────────────────────────────
+    private fun ensureTts() {
+        if (tts != null) return
+        tts = TextToSpeech(applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                try {
+                    tts?.language = Locale("tr", "TR")
+                } catch (_: Exception) {
+                }
+                ttsReady = true
+            }
+        }
+    }
+
+    private fun speak(text: String) {
+        ensureTts()
+        try {
+            if (ttsReady) {
+                tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "price_check")
+            } else {
+                // TTS hazir degilse kisa bir gecikmeyle tekrar dene.
+                tts?.setOnUtteranceProgressListener(null)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    // ── Titresim ────────────────────────────────────────────────────────
+    private fun vibrate(mismatch: Boolean) {
+        try {
+            val vib = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
+            // Uyusmazlik: guclu, tekrarli desen. Uyumlu: tek kisa titresim.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (mismatch) {
+                    val pattern = longArrayOf(0, 400, 150, 400, 150, 400)
+                    vib.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                } else {
+                    vib.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (mismatch) {
+                    vib.vibrate(longArrayOf(0, 400, 150, 400, 150, 400), -1)
+                } else {
+                    vib.vibrate(120)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {
+        }
+        tts = null
+        super.onDestroy()
     }
 
     // Android 14+ (API 34): tam ekran intent izni var mi?
