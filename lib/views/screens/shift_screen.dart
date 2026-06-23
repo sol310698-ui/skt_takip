@@ -192,7 +192,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             // Sol altta: yukari cik FAB.
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 78,
+              baseBottomPadding: 96,
             ),
           ],
         ),
@@ -202,21 +202,12 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
 
   Widget _buildHeader(BuildContext context, ShiftEntry? open) {
     final isWorking = open != null;
-    return Container(
+    return AuroraBackground(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+      child: Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(
           20, 16 + MediaQuery.of(context).padding.top, 20, 24),
-      decoration: BoxDecoration(
-        gradient: isWorking
-            ? const LinearGradient(
-                colors: [Color(0xFF00B894), Color(0xFF00D9A3)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : AppTheme.bannerGradient,
-        borderRadius:
-            const BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -275,6 +266,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

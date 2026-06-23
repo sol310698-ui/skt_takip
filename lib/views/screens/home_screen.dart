@@ -212,7 +212,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // gizlenince (asagi kaydirinca) o da senkron asagi iner.
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 78,
+              baseBottomPadding: 96,
             ),
           ],
         ),

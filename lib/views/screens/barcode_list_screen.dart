@@ -123,22 +123,34 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             // oldugu icin cakismayi onlemek icin sol kose kullanilir).
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 78,
+              baseBottomPadding: 96,
+            ),
+            // Sag altta: "Manuel Ekle". Nav bar ile SENKRON: nav bar
+            // gizlenince asagi iner, acilinca cikar (floating nav bar ile
+            // cakismaz).
+            Positioned(
+              right: 16,
+              bottom: 96,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: navBarVisible,
+                builder: (_, navVisible, child) => AnimatedSlide(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  offset: navVisible ? Offset.zero : const Offset(0, 1.6),
+                  child: child,
+                ),
+                child: FloatingActionButton.extended(
+                  heroTag: 'bc_add_single',
+                  onPressed: _openAddEntry,
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Manuel Ekle',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ),
             ),
           ],
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-        floatingActionButton: Padding(
-          padding: const EdgeInsets.only(bottom: 78),
-          child: FloatingActionButton.extended(
-            heroTag: 'bc_add_single',
-            onPressed: _openAddEntry,
-            backgroundColor: AppTheme.primary,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Manuel Ekle',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
         ),
       ),
     );
@@ -146,12 +158,10 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
 
   Widget _buildHeader() {
     final topInset = MediaQuery.of(context).padding.top;
-    return Container(
+    return AuroraBackground(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+      child: Container(
       padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 16),
-      decoration: const BoxDecoration(
-        gradient: AppTheme.bannerGradient,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -209,6 +219,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                 : const SizedBox(width: double.infinity),
           ),
         ],
+      ),
       ),
     );
   }

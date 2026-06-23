@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/nav_bar_visibility.dart';
 import '../../core/theme/app_theme.dart';
 
 /// Tek bir aksiyon ogesi (speed-dial menusunde bir secenek).
@@ -36,7 +37,7 @@ class SpeedDialFab extends StatefulWidget {
     required this.actions,
     this.backgroundColor,
     this.icon = Icons.add_rounded,
-    this.bottomOffset = 78,
+    this.bottomOffset = 96,
   });
 
   @override
@@ -97,10 +98,21 @@ class _SpeedDialFabState extends State<SpeedDialFab>
             ),
           ),
         // Sag altta: aksiyonlar (ustte) + ana FAB (altta) AYNI kolonda.
+        // Nav bar ile SENKRON: nav bar gizlenince (asagi kaydirinca) bu FAB
+        // de ayni sure/egriyle asagi inip onunla birlikte ekran disina cikar;
+        // acilinca geri yukari gelir. Boylece floating nav bar ile cakismaz.
         Positioned(
           right: 16,
           bottom: 16 + widget.bottomOffset,
-          child: Column(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: navBarVisible,
+            builder: (_, navVisible, child) => AnimatedSlide(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              offset: navVisible ? Offset.zero : const Offset(0, 1.6),
+              child: child,
+            ),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -155,6 +167,7 @@ class _SpeedDialFabState extends State<SpeedDialFab>
                 ),
               ),
             ],
+          ),
           ),
         ),
       ],

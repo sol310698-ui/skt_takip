@@ -478,7 +478,37 @@ class GlassPanel extends StatelessWidget {
 ///  Statik bannerGradient'in animasyonlu versiyonu. Dusuk maliyetli:
 ///  sadece bir Alignment tween'i (GPU'da gradyan yeniden hesaplanir,
 ///  agir bir efekt degildir).
+///
+///  SENKRON: Tum ekranlardaki (SKT/Mesai/Barkod) aurora ayni anda ayni
+///  kareyi gostersin diye TEK bir global controller (_AuroraSync) kullanir.
+///  Her ekran kendi controller'ini yaratmaz; uygulama acildiginda bir kez
+///  baslayan ortak saata baglanir. Boylece sekme degistirince animasyon
+///  "sicramaz", kaldigi yerden devam eder ve hepsi es zamanlidir.
 /// ════════════════════════════════════════════════════════════════════
+
+/// Uygulama omru boyunca tek sefer yasayan, surekli donen global aurora
+/// saati. Ilk erisimde baslar, hicbir zaman dispose edilmez (uygulama
+/// kapanana kadar yasamasi gerekir — zaten cok hafif).
+class _AuroraSync {
+  static final _AuroraSync instance = _AuroraSync._();
+  _AuroraSync._();
+
+  AnimationController? _ctrl;
+
+  /// TickerProvider gerektigi icin ilk dinleyici ekranindan vsync alir.
+  Listenable ensure(TickerProvider vsync) {
+    if (_ctrl == null) {
+      _ctrl = AnimationController(
+        vsync: vsync,
+        duration: const Duration(seconds: 12),
+      )..repeat();
+    }
+    return _ctrl!;
+  }
+
+  double get value => _ctrl?.value ?? 0.0;
+}
+
 class AuroraBackground extends StatefulWidget {
   final Widget? child;
   final BorderRadius? borderRadius;
@@ -491,29 +521,25 @@ class AuroraBackground extends StatefulWidget {
 
 class _AuroraBackgroundState extends State<AuroraBackground>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
+  late final Listenable _sync;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 12),
-    )..repeat();
+    // Global senkron saata baglan (ilk ekran baslatir, digerleri ortak
+    // saata baglanir -> hepsi es zamanli).
+    _sync = _AuroraSync.instance.ensure(this);
   }
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
+  // NOT: dispose'da global controller'i KAPATMIYORUZ; baska ekranlar da
+  // ona bagli olabilir ve uygulama boyunca yasamasi gerekir.
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _ctrl,
+      animation: _sync,
       builder: (context, child) {
-        final angle = _ctrl.value * 2 * math.pi;
+        final angle = _AuroraSync.instance.value * 2 * math.pi;
         final begin = Alignment(0.7 * math.cos(angle), 0.7 * math.sin(angle));
         final end = Alignment(
             -0.7 * math.cos(angle), -0.7 * math.sin(angle));
