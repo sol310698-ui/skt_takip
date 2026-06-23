@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -34,16 +35,43 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  final FocusNode _searchFocus = FocusNode();
   bool _exporting = false;
   bool _searchVisible = true; // asagi kaydirinca gizlenir
+  // Liste giris animasyonu: sadece ekran ACILIRKEN kartlar sirayla
+  // (staggered) belirir. Sonrasinda (scroll, filtre degisimi vb.) tekrar
+  // oynatilmaz — yoksa her scroll'da kartlar yanip soner (kotu UX).
+  bool _listEntryAnimDone = false;
 
   @override
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
+    // Klavye odakta oldugu surece arama kutusunu HER ZAMAN gorunur tut.
+    // BUG FIX: klavye acilip kapanirken ListView'in boyutu degisir, bu da
+    // bazen sahte bir scroll-yonu sinyali uretip arama cubugunu
+    // gizleyip/tekrar gosterebiliyordu (klavye kapaninca cubuk "geri
+    // geliyor" gibi gorunen hata). Focus'ta iken bu mantigi devre disi
+    // birakarak bunu onluyoruz.
+    _searchFocus.addListener(() {
+      if (_searchFocus.hasFocus && !_searchVisible) {
+        setState(() => _searchVisible = true);
+      }
+    });
+    // Liste giris animasyonunun oynayacagi pencere (ekran acilisinda
+    // gorunen kartlar icin yeterli sure); sonra bayrak kapanir ve
+    // itemBuilder bir daha animasyon eklemez.
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _listEntryAnimDone = true);
+    });
   }
 
   void _onScroll() {
+    // Klavye aciksa (arama kutusu odakta) scroll'a bagli gizle/goster
+    // mantigini calistirma — klavye acilip kapanirken olusan sahte scroll
+    // sinyalleri arama cubugunu istemsizce gizleyip geri getirebiliyordu.
+    if (_searchFocus.hasFocus) return;
+
     final dir = _scrollCtrl.position.userScrollDirection;
     // Asagi kaydiriliyor -> arama cubugunu gizle; yukari -> goster.
     if (dir == ScrollDirection.reverse && _searchVisible) {
@@ -60,6 +88,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -119,7 +148,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 item.label, item.color);
                           }
                           final product = item as Product;
-                          return ProductCard(
+                          final card = ProductCard(
                             key: ValueKey(product.id),
                             product: product,
                             onDelete: () => _confirmDelete(product),
@@ -134,6 +163,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       ),
                                     ),
                           );
+                          // SOV ANIMASYONU: ekran acilirken kartlar
+                          // sirayla (staggered) hafifce asagidan yukari
+                          // belirir. Sadece ilk acilis penceresinde
+                          // (_listEntryAnimDone false) uygulanir; sonra
+                          // duz kart donulur (scroll'da tekrar oynamasin).
+                          if (_listEntryAnimDone) return card;
+                          return card
+                              .animate(delay: (i * 35).ms)
+                              .fadeIn(duration: 320.ms, curve: Curves.easeOut)
+                              .slideY(
+                                  begin: 0.08,
+                                  end: 0,
+                                  duration: 320.ms,
+                                  curve: Curves.easeOutCubic);
                         },
                       ),
                     );
@@ -179,13 +222,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildBanner() {
     final topInset = MediaQuery.of(context).padding.top;
-    return Container(
-      padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 20),
-      decoration: const BoxDecoration(
-        gradient: AppTheme.bannerGradient,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
-      child: Column(
+    return AuroraBackground(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+      child: Container(
+        padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 20),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -233,12 +274,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           Expanded(
                             child: TextField(
                               controller: _searchCtrl,
+                              focusNode: _searchFocus,
                               onChanged: (v) => ref
                                   .read(searchQueryProvider.notifier)
                                   .state = v,
-                              decoration: const InputDecoration(
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
                                 hintText: 'Ürün veya barkod ara...',
-                                prefixIcon: Icon(Icons.search),
+                                hintStyle:
+                                    TextStyle(color: Colors.white.withOpacity(0.7)),
+                                prefixIcon: const Icon(Icons.search,
+                                    color: Colors.white),
+                                filled: true,
+                                fillColor: Colors.white.withOpacity(0.16),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide(
+                                      color:
+                                          Colors.white.withOpacity(0.35)),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide(
+                                      color:
+                                          Colors.white.withOpacity(0.35)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: const BorderSide(
+                                      color: Colors.white, width: 1.6),
+                                ),
                               ),
                             ),
                           ),
@@ -263,6 +328,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 : const SizedBox(width: double.infinity),
           ),
         ],
+        ),
       ),
     );
   }
@@ -341,14 +407,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (!active) ref.read(searchQueryProvider.notifier).state = '';
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
-          color: active ? color.withOpacity(0.18) : AppTheme.surface,
+          color: active
+              ? color.withOpacity(0.20)
+              : AppTheme.glassTint.withOpacity(AppTheme.glassOpacity),
           borderRadius: BorderRadius.circular(AppTheme.rLg),
           border: Border.all(
-            color: active ? color : color.withOpacity(0.3),
-            width: active ? 1.5 : 1,
+            color: active
+                ? color
+                : Colors.white.withOpacity(AppTheme.isLight ? 0.7 : 0.08),
+            width: active ? 1.5 : 1.2,
           ),
           boxShadow: active ? AppTheme.glow(color) : AppTheme.shadowSm,
         ),
@@ -363,12 +434,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(height: 8),
-            Text('$count',
-                style: TextStyle(
-                    color: color,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    height: 1)),
+            // Sayi degisince hafif scale+fade ile gecis yapar (yeni bir
+            // urun eklenip/silinip sayac guncellendiginde fark edilir).
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: CurvedAnimation(
+                    parent: anim, curve: Curves.easeOutBack),
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: Text('$count',
+                  key: ValueKey(count),
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      height: 1)),
+            ),
             const SizedBox(height: 3),
             Text(label,
                 style: TextStyle(

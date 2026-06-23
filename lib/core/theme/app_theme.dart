@@ -1,72 +1,92 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  SKT Takip — Tasarim Sistemi
+///  SKT Takip — "Soft Glass" Tasarım Sistemi
 /// ────────────────────────────────────────────────────────────────────
-///  Modern, sicak-profesyonel koyu tema. Indigo ana renk + amber vurgu.
-///  Token tabanli: renk / spacing / radius / tipografi / elevation tek
-///  yerden yonetilir. Eski API isimleri (primary, accent, card()...)
-///  geriye donuk uyum icin korunur.
+///  Acik, ferah, pastel-gradyanli glassmorphism. Apple/iOS'un yumusak
+///  cam dili: bulanik (frosted) yuzeyler, ince beyaz kenarlar, derin
+///  ama dogal gölgeler, canli ama yorulmayan pastel gradyanlar.
+///
+///  Token tabanli: renk / spacing / radius / tipografi / golge / blur
+///  tek yerden yonetilir. Eski API isimleri (primary, accent, card()...)
+///  AYNEN KORUNDU — tum uygulama hicbir ekran kodu degismeden yeni
+///  tasarimi otomatik alir.
 /// ════════════════════════════════════════════════════════════════════
 class AppTheme {
   AppTheme._();
 
-  // ─── Ana renkler (her iki temada da ayni) ──────────────────────────
-  // Indigo: guven veren, profesyonel; uzun bakista yormaz.
-  static const Color primary = Color(0xFF5B6CF0);      // indigo
-  static const Color primaryLight = Color(0xFF8693F5);
-  static const Color primaryDark = Color(0xFF3D4BD4);
-  static const Color accent = Color(0xFF2DD4BF);        // teal/turkuaz
-  static const Color amber = Color(0xFFFBBF24);         // sicak vurgu
-  static const Color coral = Color(0xFFFB7185);         // mercan/uyari
+  // ════════════════════════════════════════════════════════════════════
+  //  IMZA PALETI — pastel gradyan ailesi (Soft Glass'in kalbi)
+  // ════════════════════════════════════════════════════════════════════
+  // Indigo -> Orkide -> Pembe gecisi: sicak, guven veren, modern.
+  static const Color primary = Color(0xFF7C8CF8);      // yumusak indigo
+  static const Color primaryLight = Color(0xFFA5B0FB);
+  static const Color primaryDark = Color(0xFF5B6CE8);
+  static const Color accent = Color(0xFF5EEAD4);        // yumusak turkuaz
+  static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
+  static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
-  // ─── Durum renkleri (SKT) — her iki temada ortak ───────────────────
-  static const Color statusSafe = Color(0xFF34D399);     // yesil - guvenli
-  static const Color statusWarning = Color(0xFFFBBF24);  // amber - yaklasiyor
-  static const Color statusCritical = Color(0xFFFB923C); // turuncu - kritik
-  static const Color statusExpired = Color(0xFFF43F5E);  // kirmizi - doldu
+  // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
+  static const Color orchid = Color(0xFFC4B5FD);  // yumusak mor
+  static const Color blush = Color(0xFFF0ABFC);   // pastel pembe
+  static const Color sky = Color(0xFF93C5FD);     // yumusak gokyuzu mavisi
+
+  // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
+  static const Color statusSafe = Color(0xFF34D399);
+  static const Color statusWarning = Color(0xFFFBBF24);
+  static const Color statusCritical = Color(0xFFFB923C);
+  static const Color statusExpired = Color(0xFFF43F5E);
 
   // ════════════════════════════════════════════════════════════════════
   //  TEMAYA GORE DEGISEN RENKLER
   // ────────────────────────────────────────────────────────────────────
-  //  Bu renkler `const` DEGIL, statik DEGISKEN'dir. Tum ekranlar
-  //  `AppTheme.background` gibi okudugu icin, tema degisince applyMode()
-  //  bu degiskenleri gunceller ve TUM uygulama otomatik dogru rengi alir.
-  //  (Tek dosyada cozum — yuzlerce ekrani tek tek degistirmeye gerek yok.)
+  //  `const` DEGIL, statik DEGISKEN — applyBrightness() ile her ekran
+  //  otomatik guncellenir.
   // ════════════════════════════════════════════════════════════════════
 
-  // Koyu palet (varsayilan).
-  static const Color _dkBackground = Color(0xFF0E1017);
-  static const Color _dkSurface = Color(0xFF171A23);
-  static const Color _dkSurfaceAlt = Color(0xFF1F232E);
-  static const Color _dkSurfaceHigh = Color(0xFF2A2F3D);
-  static const Color _dkHairline = Color(0xFF2E3340);
-  static const Color _dkTextPrimary = Color(0xFFF1F3F9);
-  static const Color _dkTextSecondary = Color(0xFF9AA1B4);
-  static const Color _dkTextTertiary = Color(0xFF5E6577);
+  // Koyu palet — derin lavanta-gece (duz siyah degil, sicakligini korur).
+  static const Color _dkBackground = Color(0xFF14121F);
+  static const Color _dkSurface = Color(0xFF1E1B2E);
+  static const Color _dkSurfaceAlt = Color(0xFF272338);
+  static const Color _dkSurfaceHigh = Color(0xFF332D47);
+  static const Color _dkHairline = Color(0xFF3A3450);
+  static const Color _dkTextPrimary = Color(0xFFF5F3FA);
+  static const Color _dkTextSecondary = Color(0xFFAFA8C4);
+  static const Color _dkTextTertiary = Color(0xFF6F6889);
+  // Koyu temada "cam" beyaz degil, hafif aydinlatilmis lavanta katmanidir.
+  static const Color _dkGlassTint = Color(0xFFFFFFFF);
+  static const double _dkGlassOpacity = 0.06;
 
-  // Aydinlik palet.
-  static const Color _ltBackground = Color(0xFFF4F5FA);  // en dip (acik gri)
-  static const Color _ltSurface = Color(0xFFFFFFFF);     // kart (beyaz)
-  static const Color _ltSurfaceAlt = Color(0xFFEEF0F6);  // input/alt yuzey
-  static const Color _ltSurfaceHigh = Color(0xFFE3E6EF); // menu/yukseltilmis
-  static const Color _ltHairline = Color(0xFFD9DDE8);    // ince ayrac/kenar
-  static const Color _ltTextPrimary = Color(0xFF1A1D27);
-  static const Color _ltTextSecondary = Color(0xFF5E6577);
-  static const Color _ltTextTertiary = Color(0xFF9AA1B4);
+  // Acik palet — "Soft Glass" varsayilani: lavanta-beyaz zemin.
+  static const Color _ltBackground = Color(0xFFF6F7FD); // hafif lavanta-gri
+  static const Color _ltSurface = Color(0xFFFFFFFF);
+  static const Color _ltSurfaceAlt = Color(0xFFF0F1FA);
+  static const Color _ltSurfaceHigh = Color(0xFFE6E8F7);
+  static const Color _ltHairline = Color(0xFFE2E4F3);
+  static const Color _ltTextPrimary = Color(0xFF211E33);
+  static const Color _ltTextSecondary = Color(0xFF6B6585);
+  static const Color _ltTextTertiary = Color(0xFFA29DB8);
+  // Acik temada cam: beyazin yari-seffaf hali (frosted).
+  static const Color _ltGlassTint = Color(0xFFFFFFFF);
+  static const double _ltGlassOpacity = 0.62;
 
-  // Aktif renkler (varsayilan koyu; applyMode ile degisir).
-  static Color background = _dkBackground;
-  static Color surface = _dkSurface;
-  static Color surfaceAlt = _dkSurfaceAlt;
-  static Color surfaceHigh = _dkSurfaceHigh;
-  static Color hairline = _dkHairline;
-  static Color textPrimary = _dkTextPrimary;
-  static Color textSecondary = _dkTextSecondary;
-  static Color textTertiary = _dkTextTertiary;
+  // Aktif renkler (varsayilan ACIK — Soft Glass; applyBrightness ile degisir).
+  static Color background = _ltBackground;
+  static Color surface = _ltSurface;
+  static Color surfaceAlt = _ltSurfaceAlt;
+  static Color surfaceHigh = _ltSurfaceHigh;
+  static Color hairline = _ltHairline;
+  static Color textPrimary = _ltTextPrimary;
+  static Color textSecondary = _ltTextSecondary;
+  static Color textTertiary = _ltTextTertiary;
+  static Color glassTint = _ltGlassTint;
+  static double glassOpacity = _ltGlassOpacity;
 
-  static bool _isLight = false;
+  static bool _isLight = true;
   static bool get isLight => _isLight;
 
   /// Aktif renk paletini belirler (ThemeData kurulmadan ONCE cagrilir).
@@ -80,6 +100,8 @@ class AppTheme {
     textPrimary = light ? _ltTextPrimary : _dkTextPrimary;
     textSecondary = light ? _ltTextSecondary : _dkTextSecondary;
     textTertiary = light ? _ltTextTertiary : _dkTextTertiary;
+    glassTint = light ? _ltGlassTint : _dkGlassTint;
+    glassOpacity = light ? _ltGlassOpacity : _dkGlassOpacity;
   }
 
   // ─── Spacing olcegi (4'un katlari, tutarli ritim) ──────────────────
@@ -91,96 +113,99 @@ class AppTheme {
   static const double s24 = 24;
   static const double s32 = 32;
 
-  // ─── Radius olcegi ─────────────────────────────────────────────────
-  static const double rSm = 12;
-  static const double rMd = 16;
-  static const double rLg = 20;
-  static const double rXl = 28;
+  // ─── Radius olcegi — Soft Glass daha yumusak/yuvarlak ──────────────
+  static const double rSm = 14;
+  static const double rMd = 18;
+  static const double rLg = 24;
+  static const double rXl = 32;
   static const double rPill = 999;
 
-  // ─── Gradyanlar ────────────────────────────────────────────────────
+  // ─── Imza gradyanlar — "Aurora" (pastel, yumusak) ──────────────────
   static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF5B6CF0), Color(0xFF7C3AED), Color(0xFF8B5CF6)],
+    colors: [Color(0xFF8B93F8), Color(0xFFB69FF5), Color(0xFFF0ABFC)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFF2DD4BF), Color(0xFF06B6D4)],
+    colors: [Color(0xFF5EEAD4), Color(0xFF7DD3FC)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient scannerGradient = LinearGradient(
-    colors: [Color(0xFF151229), Color(0xFF241B45)],
+    colors: [Color(0xFF1A1730), Color(0xFF2D2350)],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
 
+  /// Aurora gradyani — header arka planlarinda yavasca kayan, daha cok
+  /// renk katmani iceren versiyon (animasyonlu kullanim icin tasarlandi).
+  static const List<Color> auroraColors = [
+    Color(0xFF93C5FD), // sky
+    Color(0xFF8B93F8), // indigo
+    Color(0xFFC4B5FD), // orchid
+    Color(0xFFF0ABFC), // blush
+  ];
+
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
-  /// Verilen arka plan rengine gore SADECE ikon parlaginini uretir.
-  ///
-  /// ONEMLI: Modern Android'de (edge-to-edge zorunlu) `statusBarColor` ARTIK
-  /// CALISMAZ — sistem onu yok sayar. Cubuk her zaman seffaftir ve uygulama
-  /// icerigi (AppBar/header) onun ARKASINA uzanir. Dolayisiyla "cubugu
-  /// boyamak" yerine, ekranin ust renkli alani cubuk bolgesine uzatilir
-  /// (Scaffold/AppBar bunu otomatik yapar) ve burada yalnizca saat/pil
-  /// ikonlarinin rengini (acik/koyu) arka plana gore ayarlariz.
   static SystemUiOverlayStyle systemBarForColor(Color bg) {
-    final isLight = bg.computeLuminance() > 0.5;
+    final isLightBg = bg.computeLuminance() > 0.5;
     return SystemUiOverlayStyle(
-      // statusBarColor VERILMIYOR: seffaf kalir, arkasindaki AppBar/header
-      // rengi gorunur. (Gondersek bile modern Android yok sayardi.)
       statusBarColor: Colors.transparent,
       statusBarIconBrightness:
-          isLight ? Brightness.dark : Brightness.light, // Android ikonlari
-      statusBarBrightness:
-          isLight ? Brightness.light : Brightness.dark, // iOS
+          isLightBg ? Brightness.dark : Brightness.light,
+      statusBarBrightness: isLightBg ? Brightness.light : Brightness.dark,
       systemNavigationBarColor: Colors.transparent,
       systemNavigationBarIconBrightness:
-          isLight ? Brightness.dark : Brightness.light,
+          isLightBg ? Brightness.dark : Brightness.light,
     );
   }
 
-  // ─── Golge tokenleri ───────────────────────────────────────────────
+  // ─── Golge tokenleri — Soft Glass: daha yumusak, daha dagilmis ─────
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: Colors.black.withOpacity(0.22),
-          blurRadius: 10,
-          offset: const Offset(0, 3),
-        ),
-      ];
-
-  static List<BoxShadow> get shadowMd => [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.3),
-          blurRadius: 20,
-          offset: const Offset(0, 8),
-        ),
-      ];
-
-  static List<BoxShadow> glow(Color c) => [
-        BoxShadow(
-          color: c.withOpacity(0.35),
+          color: (isLight ? const Color(0xFF7C8CF8) : Colors.black)
+              .withOpacity(isLight ? 0.10 : 0.24),
           blurRadius: 16,
           offset: const Offset(0, 4),
         ),
       ];
 
-  /// Kart dekorasyonu — yumusak golge, ince hairline kenar.
+  static List<BoxShadow> get shadowMd => [
+        BoxShadow(
+          color: (isLight ? const Color(0xFF7C8CF8) : Colors.black)
+              .withOpacity(isLight ? 0.14 : 0.32),
+          blurRadius: 28,
+          offset: const Offset(0, 10),
+        ),
+      ];
+
+  static List<BoxShadow> glow(Color c) => [
+        BoxShadow(
+          color: c.withOpacity(0.32),
+          blurRadius: 20,
+          offset: const Offset(0, 6),
+        ),
+      ];
+
+  /// Kart dekorasyonu — artik CAM: yari-seffaf zemin + ince beyaz kenar +
+  /// yumusak golge. Gercek arka plan bulaniklastirma icin GlassPanel'i
+  /// kullan; bu sadece renk/kenar/golge verir (BoxDecoration).
   static BoxDecoration card({Color? accentColor, bool elevated = false}) {
     return BoxDecoration(
-      color: surface,
+      color: glassTint.withOpacity(glassOpacity),
       borderRadius: BorderRadius.circular(rLg),
       border: Border.all(
-        color: accentColor?.withOpacity(0.35) ?? hairline,
-        width: 1,
+        color: accentColor?.withOpacity(0.4) ??
+            Colors.white.withOpacity(isLight ? 0.7 : 0.08),
+        width: 1.2,
       ),
       boxShadow: elevated ? shadowMd : shadowSm,
     );
   }
 
-  /// Cam efektli kart (eski API uyumu).
+  /// Cam efektli kart (eski API uyumu) — card() ile ayni.
   static BoxDecoration glassCard({Color? accent}) => card(accentColor: accent);
 
   /// Yumusak renkli arka plan (chip/rozet zemini icin).
@@ -198,7 +223,6 @@ class AppTheme {
   static ThemeData get light => _build(Brightness.light);
 
   static ThemeData _build(Brightness brightness) {
-    // Renk paletini bu brightness'e gore aktif et (degiskenler guncellenir).
     applyBrightness(brightness == Brightness.light);
 
     final base = ThemeData(
@@ -221,15 +245,14 @@ class AppTheme {
     return base.copyWith(
       scaffoldBackgroundColor: background,
       splashFactory: InkSparkle.splashFactory,
-      // Tüm sayfa geçişleri alttan yukarı kayar.
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: _SlideUpTransitionsBuilder(),
-          TargetPlatform.iOS: _SlideUpTransitionsBuilder(),
-          TargetPlatform.fuchsia: _SlideUpTransitionsBuilder(),
-          TargetPlatform.linux: _SlideUpTransitionsBuilder(),
-          TargetPlatform.macOS: _SlideUpTransitionsBuilder(),
-          TargetPlatform.windows: _SlideUpTransitionsBuilder(),
+          TargetPlatform.android: _SoftGlassTransitionsBuilder(),
+          TargetPlatform.iOS: _SoftGlassTransitionsBuilder(),
+          TargetPlatform.fuchsia: _SoftGlassTransitionsBuilder(),
+          TargetPlatform.linux: _SoftGlassTransitionsBuilder(),
+          TargetPlatform.macOS: _SoftGlassTransitionsBuilder(),
+          TargetPlatform.windows: _SoftGlassTransitionsBuilder(),
         },
       ),
       appBarTheme: AppBarTheme(
@@ -238,8 +261,6 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        // Status bar AppBar'in arkasindaki rengi alir (seffaf); ikonlar
-        // temaya gore acik/koyu.
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: barIcons,
@@ -253,9 +274,13 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: surface,
+        color: glassTint.withOpacity(glassOpacity),
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rLg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rLg),
+          side: BorderSide(
+              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -274,7 +299,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: primary, width: 1.6),
+          borderSide: const BorderSide(color: primary, width: 1.8),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -295,7 +320,7 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: primaryLight,
+          foregroundColor: primaryDark,
           side: BorderSide(color: primary.withOpacity(0.45)),
           padding: const EdgeInsets.symmetric(vertical: 15),
           textStyle:
@@ -307,7 +332,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: primaryLight,
+          foregroundColor: primaryDark,
           textStyle:
               const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
@@ -324,7 +349,11 @@ class AppTheme {
       dialogTheme: DialogThemeData(
         backgroundColor: surface,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rLg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rLg),
+          side: BorderSide(
+              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+        ),
         titleTextStyle: TextStyle(
             color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
       ),
@@ -332,6 +361,9 @@ class AppTheme {
         backgroundColor: surface,
         modalBackgroundColor: surface,
         surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(rXl)),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surfaceHigh,
@@ -348,7 +380,7 @@ class AppTheme {
           return TextStyle(
             fontSize: 11.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? primaryLight : textSecondary,
+            color: selected ? primaryDark : textSecondary,
           );
         }),
       ),
@@ -364,9 +396,10 @@ class AppTheme {
   }
 }
 
-/// Tüm sayfa geçişleri için alttan yukarı kayma animasyonu.
-class _SlideUpTransitionsBuilder extends PageTransitionsBuilder {
-  const _SlideUpTransitionsBuilder();
+/// Tüm sayfa geçişleri için: hafif yukari kayma + fade + cok hafif
+/// olceklenme (derinlik hissi). "Cam panel kayiyor" hissi veren bir egri.
+class _SoftGlassTransitionsBuilder extends PageTransitionsBuilder {
+  const _SoftGlassTransitionsBuilder();
 
   @override
   Widget buildTransitions<T>(
@@ -383,10 +416,119 @@ class _SlideUpTransitionsBuilder extends PageTransitionsBuilder {
     );
     return SlideTransition(
       position: Tween<Offset>(
-        begin: const Offset(0, 1),
+        begin: const Offset(0, 0.06),
         end: Offset.zero,
       ).animate(curved),
-      child: FadeTransition(opacity: animation, child: child),
+      child: FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.98, end: 1.0).animate(curved),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  GLASS PANEL — gercek frosted-glass efekti (BackdropFilter blur).
+///
+///  AppTheme.card() sadece RENK/KENAR veriyor (BoxDecoration), gercek
+///  ARKA PLAN BULANIKLASTIRMA icin bu widget'i kullan. Performans icin
+///  blur sigma'si dusuk tutulur (asiri blur = dusuk cihazda kasma).
+/// ════════════════════════════════════════════════════════════════════
+class GlassPanel extends StatelessWidget {
+  final Widget child;
+  final double radius;
+  final double blurSigma;
+  final Color? accentColor;
+  final bool elevated;
+  final EdgeInsetsGeometry? padding;
+
+  const GlassPanel({
+    super.key,
+    required this.child,
+    this.radius = AppTheme.rLg,
+    this.blurSigma = 14,
+    this.accentColor,
+    this.elevated = false,
+    this.padding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: Container(
+          padding: padding,
+          decoration:
+              AppTheme.card(accentColor: accentColor, elevated: elevated),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  AURORA BACKGROUND — yavasca kayan pastel gradyan (header imza ogesi).
+///
+///  Statik bannerGradient'in animasyonlu versiyonu. Dusuk maliyetli:
+///  sadece bir Alignment tween'i (GPU'da gradyan yeniden hesaplanir,
+///  agir bir efekt degildir).
+/// ════════════════════════════════════════════════════════════════════
+class AuroraBackground extends StatefulWidget {
+  final Widget? child;
+  final BorderRadius? borderRadius;
+
+  const AuroraBackground({super.key, this.child, this.borderRadius});
+
+  @override
+  State<AuroraBackground> createState() => _AuroraBackgroundState();
+}
+
+class _AuroraBackgroundState extends State<AuroraBackground>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        final angle = _ctrl.value * 2 * math.pi;
+        final begin = Alignment(0.7 * math.cos(angle), 0.7 * math.sin(angle));
+        final end = Alignment(
+            -0.7 * math.cos(angle), -0.7 * math.sin(angle));
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: widget.borderRadius,
+            gradient: LinearGradient(
+              colors: AppTheme.auroraColors,
+              begin: begin,
+              end: end,
+            ),
+          ),
+          child: widget.child,
+        );
+      },
     );
   }
 }

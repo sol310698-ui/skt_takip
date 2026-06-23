@@ -10,7 +10,10 @@ class ThemePrefs extends ChangeNotifier {
   static const _key = 'theme_mode';
   final _storage = const FlutterSecureStorage();
 
-  ThemeMode _mode = ThemeMode.dark; // varsayilan: koyu
+  // Soft Glass tasarimi acik temada en iyi gorundugu icin varsayilan
+  // ACIK yapildi (eskiden koyuydu). Kullanici dilerse Ayarlar'dan
+  // Koyu/Sistem secebilir; bu sadece ILK kurulumdaki varsayilan.
+  ThemeMode _mode = ThemeMode.light; // varsayilan: acik (Soft Glass)
   ThemeMode get mode => _mode;
 
   /// Acilista bir kez cagrilir; saklanan tercihi yukler.
@@ -21,10 +24,10 @@ class ThemePrefs extends ChangeNotifier {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
         'system' => ThemeMode.system,
-        _ => ThemeMode.dark,
+        _ => ThemeMode.light,
       };
     } catch (_) {
-      _mode = ThemeMode.dark;
+      _mode = ThemeMode.light;
     }
   }
 

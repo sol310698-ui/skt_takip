@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -229,38 +231,49 @@ class _MainShellState extends State<MainShell> {
         alignment: Alignment.topCenter,
         clipBehavior: Clip.none,
         children: [
-          // Alt bar
+          // Alt bar — Soft Glass: gercek frosted-glass (BackdropFilter).
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
-              height: 70,
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 12,
-                    offset: const Offset(0, -2),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppTheme.rXl)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(
+                  height: 70,
+                  decoration: BoxDecoration(
+                    color: AppTheme.glassTint
+                        .withOpacity(AppTheme.glassOpacity + 0.1),
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(AppTheme.rXl)),
+                    border: Border(
+                      top: BorderSide(
+                        color: Colors.white
+                            .withOpacity(AppTheme.isLight ? 0.8 : 0.1),
+                        width: 1.2,
+                      ),
+                    ),
+                    boxShadow: AppTheme.shadowMd,
                   ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Row(
-                  children: [
-                    _navItem(0, Icons.event_note_outlined,
-                        Icons.event_note_rounded, 'SKT'),
-                    _navItem(1, Icons.qr_code_2_outlined,
-                        Icons.qr_code_2_rounded, 'Barkod'),
-                    const Expanded(child: SizedBox()), // orta bosluk
-                    _navItem(2, Icons.price_check_outlined,
-                        Icons.price_check_rounded, 'Kontrol',
-                        isAction: true),
-                    _navItem(3, Icons.access_time_outlined,
-                        Icons.access_time_filled_rounded, 'Mesai'),
-                  ],
+                  child: SafeArea(
+                    top: false,
+                    child: Row(
+                      children: [
+                        _navItem(0, Icons.event_note_outlined,
+                            Icons.event_note_rounded, 'SKT'),
+                        _navItem(1, Icons.qr_code_2_outlined,
+                            Icons.qr_code_2_rounded, 'Barkod'),
+                        const Expanded(child: SizedBox()), // orta bosluk
+                        _navItem(2, Icons.price_check_outlined,
+                            Icons.price_check_rounded, 'Kontrol',
+                            isAction: true),
+                        _navItem(3, Icons.access_time_outlined,
+                            Icons.access_time_filled_rounded, 'Mesai'),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -281,24 +294,35 @@ class _MainShellState extends State<MainShell> {
     return Expanded(
       child: InkWell(
         onTap: () => _onDestination(index),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(selected ? activeIcon : icon,
-                color: selected
-                    ? AppTheme.primaryLight
-                    : AppTheme.textTertiary,
-                size: 24),
-            const SizedBox(height: 3),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight:
-                        selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? AppTheme.primaryLight
-                        : AppTheme.textTertiary)),
-          ],
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutBack,
+          scale: selected ? 1.0 : 0.96,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  selected ? activeIcon : icon,
+                  key: ValueKey(selected),
+                  color: selected
+                      ? AppTheme.primaryDark
+                      : AppTheme.textTertiary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight:
+                          selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected
+                          ? AppTheme.primaryDark
+                          : AppTheme.textTertiary)),
+            ],
+          ),
         ),
       ),
     );

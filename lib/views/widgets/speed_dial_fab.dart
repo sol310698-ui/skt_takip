@@ -124,16 +124,33 @@ class _SpeedDialFabState extends State<SpeedDialFab>
                 );
               }),
               // Ana (+) buton - HER ZAMAN aksiyonlarin ALTINDA.
-              FloatingActionButton(
-                heroTag: 'speeddial_main',
-                onPressed: _toggle,
-                backgroundColor: bg,
-                foregroundColor: Colors.white,
-                child: AnimatedBuilder(
-                  animation: _ctrl,
-                  builder: (_, __) => Transform.rotate(
-                    angle: _ctrl.value * 0.785398, // 45° -> x
-                    child: Icon(widget.icon),
+              // Soft Glass: duz renk yerine pastel gradyan + yumusak golge.
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                elevation: 0,
+                child: InkWell(
+                  onTap: _toggle,
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [bg, bg.withOpacity(0.75)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: AppTheme.glow(bg),
+                    ),
+                    child: AnimatedBuilder(
+                      animation: _ctrl,
+                      builder: (_, __) => Transform.rotate(
+                        angle: _ctrl.value * 0.785398, // 45° -> x
+                        child: Icon(widget.icon, color: Colors.white),
+                      ),
+                    ),
                   ),
                 ),
               ),

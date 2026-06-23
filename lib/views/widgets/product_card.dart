@@ -63,8 +63,10 @@ class ProductCard extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(20),
             onTap: onTap,
-            child: Container(
-              decoration: AppTheme.card(accentColor: status.color),
+            child: GlassPanel(
+              radius: 20,
+              blurSigma: 10,
+              accentColor: status.color,
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
