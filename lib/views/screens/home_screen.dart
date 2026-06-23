@@ -13,6 +13,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
+import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
@@ -163,6 +164,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   onTap: _openScanner,
                 ),
               ],
+            ),
+            // Sol altta: yukari cik FAB. Cok kaydirinca belirir, nav bar
+            // gizlenince (asagi kaydirinca) o da senkron asagi iner.
+            ScrollToTopFab(
+              controller: _scrollCtrl,
+              baseBottomPadding: 78,
             ),
           ],
         ),
@@ -678,37 +685,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   /// SKT Tara akisi: ÖNCE barkod taranir, SONRA SKT (son kullanma tarihi)
-  /// tarama ekranina gecilir. Kullanici barkodu taramak istemezse (kamera
-  /// acilmazsa/Geri'ye basarsa) yine de SKT akisina devam edebilir; bu
-  /// durumda barkod formda elle girilir.
+  /// tarama ekranina gecilir, form acilir ve KAYDEDILDIKTEN SONRA otomatik
+  /// olarak tekrar barkod taramaya doner — bu sekilde art arda birden
+  /// fazla urun, ana ekrana hic donmeden zincirleme taranabilir (dongu).
+  /// Dongu, kullanici barkod ekraninda geri/kapat tusuna basip barkod
+  /// taramadan cikinca (sonuc null donunce) sona erer.
   Future<void> _openScanner() async {
-    // Adim 1: Once barkod tara.
-    final barcode = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
-    );
-    if (!mounted) return;
+    while (true) {
+      // Adim 1: Once barkod tara.
+      if (!mounted) return;
+      final barcode = await Navigator.of(context).push<String>(
+        MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
+      );
+      if (!mounted) return;
+      if (barcode == null) {
+        // Kullanici barkod ekranindan geri/kapat ile cikti -> dongu biter.
+        return;
+      }
 
-    // Adim 2: Sonra SKT (son kullanma tarihi) tarama ekranina gec.
-    final outcome = await Navigator.of(context).push<ScanOutcome>(
-      MaterialPageRoute(
-        builder: (_) => ScannerScreen(prefillBarcode: barcode),
-      ),
-    );
-    if (outcome == null || !mounted) return;
-    final scanned = outcome.date.year == 1900 ? null : outcome.date;
-
-    // Adim 3: Barkod + SKT tarihi + (varsa) etiket fotografi birlikte
-    // forma gonderilir. Urun adi barkod aramasindan bulunamazsa, form
-    // bu fotografi kullanarak OCR ile adi otomatik cikarmayi deneyebilir.
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProductFormScreen(
-          scannedExpiry: scanned,
-          prefillBarcode: barcode,
-          labelPhotoPath: outcome.labelPhotoPath,
+      // Adim 2: Sonra SKT (son kullanma tarihi) tarama ekranina gec.
+      final outcome = await Navigator.of(context).push<ScanOutcome>(
+        MaterialPageRoute(
+          builder: (_) => ScannerScreen(prefillBarcode: barcode),
         ),
-      ),
-    );
+      );
+      if (!mounted) return;
+      if (outcome == null) {
+        // SKT ekranindan da geri cikildi -> dongu biter (barkoda donmez).
+        return;
+      }
+      final scanned = outcome.date.year == 1900 ? null : outcome.date;
+
+      // Adim 3: Barkod + SKT tarihi + (varsa) etiket fotografi birlikte
+      // forma gonderilir. Urun adi barkod aramasindan bulunamazsa, form
+      // bu fotografi kullanarak OCR ile adi otomatik cikarmayi deneyebilir.
+      final saved = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => ProductFormScreen(
+            scannedExpiry: scanned,
+            prefillBarcode: barcode,
+            labelPhotoPath: outcome.labelPhotoPath,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (saved != true) {
+        // Kullanici formu kaydetmeden kapatti (iptal) -> dongu biter.
+        return;
+      }
+      // Kayit basarili: while donerek otomatik tekrar barkod taramaya
+      // gec (form zaten kapandi, ekstra onay gosterilmiyor).
+    }
   }
 
   Future<void> _confirmDelete(Product product) async {

@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'barcode_detail_screen.dart';
 import 'barcode_entry_screen.dart';
@@ -92,30 +93,40 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: AppTheme.systemBarForColor(AppTheme.primary),
       child: Scaffold(
-        body: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: _loading
-                    ? const LoadingState()
-                    : _all.isEmpty
-                        ? _buildEmpty()
-                        : RefreshIndicator(
-                            onRefresh: _load,
-                            child: ListView.separated(
-                              controller: _scrollCtrl,
-                              padding: const EdgeInsets.only(
-                                  top: 8, bottom: 100),
-                              itemCount: _filtered.length,
-                              separatorBuilder: (_, __) => const Divider(
-                                  height: 1, indent: 60),
-                              itemBuilder: (context, i) =>
-                                  _tile(_filtered[i]),
-                            ),
-                          ),
+        body: Stack(
+          children: [
+            Column(
+                children: [
+                  _buildHeader(),
+                  Expanded(
+                    child: _loading
+                        ? const LoadingState()
+                        : _all.isEmpty
+                            ? _buildEmpty()
+                            : RefreshIndicator(
+                                onRefresh: _load,
+                                child: ListView.separated(
+                                  controller: _scrollCtrl,
+                                  padding: const EdgeInsets.only(
+                                      top: 8, bottom: 100),
+                                  itemCount: _filtered.length,
+                                  separatorBuilder: (_, __) =>
+                                      const Divider(height: 1, indent: 60),
+                                  itemBuilder: (context, i) =>
+                                      _tile(_filtered[i]),
+                                ),
+                              ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            // Sol altta: yukari cik FAB (sag altta "Manuel Ekle" FAB'i
+            // oldugu icin cakismayi onlemek icin sol kose kullanilir).
+            ScrollToTopFab(
+              controller: _scrollCtrl,
+              baseBottomPadding: 78,
+            ),
+          ],
+        ),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
         floatingActionButton: Padding(
           padding: const EdgeInsets.only(bottom: 78),

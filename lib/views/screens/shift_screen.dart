@@ -12,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import '../../data/models/shift_entry.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'shift_detail_screen.dart';
 
@@ -135,55 +136,66 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
       value: AppTheme.systemBarForColor(
           isWorking ? const Color(0xFF00B894) : AppTheme.primary),
       child: Scaffold(
-        body: Column(
-            children: [
-              _buildHeader(context, openAsync.valueOrNull),
-              Expanded(
-                child: shiftsAsync.when(
-                  loading: () => const LoadingState(),
-                  error: (e, _) => ErrorStateView(
-                    message: 'Mesai kayıtları yüklenemedi',
-                    onRetry: () =>
-                        ref.read(shiftListProvider.notifier).refresh(),
-                  ),
-                  data: (list) {
-                    if (list.isEmpty) return _buildEmpty();
-                    return Column(
-                      children: [
-                        // Disa aktar cubugu
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                          child: Row(
-                            children: [
-                              Text('${list.length} kayıt',
-                                  style: TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontWeight: FontWeight.w600)),
-                              const Spacer(),
-                              OutlinedButton.icon(
-                                onPressed: () => _showExportMenu(list),
-                                icon: const Icon(Icons.ios_share_rounded,
-                                    size: 18),
-                                label: const Text('Dışa Aktar'),
+        body: Stack(
+          children: [
+            Column(
+                children: [
+                  _buildHeader(context, openAsync.valueOrNull),
+                  Expanded(
+                    child: shiftsAsync.when(
+                      loading: () => const LoadingState(),
+                      error: (e, _) => ErrorStateView(
+                        message: 'Mesai kayıtları yüklenemedi',
+                        onRetry: () =>
+                            ref.read(shiftListProvider.notifier).refresh(),
+                      ),
+                      data: (list) {
+                        if (list.isEmpty) return _buildEmpty();
+                        return Column(
+                          children: [
+                            // Disa aktar cubugu
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                              child: Row(
+                                children: [
+                                  Text('${list.length} kayıt',
+                                      style: TextStyle(
+                                          color: AppTheme.textSecondary,
+                                          fontWeight: FontWeight.w600)),
+                                  const Spacer(),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _showExportMenu(list),
+                                    icon: const Icon(Icons.ios_share_rounded,
+                                        size: 18),
+                                    label: const Text('Dışa Aktar'),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            controller: _scrollCtrl,
-                            padding: const EdgeInsets.only(top: 4, bottom: 90),
-                            itemCount: list.length,
-                            itemBuilder: (_, i) => _shiftCard(list[i]),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                            ),
+                            Expanded(
+                              child: ListView.builder(
+                                controller: _scrollCtrl,
+                                padding: const EdgeInsets.only(
+                                    top: 4, bottom: 90),
+                                itemCount: list.length,
+                                itemBuilder: (_, i) => _shiftCard(list[i]),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            // Sol altta: yukari cik FAB.
+            ScrollToTopFab(
+              controller: _scrollCtrl,
+              baseBottomPadding: 78,
+            ),
+          ],
+        ),
       ),
     );
   }

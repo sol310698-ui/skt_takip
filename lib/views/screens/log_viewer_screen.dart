@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/app_logger.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/scroll_to_top_fab.dart';
 
 /// Uygulama/alarm kayitlarini (log) goruntuleyen, paylasan ekran.
 /// Kullanici buradaki metni kopyalayip veya paylasarak destek icin iletebilir.
@@ -17,11 +18,18 @@ class LogViewerScreen extends StatefulWidget {
 class _LogViewerScreenState extends State<LogViewerScreen> {
   String _content = 'Yükleniyor...';
   bool _loading = true;
+  final ScrollController _scrollCtrl = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -101,31 +109,42 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
+          : Stack(
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  color: AppTheme.primary.withOpacity(0.1),
-                  child: const Text(
-                    'Alarm sorununu çözmek için: alarmı test edip çaldıktan '
-                    '(veya çalması gerekip çalmadıktan) sonra bu ekranı açıp '
-                    'sağ üstten "Paylaş" ile kayıtları gönderin.',
-                    style: TextStyle(fontSize: 12.5),
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(12),
-                    child: SelectableText(
-                      _content,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11.5,
-                        height: 1.5,
+                Column(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      color: AppTheme.primary.withOpacity(0.1),
+                      child: const Text(
+                        'Alarm sorununu çözmek için: alarmı test edip çaldıktan '
+                        '(veya çalması gerekip çalmadıktan) sonra bu ekranı açıp '
+                        'sağ üstten "Paylaş" ile kayıtları gönderin.',
+                        style: TextStyle(fontSize: 12.5),
                       ),
                     ),
-                  ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(
+                          _content,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11.5,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // Nav bar olmayan tam sayfa ekran: sadece scroll esigine
+                // gore calisir.
+                ScrollToTopFab(
+                  controller: _scrollCtrl,
+                  syncWithNavBar: false,
                 ),
               ],
             ),

@@ -5,36 +5,62 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/ui_kit.dart';
 
 /// Imha ve iade gecmisi ekrani (son 90 gun).
-class HistoryScreen extends ConsumerWidget {
+class HistoryScreen extends ConsumerStatefulWidget {
   const HistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends ConsumerState<HistoryScreen> {
+  final ScrollController _scrollCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final historyAsync = ref.watch(disposalHistoryProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('İmha & İade Geçmişi')),
-      body: historyAsync.when(
-        loading: () => const LoadingState(),
-        error: (e, _) =>
-            const ErrorStateView(message: 'Geçmiş yüklenemedi'),
-        data: (list) {
-          if (list.isEmpty) {
-            return const EmptyState(
-              icon: Icons.history_rounded,
-              title: 'Geçmiş kaydı yok',
-              subtitle: 'Son 90 günlük imha ve iade kayıtları burada görünür',
-            );
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: list.length,
-            itemBuilder: (context, i) => _HistoryCard(product: list[i]),
-          );
-        },
+      body: Stack(
+        children: [
+          historyAsync.when(
+            loading: () => const LoadingState(),
+            error: (e, _) =>
+                const ErrorStateView(message: 'Geçmiş yüklenemedi'),
+            data: (list) {
+              if (list.isEmpty) {
+                return const EmptyState(
+                  icon: Icons.history_rounded,
+                  title: 'Geçmiş kaydı yok',
+                  subtitle:
+                      'Son 90 günlük imha ve iade kayıtları burada görünür',
+                );
+              }
+              return ListView.builder(
+                controller: _scrollCtrl,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: list.length,
+                itemBuilder: (context, i) => _HistoryCard(product: list[i]),
+              );
+            },
+          ),
+          // Nav bar olmayan tam sayfa ekran: sadece scroll esigine gore
+          // calisir (syncWithNavBar: false).
+          ScrollToTopFab(
+            controller: _scrollCtrl,
+            syncWithNavBar: false,
+          ),
+        ],
       ),
     );
   }
