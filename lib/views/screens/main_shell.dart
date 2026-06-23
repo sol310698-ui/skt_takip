@@ -226,39 +226,38 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildCustomNavBar() {
     return SizedBox(
-      height: 92,
+      height: 100,
       child: Stack(
         alignment: Alignment.topCenter,
         clipBehavior: Clip.none,
         children: [
-          // Alt bar — Soft Glass: gercek frosted-glass (BackdropFilter).
+          // Alt bar — floating: yanlardan ve alttan bosluklu, tum koseler
+          // yuvarlak (pill/rXl), Soft Glass frosted-glass (BackdropFilter).
           Positioned(
             bottom: 0,
-            left: 0,
-            right: 0,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(AppTheme.rXl)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Container(
-                  height: 70,
-                  decoration: BoxDecoration(
-                    color: AppTheme.glassTint
-                        .withOpacity(AppTheme.glassOpacity + 0.1),
-                    borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(AppTheme.rXl)),
-                    border: Border(
-                      top: BorderSide(
+            left: 16,
+            right: 16,
+            child: SafeArea(
+              top: false,
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.all(Radius.circular(AppTheme.rXl)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: Container(
+                    height: 66,
+                    decoration: BoxDecoration(
+                      color: AppTheme.glassTint
+                          .withOpacity(AppTheme.glassOpacity + 0.1),
+                      borderRadius: const BorderRadius.all(
+                          Radius.circular(AppTheme.rXl)),
+                      border: Border.all(
                         color: Colors.white
                             .withOpacity(AppTheme.isLight ? 0.8 : 0.1),
                         width: 1.2,
                       ),
+                      boxShadow: AppTheme.shadowMd,
                     ),
-                    boxShadow: AppTheme.shadowMd,
-                  ),
-                  child: SafeArea(
-                    top: false,
                     child: Row(
                       children: [
                         _navItem(0, Icons.event_note_outlined,
