@@ -214,11 +214,15 @@ class PriceOverlayService : Service() {
     /** Baloncuga tiklayinca: uygulamayi hizli QR moduyla ac. */
     private fun onBubbleTap() {
         try {
-            val intent = packageManager.getLaunchIntentForPackage(packageName)
-            intent?.apply {
-                action = Intent.ACTION_VIEW
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            // Explicit olarak MainActivity'yi hedefle (launch intent yerine);
+            // boylece "openQuickScan" extra'si guvenilir sekilde ulasir ve
+            // mevcut gorev one gelir (SINGLE_TOP -> onNewIntent tetiklenir).
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
                 putExtra("openQuickScan", true)
             }
             startActivity(intent)

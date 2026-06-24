@@ -12,7 +12,6 @@ import '../../core/services/theme_prefs.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
-import 'import_screen.dart';
 import 'log_viewer_screen.dart';
 import 'work_location_picker_screen.dart';
 import 'work_schedule_screen.dart';
@@ -167,44 +166,53 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  Future<void> _openBackupMenu() async {
-    final choice = await showDialog<String>(
+  Future<void> _fullBackup() async {
+    try {
+      await BackupService.instance.exportDb();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Yedek alınamadı: $e')));
+      }
+    }
+  }
+
+  Future<void> _restoreBackup() async {
+    // Geri yukleme mevcut TUM veriyi siler — once onay al.
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Yedek İşlemleri'),
-        content: const Text('Ne yapmak istersiniz?'),
+        title: const Text('Geri Yükle'),
+        content: const Text(
+            'Seçeceğiniz yedek dosyası mevcut TÜM verilerin (barkod + SKT) '
+            'üzerine yazılır ve şu anki veriler silinir. Devam edilsin mi?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, 'backup'),
-              child: const Text('Yedek Al')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, 'restore'),
-              child: const Text('Geri Yükle')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: () => Navigator.pop(ctx, false),
               child: const Text('İptal')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Geri Yükle',
+                  style: TextStyle(color: AppTheme.statusExpired))),
         ],
       ),
     );
-    if (!mounted || choice == null) return;
-    if (choice == 'backup') {
-      await BackupService.instance.exportDb();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Yedek alındı')));
-      }
-    } else {
-      // Geri yükleme için dosya yolu gerekiyor — file picker ile al.
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowedExtensions: null,
-      );
+    if (!mounted || confirm != true) return;
+
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.any);
       if (result != null && result.files.single.path != null) {
         await BackupService.instance.importDb(result.files.single.path!);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Geri yüklendi, uygulama yeniden başlatın')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content:
+                  Text('Geri yüklendi. Lütfen uygulamayı yeniden başlatın.')));
         }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Geri yükleme hatası: $e')));
       }
     }
   }
@@ -343,27 +351,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         const SectionLabel('Veri'),
         const SizedBox(height: 8),
         _tile(
+          icon: Icons.backup_outlined,
+          color: AppTheme.primary,
+          title: 'Tam Yedek Al',
+          subtitle: 'Tüm barkod ve SKT verilerini tek dosyada yedekle',
+          onTap: _fullBackup,
+        ),
+        _tile(
           icon: Icons.table_chart_outlined,
           color: AppTheme.statusSafe,
-          title: 'Excel Export',
-          subtitle: 'Tüm ürünleri Excel olarak dışa aktar',
+          title: 'SKT Excel Yedek',
+          subtitle: 'Sadece SKT verilerini Excel dosyası olarak dışa aktar',
           loading: _exporting,
           onTap: _exporting ? null : _export,
         ),
         _tile(
-          icon: Icons.upload_file_outlined,
+          icon: Icons.restore_outlined,
           color: AppTheme.accent,
-          title: 'Barkod Import',
-          subtitle: 'Excel\'den barkod dizinine aktar',
-          onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ImportScreen())),
-        ),
-        _tile(
-          icon: Icons.cloud_download_outlined,
-          color: AppTheme.primary,
-          title: 'Yedek Al / Geri Yükle',
-          subtitle: 'Veritabanını yedekle veya önceki yedeği yükle',
-          onTap: _openBackupMenu,
+          title: 'Geri Yükle',
+          subtitle: 'Önceki tam yedek dosyasından tüm verileri geri yükle',
+          onTap: _restoreBackup,
         ),
         _tile(
           icon: Icons.cleaning_services_outlined,

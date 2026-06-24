@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
+import '../../core/services/price_check_channel.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
@@ -28,14 +29,53 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _navIndex = 0;
+  bool _priceCheckOpen = false; // Fiyat Kontrol ekrani su an acik mi
 
   @override
   void initState() {
     super.initState();
     _navIndex = widget.initialNavIndex;
+    WidgetsBinding.instance.addObserver(this);
     _requestPermissions();
+    _setupQuickScan();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Uygulama her one geldiginde (baloncuktan donus dahil) bekleyen
+    // "hizli QR" istegi var mi diye bak. Bu, onNewIntent'in anlik cagrisina
+    // bagli kalmadan calisir; en guvenilir yontem.
+    if (state == AppLifecycleState.resumed) {
+      _checkQuickScan();
+    }
+  }
+
+  Future<void> _checkQuickScan() async {
+    final quick = await PriceCheckChannel.consumeQuickScan();
+    if (quick && mounted) _openPriceCheck();
+  }
+
+  void _setupQuickScan() {
+    // Baloncuktan anlik cagri (uygulama zaten acikken).
+    PriceCheckChannel.setQuickScanHandler(_openPriceCheck);
+    // Soguk baslangic: ilk frame'den sonra bekleyen istegi tuket.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkQuickScan());
+  }
+
+  void _openPriceCheck() {
+    if (!mounted || _priceCheckOpen) return;
+    _priceCheckOpen = true;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const PriceCheckScreen()))
+        .then((_) => _priceCheckOpen = false);
   }
 
   Future<void> _requestPermissions() async {

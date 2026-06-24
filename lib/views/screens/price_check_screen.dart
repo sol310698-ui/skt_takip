@@ -66,10 +66,6 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     super.initState();
     _init();
     _initOverlay();
-    // Baloncuktan anlik "QR modu ac" cagrisi gelirse taramaya gec.
-    PriceCheckChannel.setQuickScanHandler(() {
-      if (mounted && !_scanning) _scanAgain();
-    });
     // TANI: her saniye servisin durumunu cek ve goster.
     _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
@@ -86,12 +82,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
 
   Future<void> _initOverlay() async {
     final running = await PriceCheckChannel.isOverlayRunning();
-    // Uygulama baloncuktan acildiysa hemen QR moduna gec.
-    final quick = await PriceCheckChannel.consumeQuickScan();
-    if (mounted) {
-      setState(() => _overlayOn = running);
-      if (quick && !_scanning) _scanAgain();
-    }
+    if (mounted) setState(() => _overlayOn = running);
   }
 
   Future<void> _toggleOverlay(bool on) async {
