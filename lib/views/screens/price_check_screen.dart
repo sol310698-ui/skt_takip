@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -40,10 +41,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   bool _scanning = false;
   bool _busy = false;
   bool _serviceOn = false;
+  bool _overlayOn = false; // yuzen baloncuk acik mi
 
   // ── TANI (debug) ──
   bool _debugOpen = true; // tani paneli acik mi
   Timer? _debugTimer;
+  Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
   Map<String, dynamic> _debug = {};
 
   // Son sonuc
@@ -62,6 +65,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   void initState() {
     super.initState();
     _init();
+    _initOverlay();
+    // Baloncuktan anlik "QR modu ac" cagrisi gelirse taramaya gec.
+    PriceCheckChannel.setQuickScanHandler(() {
+      if (mounted && !_scanning) _scanAgain();
+    });
     // TANI: her saniye servisin durumunu cek ve goster.
     _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
@@ -74,6 +82,40 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         });
       }
     });
+  }
+
+  Future<void> _initOverlay() async {
+    final running = await PriceCheckChannel.isOverlayRunning();
+    // Uygulama baloncuktan acildiysa hemen QR moduna gec.
+    final quick = await PriceCheckChannel.consumeQuickScan();
+    if (mounted) {
+      setState(() => _overlayOn = running);
+      if (quick && !_scanning) _scanAgain();
+    }
+  }
+
+  Future<void> _toggleOverlay(bool on) async {
+    if (on) {
+      final can = await PriceCheckChannel.canDrawOverlays();
+      if (!can) {
+        await PriceCheckChannel.requestOverlayPermission();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  '"Üstte göster" iznini verin, sonra anahtarı tekrar açın.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return; // izin verilince kullanici tekrar acar
+      }
+      final ok = await PriceCheckChannel.startOverlay();
+      if (mounted) setState(() => _overlayOn = ok);
+    } else {
+      await PriceCheckChannel.stopOverlay();
+      if (mounted) setState(() => _overlayOn = false);
+    }
   }
 
   Future<void> _init() async {
@@ -101,6 +143,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   @override
   void dispose() {
     _debugTimer?.cancel();
+    _autoRescanTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -202,6 +245,47 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
 
     // Sesli + titresimli geri bildirim.
     await _announce(result, parsed.price, systemPrice);
+
+    // Baloncuk (overlay) acikssa rengini guncelle + otomatik arka plana
+    // donerek kullaniciyi sirket uygulamasina birak.
+    if (_overlayOn) {
+      await PriceCheckChannel.updateOverlayState(_overlayStateOf(result));
+      // Kisa sure sonucu gosterip arka plana don (sirket uygulamasi one gelir).
+      _autoRescanTimer?.cancel();
+      _autoRescanTimer = Timer(const Duration(milliseconds: 1400), () async {
+        if (mounted) {
+          await _scanAgain(); // bir sonraki QR icin hazir tut
+          // Uygulamayi arka plana at -> altta duran sirket uygulamasi gelir.
+          await SystemNavigator.pop();
+        }
+      });
+      return;
+    }
+
+    // OTOMATIK DEVAM: kullanici "Tekrar Okut"a basmak zorunda kalmasin.
+    _scheduleAutoRescan();
+  }
+
+  String _overlayStateOf(_CompareResult r) {
+    switch (r) {
+      case _CompareResult.match:
+        return 'match';
+      case _CompareResult.mismatch:
+        return 'mismatch';
+      case _CompareResult.wrongLabel:
+        return 'wrong';
+      case _CompareResult.noSystem:
+        return 'nosystem';
+    }
+  }
+
+  void _scheduleAutoRescan() {
+    _autoRescanTimer?.cancel();
+    _autoRescanTimer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted && _result != null && !_scanning) {
+        _scanAgain();
+      }
+    });
   }
 
   _CompareResult _compare({
@@ -234,37 +318,25 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     switch (result) {
       case _CompareResult.match:
         await PriceCheckChannel.vibrate(mismatch: false);
-        await PriceCheckChannel.speak(
-            'Fiyatlar uyuyor. ${_say(labelPrice)} lira.');
+        await PriceCheckChannel.speak('Doğru');
         break;
       case _CompareResult.mismatch:
         await PriceCheckChannel.vibrate(mismatch: true);
-        await PriceCheckChannel.speak(
-            'Dikkat! Fiyat uyusmuyor. Etiket ${_say(labelPrice)} lira, '
-            'sistem ${_say(systemPrice!)} lira.');
+        await PriceCheckChannel.speak('Yanlış fiyat');
         break;
       case _CompareResult.wrongLabel:
         await PriceCheckChannel.vibrate(mismatch: true);
-        await PriceCheckChannel.speak(
-            'Yanlis etiket! Bu etiket bu urune ait degil. Diger etiketleri '
-            'okutun.');
+        await PriceCheckChannel.speak('Yanlış etiket');
         break;
       case _CompareResult.noSystem:
         await PriceCheckChannel.vibrate(mismatch: true);
-        await PriceCheckChannel.speak(
-            'Sistem fiyati bulunamadi. Once sirket uygulamasinda barkodu '
-            'okutun.');
+        await PriceCheckChannel.speak('Sistem fiyatı yok');
         break;
     }
   }
 
-  // Sesli okuma icin fiyati "9 lira 95 kurus" yerine sade "9,95" der.
-  String _say(double v) {
-    final s = v.toStringAsFixed(2).replaceAll('.', ' virgul ');
-    return s;
-  }
-
   Future<void> _scanAgain() async {
+    _autoRescanTimer?.cancel();
     await PriceCheckChannel.clearLastSystemPrice();
     setState(() {
       _result = null;
@@ -347,9 +419,35 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
       body: Column(
         children: [
           if (!_serviceOn) _serviceWarning(),
+          _overlayToggleBar(),
           if (_debugOpen) _debugPanel(),
           Expanded(
             child: _result == null ? _scannerView() : _resultView(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _overlayToggleBar() {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF14181E),
+      padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+      child: Row(
+        children: [
+          const Icon(Icons.bubble_chart_rounded,
+              color: AppTheme.primaryLight, size: 20),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Yüzen baloncuk (uygulamadan çıkmadan kontrol)',
+              style: TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          Switch(
+            value: _overlayOn,
+            onChanged: _toggleOverlay,
           ),
         ],
       ),

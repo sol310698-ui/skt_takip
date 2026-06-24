@@ -94,4 +94,65 @@ class PriceCheckChannel {
       await _ch.invokeMethod('vibrate', {'mismatch': mismatch});
     } catch (_) {}
   }
+
+  // ── YUZEN BALONCUK (OVERLAY) ──
+  static Future<bool> canDrawOverlays() async {
+    try {
+      return (await _ch.invokeMethod<bool>('canDrawOverlays')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> requestOverlayPermission() async {
+    try {
+      await _ch.invokeMethod('requestOverlayPermission');
+    } catch (_) {}
+  }
+
+  static Future<bool> startOverlay() async {
+    try {
+      return (await _ch.invokeMethod<bool>('startOverlay')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> stopOverlay() async {
+    try {
+      await _ch.invokeMethod('stopOverlay');
+    } catch (_) {}
+  }
+
+  static Future<bool> isOverlayRunning() async {
+    try {
+      return (await _ch.invokeMethod<bool>('isOverlayRunning')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Baloncuk rengini gunceller: neutral|match|mismatch|wrong|nosystem
+  static Future<void> updateOverlayState(String state) async {
+    try {
+      await _ch.invokeMethod('updateOverlayState', {'state': state});
+    } catch (_) {}
+  }
+
+  /// Baloncuktan "hizli QR" istegi bekliyor mu? (acilista/resume'da sorulur)
+  static Future<bool> consumeQuickScan() async {
+    try {
+      return (await _ch.invokeMethod<bool>('consumeQuickScan')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// onNewIntent'ten gelen anlik "QR modu ac" cagrisini dinlemek icin.
+  static void setQuickScanHandler(void Function() onOpen) {
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'openQuickScan') onOpen();
+      return null;
+    });
+  }
 }
