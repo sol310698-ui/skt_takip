@@ -32,6 +32,10 @@ class PriceAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "PriceA11yService"
 
+        // Kendi uygulamamizin paketi — bunu OKUMAYIZ (kendi ekranindaki
+        // "Sistem fiyati 9,95" gibi test metinleri yanlis veri yaratmasin).
+        private const val OWN_PACKAGE = "com.example.skt_takip"
+
         // "Sistem Fiyati" etiketinin aranacagi metin.
         private const val PRICE_LABEL = "Sistem Fiyatı"
 
@@ -40,6 +44,9 @@ class PriceAccessibilityService : AccessibilityService() {
         private val PRICE_PATTERN: Pattern = Pattern.compile(
             "(\\d{1,6}[.,]\\d{1,2})"
         )
+
+        // 8-13 haneli barkod (EAN-13/EAN-8 vb.)
+        private val BARCODE_PATTERN: Pattern = Pattern.compile("\\b(\\d{8,13})\\b")
 
         // Son okunan sistem fiyati, Flutter tarafinin (MethodChannel ile)
         // erisebilmesi icin statik tutulur (ayni process icinde, basit ve
@@ -50,6 +57,19 @@ class PriceAccessibilityService : AccessibilityService() {
 
         @Volatile
         var lastSystemPriceRaw: String? = null
+            private set
+
+        // ── Denetim Formu'ndan cikarilan urun bilgileri ──
+        @Volatile
+        var lastBarcode: String? = null
+            private set
+
+        @Volatile
+        var lastStockCode: String? = null
+            private set
+
+        @Volatile
+        var lastProductName: String? = null
             private set
 
         @Volatile
@@ -79,6 +99,9 @@ class PriceAccessibilityService : AccessibilityService() {
         fun clearLastPrice() {
             lastSystemPrice = null
             lastSystemPriceRaw = null
+            lastBarcode = null
+            lastStockCode = null
+            lastProductName = null
         }
     }
 
@@ -101,26 +124,111 @@ class PriceAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         try {
             lastEventTime = System.currentTimeMillis()
-            lastPackage = event?.packageName?.toString()
+            val pkg = event?.packageName?.toString()
+            lastPackage = pkg
 
-            // DEBUG: ekrandaki metinlerden ornek topla (ilk ~8 metin),
-            // boylece "Sistem Fiyati" gercekte nasil yaziyor gorebiliriz.
+            // Kendi uygulamamizi OKUMA — kendi ekranindaki metinler yanlis
+            // veri uretmesin. Sadece debug paketi gosterilir, veri alinmaz.
+            if (pkg == OWN_PACKAGE) {
+                return
+            }
+
+            // Ekrandaki tum metinleri topla.
             val texts = ArrayList<String>()
-            collectTexts(root, texts, 40)
+            collectTexts(root, texts, 80)
             lastLabelFound = texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }
             lastScreenSample = texts.take(8).joinToString(" | ")
 
+            // Fiyat: "Sistem Fiyati" etiketine yakin olani al.
             val price = findPriceNearLabel(root, PRICE_LABEL)
             if (price != null) {
                 lastSystemPriceRaw = price.second
                 lastSystemPrice = price.first
-                Log.i(TAG, "Sistem fiyati bulundu: ${price.first} (ham: ${price.second})")
             }
+
+            // Barkod + stok kodu + urun adi: tum ekrandan cikar.
+            extractProductInfo(texts)
+
         } catch (e: Exception) {
             Log.e(TAG, "Ekran taranirken hata: ${e.message}")
         } finally {
             root.recycle()
         }
+    }
+
+    /**
+     * Denetim Formu ekranindaki metinlerden barkod, stok kodu ve urun
+     * adini cikarir.
+     *
+     * KONUMSAL yaklasim (uzunluk DEGIL): Denetim Formu'nda urun barkodu
+     * her zaman USTTE, stok kodu hemen ALTINDA gosterilir. Ekran agaci
+     * yukaridan asagi sirayla tarandigi icin, karsilastigimiz SAYISAL
+     * kodlardan:
+     *   - 1. sirada gelen  -> BARKOD
+     *   - 2. sirada gelen  -> STOK KODU
+     * Boylece "8 haneli yabanci barkod" veya "5 haneli kisa stok kodu"
+     * gibi durumlar uzunluga takilmadan dogru ayrilir.
+     *
+     * Sayisal kod adayi: en az 4 haneli, sadece rakam (bosluk/tire temizli).
+     * Fiyat (ondalikli, "9,95") koddan sayilmaz; cesit no gibi cok kisa
+     * (<4) degerler de elenir.
+     */
+    private fun extractProductInfo(texts: List<String>) {
+        // Bu ekranda "Sistem Fiyati" yoksa urun ekrani degildir, dokunma.
+        if (!texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }) return
+
+        // Ekran sirasinda gorulen sayisal kodlar (barkod/stok adaylari).
+        val codes = ArrayList<String>()
+        var productName: String? = null
+        var longestNameLen = 0
+        // Barkod/stok kodu "Sistem Fiyati" etiketinin USTUNDE yer alir.
+        // Fiyattan SONRAKI sayilar (tarih, ID, kampanya vb.) karismasin diye
+        // etiketi gorunce kod toplamayi durdururuz.
+        var reachedPriceLabel = false
+
+        for (t in texts) {
+            val clean = t.trim()
+            if (clean.isEmpty()) continue
+
+            if (clean.contains(PRICE_LABEL, ignoreCase = true)) {
+                reachedPriceLabel = true
+            }
+
+            // Ondalikli fiyat (9,95 / 9.95) bir KOD degildir; atla.
+            if (clean.matches(".*\\d[.,]\\d.*".toRegex()) &&
+                clean.replace("[^0-9]".toRegex(), "").length <= 6) {
+                // kucuk ondalikli sayi (fiyat) -> kod degil
+                continue
+            }
+
+            val digitsOnly = clean.replace("[\\s-]".toRegex(), "")
+            // Tamamen rakamsa, yeterince uzunsa (>=4) ve henuz fiyat
+            // etiketine gelmediysek bir koddur (barkod/stok ustte olur).
+            if (!reachedPriceLabel && digitsOnly.matches("\\d{4,14}".toRegex())) {
+                if (!codes.contains(digitsOnly)) codes.add(digitsOnly)
+                continue
+            }
+
+            // Urun adi adayi: en az 5 karakter, harf icermeli, etiket/fiyat
+            // metni olmamali. (En uzun aday secilir.)
+            if (clean.length >= 5 &&
+                clean.any { it.isLetter() } &&
+                !clean.contains(PRICE_LABEL, ignoreCase = true) &&
+                !clean.contains("₺") &&
+                clean.length > longestNameLen
+            ) {
+                longestNameLen = clean.length
+                productName = clean
+            }
+        }
+
+        // KONUMSAL ayrim: ilk kod = barkod, ikinci kod = stok kodu.
+        val barcode = codes.getOrNull(0)
+        val stockCode = codes.getOrNull(1)
+
+        if (barcode != null) lastBarcode = barcode
+        if (stockCode != null) lastStockCode = stockCode
+        if (productName != null) lastProductName = productName
     }
 
     /** DEBUG: agactaki metinleri toplar (en fazla [max] adet). */

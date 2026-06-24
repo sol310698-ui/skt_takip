@@ -31,17 +31,33 @@ class PriceCheckChannel {
     } catch (_) {}
   }
 
-  /// Servisin en son okudugu "Sistem Fiyati" degerini getirir.
-  /// Donus: (price, raw). Hicbir sey okunmadiysa price null.
-  static Future<({double? price, String? raw})> getLastSystemPrice() async {
+  /// Servisin en son okudugu degerleri getirir (fiyat + urun bilgileri).
+  static Future<
+      ({
+        double? price,
+        String? raw,
+        String? barcode,
+        String? stockCode,
+        String? productName,
+      })> getLastSystemPrice() async {
     try {
       final r = await _ch.invokeMethod<Map<dynamic, dynamic>>(
           'getLastSystemPrice');
-      final price = (r?['price'] as num?)?.toDouble();
-      final raw = r?['raw'] as String?;
-      return (price: price, raw: raw);
+      return (
+        price: (r?['price'] as num?)?.toDouble(),
+        raw: r?['raw'] as String?,
+        barcode: r?['barcode'] as String?,
+        stockCode: r?['stockCode'] as String?,
+        productName: r?['productName'] as String?,
+      );
     } catch (_) {
-      return (price: null, raw: null);
+      return (
+        price: null,
+        raw: null,
+        barcode: null,
+        stockCode: null,
+        productName: null,
+      );
     }
   }
 

@@ -539,17 +539,26 @@ class _AuroraBackgroundState extends State<AuroraBackground>
     return AnimatedBuilder(
       animation: _sync,
       builder: (context, child) {
-        final angle = _AuroraSync.instance.value * 2 * math.pi;
-        final begin = Alignment(0.7 * math.cos(angle), 0.7 * math.sin(angle));
-        final end = Alignment(
-            -0.7 * math.cos(angle), -0.7 * math.sin(angle));
+        // Yatay olarak SOL=mavi, SAG=kirmizi. Ortadaki bolunme cizgisi
+        // canli dursun diye yavasca sola-saga salinir (hep yari mavi/yari
+        // kirmizi kalir, renkler birbirine karismaz).
+        final t = _AuroraSync.instance.value * 2 * math.pi;
+        final mid = 0.5 + 0.12 * math.sin(t); // 0.38 ↔ 0.62 arasi salinim
+        const blue = Color(0xFF1D4ED8);
+        const red = Color(0xFFDC2626);
         return Container(
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
             gradient: LinearGradient(
-              colors: AppTheme.auroraColors,
-              begin: begin,
-              end: end,
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: const [blue, blue, red, red],
+              stops: [
+                0.0,
+                (mid - 0.10).clamp(0.0, 1.0),
+                (mid + 0.10).clamp(0.0, 1.0),
+                1.0,
+              ],
             ),
           ),
           child: widget.child,

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/theme/app_theme.dart';
+import 'pending_products_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  FIYAT KONTROL ASISTANI
@@ -30,7 +32,8 @@ class PriceCheckScreen extends StatefulWidget {
 
 class _PriceCheckScreenState extends State<PriceCheckScreen> {
   final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
+    detectionSpeed: DetectionSpeed.normal,
+    formats: const [BarcodeFormat.all],
     autoStart: false,
   );
 
@@ -47,7 +50,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   String? _labelBarcode;
   double? _labelPrice;
   double? _systemPrice;
+  String? _systemBarcode;
+  String? _systemProductName;
   _CompareResult? _result;
+
+  // TANI: en son okunan QR ham metni + parse sonucu
+  String? _lastQrRaw;
+  String? _lastQrNote;
 
   @override
   void initState() {
@@ -96,18 +105,37 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     super.dispose();
   }
 
-  // QR ham metnini parse et: barkod*fiyat*...
+  // QR ham metnini parse et.
+  // Once "barkod*fiyat*..." formati denenir. Tutmazsa, metindeki ILK
+  // fiyat formatli sayi (9,95 / 9.95) fiyat olarak alinir; barkod varsa
+  // ilk uzun rakam dizisi barkod sayilir. Boylece farkli etiket QR
+  // formatlari da calisir.
   ({String barcode, double price})? _parseLabelQr(String raw) {
+    // 1) Yildizli format
     final parts = raw.split('*');
-    if (parts.length < 2) return null;
-    final barcode = parts[0].trim();
-    final priceStr = parts[1].trim().replaceAll(',', '.');
-    final price = double.tryParse(priceStr);
-    if (price == null) return null;
-    if (barcode.isEmpty || !barcode.split('').every((c) => '0123456789'.contains(c))) {
-      return null;
+    if (parts.length >= 2) {
+      final barcode = parts[0].trim();
+      final priceStr = parts[1].trim().replaceAll(',', '.');
+      final price = double.tryParse(priceStr);
+      if (price != null &&
+          barcode.isNotEmpty &&
+          RegExp(r'^\d+$').hasMatch(barcode)) {
+        return (barcode: barcode, price: price);
+      }
     }
-    return (barcode: barcode, price: price);
+
+    // 2) Esnek: metindeki ilk fiyat (ondalikli sayi) + ilk uzun rakam dizisi
+    final priceMatch =
+        RegExp(r'(\d{1,6}[.,]\d{1,2})').firstMatch(raw);
+    if (priceMatch != null) {
+      final price = double.tryParse(
+          priceMatch.group(1)!.replaceAll(',', '.'));
+      if (price != null) {
+        final bcMatch = RegExp(r'\d{8,13}').firstMatch(raw);
+        return (barcode: bcMatch?.group(0) ?? '—', price: price);
+      }
+    }
+    return null;
   }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
@@ -117,27 +145,57 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
 
     final parsed = _parseLabelQr(raw);
     if (parsed == null) {
-      // Bu QR fiyat etiketi formatinda degil — yok say, taramaya devam.
+      // QR okundu AMA fiyat cikarilamadi. Taniya yaz, taramaya devam et.
+      setState(() {
+        _lastQrRaw = raw;
+        _lastQrNote = 'Okundu ama fiyat bulunamadı';
+      });
       return;
     }
 
     setState(() {
+      _lastQrRaw = raw;
+      _lastQrNote = 'Fiyat: ${parsed.price}';
       _busy = true;
       _scanning = false;
     });
     await _controller.stop();
 
-    // Sistem fiyatini native erisilebilirlik servisinden cek.
+    // Sistem verisini native erisilebilirlik servisinden cek (fiyat +
+    // barkod + stok kodu + urun adi).
     final sys = await PriceCheckChannel.getLastSystemPrice();
     final systemPrice = sys.price;
+    final systemBarcode = sys.barcode;
 
-    final result = _compare(parsed.price, systemPrice);
+    final result = _compare(
+      labelPrice: parsed.price,
+      labelBarcode: parsed.barcode,
+      systemPrice: systemPrice,
+      systemBarcode: systemBarcode,
+    );
+
+    // Sistemde gecerli urun bilgisi varsa, onay kuyruguna ekle (DB'ye
+    // dogrudan YAZMAZ; kullanici onay sayfasinda kaydedecek). Yanlis etiket
+    // olsa bile sistem urunu dogru oldugundan kuyruga sistem barkodu yazilir.
+    if (systemBarcode != null &&
+        sys.productName != null &&
+        sys.productName!.trim().isNotEmpty) {
+      addPendingProduct(PendingProduct(
+        barcode: systemBarcode,
+        stockCode: sys.stockCode,
+        productName: sys.productName!.trim(),
+        systemPrice: systemPrice,
+        scannedAt: DateTime.now(),
+      ));
+    }
 
     if (!mounted) return;
     setState(() {
       _labelBarcode = parsed.barcode;
       _labelPrice = parsed.price;
       _systemPrice = systemPrice;
+      _systemBarcode = systemBarcode;
+      _systemProductName = sys.productName;
       _result = result;
       _busy = false;
     });
@@ -146,8 +204,24 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     await _announce(result, parsed.price, systemPrice);
   }
 
-  _CompareResult _compare(double labelPrice, double? systemPrice) {
+  _CompareResult _compare({
+    required double labelPrice,
+    required String labelBarcode,
+    required double? systemPrice,
+    required String? systemBarcode,
+  }) {
     if (systemPrice == null) return _CompareResult.noSystem;
+
+    // YANLIS ETIKET: QR'daki barkod ile sistemdeki barkod farkliysa, bu
+    // etiket bu urune ait degildir. (Barkodlardan biri yoksa bu kontrolu
+    // atla; sadece fiyata bak.)
+    if (systemBarcode != null &&
+        labelBarcode.isNotEmpty &&
+        labelBarcode != '—' &&
+        labelBarcode != systemBarcode) {
+      return _CompareResult.wrongLabel;
+    }
+
     // 1 kurus hassasiyet (kayan nokta hatasini tolere et).
     if ((labelPrice - systemPrice).abs() < 0.005) {
       return _CompareResult.match;
@@ -168,6 +242,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         await PriceCheckChannel.speak(
             'Dikkat! Fiyat uyusmuyor. Etiket ${_say(labelPrice)} lira, '
             'sistem ${_say(systemPrice!)} lira.');
+        break;
+      case _CompareResult.wrongLabel:
+        await PriceCheckChannel.vibrate(mismatch: true);
+        await PriceCheckChannel.speak(
+            'Yanlis etiket! Bu etiket bu urune ait degil. Diger etiketleri '
+            'okutun.');
         break;
       case _CompareResult.noSystem:
         await PriceCheckChannel.vibrate(mismatch: true);
@@ -191,6 +271,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
       _labelBarcode = null;
       _labelPrice = null;
       _systemPrice = null;
+      _systemBarcode = null;
+      _systemProductName = null;
       _busy = false;
       _scanning = true;
     });
@@ -207,10 +289,47 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: AppTheme.primary,
+        backgroundColor: _appBarColor(),
         foregroundColor: Colors.white,
         title: const Text('Fiyat Kontrol'),
         actions: [
+          // Okunan urunler (onay) sayfasi — rozette bekleyen sayisi.
+          ValueListenableBuilder<List<PendingProduct>>(
+            valueListenable: pendingProductsQueue,
+            builder: (_, items, __) => Stack(
+              alignment: Alignment.center,
+              children: [
+                IconButton(
+                  tooltip: 'Okunan ürünler',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const PendingProductsScreen()),
+                  ),
+                  icon: const Icon(Icons.inventory_2_rounded),
+                ),
+                if (items.isNotEmpty)
+                  Positioned(
+                    right: 6,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: AppTheme.statusExpired,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints:
+                          const BoxConstraints(minWidth: 18, minHeight: 18),
+                      child: Text('${items.length}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
             tooltip: 'Tanı panelini aç/kapat',
             onPressed: () => setState(() => _debugOpen = !_debugOpen),
@@ -235,6 +354,22 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         ],
       ),
     );
+  }
+
+  /// App bar rengi duruma gore: dogru=yesil, yanlis fiyat/etiket=kirmizi,
+  /// sistem fiyati yok=sari, henuz sonuc yok=normal (mor).
+  Color _appBarColor() {
+    switch (_result) {
+      case _CompareResult.match:
+        return AppTheme.statusSafe;
+      case _CompareResult.mismatch:
+      case _CompareResult.wrongLabel:
+        return AppTheme.statusExpired;
+      case _CompareResult.noSystem:
+        return AppTheme.statusWarning;
+      case null:
+        return AppTheme.primary;
+    }
   }
 
   Widget _debugPanel() {
@@ -304,6 +439,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
               price == null ? '—' : price.toString(),
               color: price == null ? Colors.orangeAccent : Colors.greenAccent),
           if (raw != null) line('Ham metin', raw.toString()),
+          const SizedBox(height: 4),
+          line('Son QR', _lastQrRaw ?? 'henüz okunmadı',
+              color: _lastQrRaw == null ? Colors.white54 : Colors.cyanAccent),
+          if (_lastQrNote != null)
+            line('QR durumu', _lastQrNote!,
+                color: _lastQrNote!.startsWith('Fiyat')
+                    ? Colors.greenAccent
+                    : Colors.orangeAccent),
           const SizedBox(height: 4),
           const Text('Ekranda görülen metinler:',
               style: TextStyle(color: Colors.white54, fontSize: 11)),
@@ -405,6 +548,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         icon = Icons.cancel_rounded;
         title = 'FIYAT UYUSMUYOR';
         break;
+      case _CompareResult.wrongLabel:
+        bg = AppTheme.statusExpired;
+        icon = Icons.wrong_location_rounded;
+        title = 'YANLIŞ ETİKET';
+        break;
       case _CompareResult.noSystem:
         bg = AppTheme.statusWarning;
         icon = Icons.help_rounded;
@@ -431,10 +579,30 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
                 letterSpacing: 0.5),
           ),
           const SizedBox(height: 28),
+          if (_systemProductName != null) ...[
+            Text(
+              _systemProductName!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+          ],
           _priceRow('Etiket', _labelPrice),
           const SizedBox(height: 12),
           _priceRow('Sistem', _systemPrice),
-          if (_labelBarcode != null) ...[
+          if (r == _CompareResult.wrongLabel) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Etiket barkodu: ${_labelBarcode ?? "—"}\n'
+              'Sistem barkodu: ${_systemBarcode ?? "—"}\n'
+              'Bu etiket bu ürüne ait değil. Diğer etiketleri okutun.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.withOpacity(0.95)),
+            ),
+          ] else if (_labelBarcode != null) ...[
             const SizedBox(height: 16),
             Text('Barkod: $_labelBarcode',
                 style: TextStyle(color: Colors.white.withOpacity(0.85))),
@@ -487,4 +655,4 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   }
 }
 
-enum _CompareResult { match, mismatch, noSystem }
+enum _CompareResult { match, mismatch, wrongLabel, noSystem }

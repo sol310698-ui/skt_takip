@@ -138,6 +138,9 @@ class MainActivity : FlutterFragmentActivity() {
                         val map = HashMap<String, Any?>()
                         map["price"] = PriceAccessibilityService.lastSystemPrice
                         map["raw"] = PriceAccessibilityService.lastSystemPriceRaw
+                        map["barcode"] = PriceAccessibilityService.lastBarcode
+                        map["stockCode"] = PriceAccessibilityService.lastStockCode
+                        map["productName"] = PriceAccessibilityService.lastProductName
                         result.success(map)
                     }
                     "getDebugInfo" -> {
@@ -145,6 +148,9 @@ class MainActivity : FlutterFragmentActivity() {
                         map["running"] = PriceAccessibilityService.serviceRunning
                         map["price"] = PriceAccessibilityService.lastSystemPrice
                         map["raw"] = PriceAccessibilityService.lastSystemPriceRaw
+                        map["barcode"] = PriceAccessibilityService.lastBarcode
+                        map["stockCode"] = PriceAccessibilityService.lastStockCode
+                        map["productName"] = PriceAccessibilityService.lastProductName
                         map["lastEventTime"] = PriceAccessibilityService.lastEventTime
                         map["lastPackage"] = PriceAccessibilityService.lastPackage
                         map["labelFound"] = PriceAccessibilityService.lastLabelFound
