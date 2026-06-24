@@ -109,7 +109,10 @@ class _SpeedDialFabState extends State<SpeedDialFab>
             builder: (_, navVisible, child) => AnimatedSlide(
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
-              offset: navVisible ? Offset.zero : const Offset(0, 1.6),
+              // SpeedDial ACIKKEN asla gizleme: kullanici + butonuna basip
+              // menuyu actiysa, nav bar gizli olsa bile butonlar gorunur
+              // kalmali (aksi halde bos gri ekran olusuyordu).
+              offset: (navVisible || _open) ? Offset.zero : const Offset(0, 1.6),
               child: child,
             ),
             child: Column(

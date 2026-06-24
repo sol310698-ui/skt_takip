@@ -22,18 +22,20 @@ class AppTheme {
   // ════════════════════════════════════════════════════════════════════
   //  IMZA PALETI — pastel gradyan ailesi (Soft Glass'in kalbi)
   // ════════════════════════════════════════════════════════════════════
-  // Indigo -> Orkide -> Pembe gecisi: sicak, guven veren, modern.
-  static const Color primary = Color(0xFF7C8CF8);      // yumusak indigo
-  static const Color primaryLight = Color(0xFFA5B0FB);
-  static const Color primaryDark = Color(0xFF5B6CE8);
-  static const Color accent = Color(0xFF5EEAD4);        // yumusak turkuaz
+  // Kirmizi-Mavi tema: ana renk MAVI (butonlar), vurgu BORDO/KIRMIZI.
+  // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ; onlar
+  // SKT anlamlarini (guvenli/kritik/doldu) tasir.
+  static const Color primary = Color(0xFF2563EB);      // canli mavi (butonlar)
+  static const Color primaryLight = Color(0xFF60A5FA); // acik mavi
+  static const Color primaryDark = Color(0xFF1D4ED8);  // koyu mavi
+  static const Color accent = Color(0xFFB91C1C);        // bordo/kirmizi (vurgu)
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
   // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
-  static const Color orchid = Color(0xFFC4B5FD);  // yumusak mor
-  static const Color blush = Color(0xFFF0ABFC);   // pastel pembe
-  static const Color sky = Color(0xFF93C5FD);     // yumusak gokyuzu mavisi
+  static const Color orchid = Color(0xFF3B82F6);  // mavi
+  static const Color blush = Color(0xFFDC2626);   // kirmizi
+  static const Color sky = Color(0xFF60A5FA);     // acik mavi
 
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
   static const Color statusSafe = Color(0xFF34D399);
@@ -120,21 +122,21 @@ class AppTheme {
   static const double rXl = 32;
   static const double rPill = 999;
 
-  // ─── Imza gradyanlar — "Aurora" (pastel, yumusak) ──────────────────
+  // ─── Imza gradyanlar — kirmizi-mavi ────────────────────────────────
   static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF8B93F8), Color(0xFFB69FF5), Color(0xFFF0ABFC)],
+    colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6), Color(0xFFDC2626)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFF5EEAD4), Color(0xFF7DD3FC)],
+    colors: [Color(0xFFDC2626), Color(0xFF60A5FA)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient scannerGradient = LinearGradient(
-    colors: [Color(0xFF1A1730), Color(0xFF2D2350)],
+    colors: [Color(0xFF0F1A33), Color(0xFF1A1020)],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
@@ -165,7 +167,7 @@ class AppTheme {
   // ─── Golge tokenleri — Soft Glass: daha yumusak, daha dagilmis ─────
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF7C8CF8) : Colors.black)
+          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
               .withOpacity(isLight ? 0.10 : 0.24),
           blurRadius: 16,
           offset: const Offset(0, 4),
@@ -174,7 +176,7 @@ class AppTheme {
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF7C8CF8) : Colors.black)
+          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
               .withOpacity(isLight ? 0.14 : 0.32),
           blurRadius: 28,
           offset: const Offset(0, 10),

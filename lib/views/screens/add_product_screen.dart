@@ -1192,18 +1192,36 @@ class BarcodeScanPage extends StatefulWidget {
 }
 
 class _BarcodeScanPageState extends State<BarcodeScanPage> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    formats: const [
-      BarcodeFormat.ean13,
-      BarcodeFormat.ean8,
-      BarcodeFormat.code128,
-      BarcodeFormat.code39,
-      BarcodeFormat.upcA,
-      BarcodeFormat.upcE,
-    ],
-  );
+  // Varsayilan EAN-13 (kod 13). Switch kapatilinca Code 128.
+  bool _ean13 = true;
+  late MobileScannerController _controller;
   bool _handled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = _buildController();
+  }
+
+  MobileScannerController _buildController() {
+    return MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      formats: _ean13
+          ? const [BarcodeFormat.ean13]
+          : const [BarcodeFormat.code128],
+    );
+  }
+
+  Future<void> _toggleFormat(bool ean13) async {
+    setState(() => _ean13 = ean13);
+    _handled = false;
+    // mobile_scanner v5: format degisimi icin controller'i yeniden kur.
+    final old = _controller;
+    _controller = _buildController();
+    await old.dispose();
+    if (mounted) setState(() {});
+    await _controller.start();
+  }
 
   @override
   void dispose() {
@@ -1237,6 +1255,22 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
           statusBarIconBrightness: Brightness.light,
           statusBarBrightness: Brightness.dark,
         ),
+        actions: [
+          // EAN-13 / Code 128 secimi. Acik = EAN-13 (varsayilan).
+          Row(
+            children: [
+              Text(_ean13 ? 'EAN-13' : 'Code 128',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+              Switch(
+                value: _ean13,
+                onChanged: _toggleFormat,
+              ),
+            ],
+          ),
+        ],
       ),
       body: Stack(
         alignment: Alignment.center,
@@ -1253,11 +1287,13 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
               borderRadius: BorderRadius.circular(16),
             ),
           ),
-          const Positioned(
+          Positioned(
             bottom: 60,
             child: Text(
-              'Barkodu çerçeveye getirin',
-              style: TextStyle(color: Colors.white, fontSize: 15),
+              _ean13
+                  ? 'Barkodu çerçeveye getirin (EAN-13)'
+                  : 'Barkodu çerçeveye getirin (Code 128)',
+              style: const TextStyle(color: Colors.white, fontSize: 15),
             ),
           ),
         ],

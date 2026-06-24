@@ -194,7 +194,7 @@ class AlarmService {
         body: body,
         stopButton: 'Durdur',
         icon: 'ic_launcher',
-        iconColor: const Color(0xFF5B6CF0),
+        iconColor: const Color(0xFF2563EB),
       ),
     );
     await Alarm.set(alarmSettings: settings);
