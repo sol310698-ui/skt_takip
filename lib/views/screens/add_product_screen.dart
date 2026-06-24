@@ -1194,33 +1194,20 @@ class BarcodeScanPage extends StatefulWidget {
 class _BarcodeScanPageState extends State<BarcodeScanPage> {
   // Varsayilan EAN-13 (kod 13). Switch kapatilinca Code 128.
   bool _ean13 = true;
-  late MobileScannerController _controller;
+  // Tek controller, HER iki formati da okur; secili formati detect
+  // asamasinda filtreleriz. Boylece switch'te kamera yeniden baslamaz
+  // (yeniden kurmak kamerayi siyah birakiyordu).
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
+  );
   bool _handled = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = _buildController();
-  }
-
-  MobileScannerController _buildController() {
-    return MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      formats: _ean13
-          ? const [BarcodeFormat.ean13]
-          : const [BarcodeFormat.code128],
-    );
-  }
-
-  Future<void> _toggleFormat(bool ean13) async {
-    setState(() => _ean13 = ean13);
-    _handled = false;
-    // mobile_scanner v5: format degisimi icin controller'i yeniden kur.
-    final old = _controller;
-    _controller = _buildController();
-    await old.dispose();
-    if (mounted) setState(() {});
-    await _controller.start();
+  void _toggleFormat(bool ean13) {
+    setState(() {
+      _ean13 = ean13;
+      _handled = false;
+    });
   }
 
   @override
@@ -1231,12 +1218,15 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
-    final barcodes = capture.barcodes;
-    if (barcodes.isEmpty) return;
-    final value = barcodes.first.rawValue;
-    if (value == null || value.isEmpty) return;
-    _handled = true;
-    Navigator.of(context).pop(value);
+    final wanted = _ean13 ? BarcodeFormat.ean13 : BarcodeFormat.code128;
+    // Sadece secili formattaki barkodu kabul et.
+    for (final b in capture.barcodes) {
+      if (b.format == wanted && b.rawValue != null && b.rawValue!.isNotEmpty) {
+        _handled = true;
+        Navigator.of(context).pop(b.rawValue);
+        return;
+      }
+    }
   }
 
   @override
