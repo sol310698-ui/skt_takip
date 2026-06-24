@@ -53,6 +53,18 @@ class PriceCheckChannel {
     } catch (_) {}
   }
 
+  /// TANI icin: servisin son durumu (acik mi, ne okudu, ekranda ne gordu).
+  static Future<Map<String, dynamic>> getDebugInfo() async {
+    try {
+      final r = await _ch.invokeMethod<Map<dynamic, dynamic>>('getDebugInfo');
+      return r == null
+          ? <String, dynamic>{}
+          : r.map((k, v) => MapEntry(k.toString(), v));
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   /// Native TTS ile Turkce sesli okuma (gorme dostu).
   static Future<void> speak(String text) async {
     try {

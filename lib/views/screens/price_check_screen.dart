@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -36,6 +38,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   bool _busy = false;
   bool _serviceOn = false;
 
+  // ── TANI (debug) ──
+  bool _debugOpen = true; // tani paneli acik mi
+  Timer? _debugTimer;
+  Map<String, dynamic> _debug = {};
+
   // Son sonuc
   String? _labelBarcode;
   double? _labelPrice;
@@ -46,6 +53,18 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   void initState() {
     super.initState();
     _init();
+    // TANI: her saniye servisin durumunu cek ve goster.
+    _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final info = await PriceCheckChannel.getDebugInfo();
+      if (mounted) {
+        setState(() {
+          _debug = info;
+          if (info.containsKey('running')) {
+            _serviceOn = info['running'] == true;
+          }
+        });
+      }
+    });
   }
 
   Future<void> _init() async {
@@ -72,6 +91,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
 
   @override
   void dispose() {
+    _debugTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -192,6 +212,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         title: const Text('Fiyat Kontrol'),
         actions: [
           IconButton(
+            tooltip: 'Tanı panelini aç/kapat',
+            onPressed: () => setState(() => _debugOpen = !_debugOpen),
+            icon: Icon(_debugOpen
+                ? Icons.bug_report_rounded
+                : Icons.bug_report_outlined),
+          ),
+          IconButton(
             tooltip: 'Servis durumunu yenile',
             onPressed: _refreshServiceStatus,
             icon: const Icon(Icons.refresh_rounded),
@@ -201,9 +228,90 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
       body: Column(
         children: [
           if (!_serviceOn) _serviceWarning(),
+          if (_debugOpen) _debugPanel(),
           Expanded(
             child: _result == null ? _scannerView() : _resultView(),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _debugPanel() {
+    final running = _debug['running'] == true;
+    final price = _debug['price'];
+    final raw = _debug['raw'];
+    final labelFound = _debug['labelFound'] == true;
+    final pkg = _debug['lastPackage'];
+    final sample = _debug['screenSample'];
+    final lastEvent = _debug['lastEventTime'];
+    String lastSeen = '—';
+    if (lastEvent is int && lastEvent > 0) {
+      final secsAgo =
+          ((DateTime.now().millisecondsSinceEpoch - lastEvent) / 1000).round();
+      lastSeen = '$secsAgo sn önce';
+    }
+
+    Widget line(String k, String v, {Color? color}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 120,
+                child: Text(k,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 12)),
+              ),
+              Expanded(
+                child: Text(v,
+                    style: TextStyle(
+                        color: color ?? Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF101418),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bug_report_rounded,
+                  color: Colors.amber, size: 16),
+              const SizedBox(width: 6),
+              const Text('TANI PANELİ',
+                  style: TextStyle(
+                      color: Colors.amber,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          line('Servis açık mı', running ? 'EVET' : 'HAYIR',
+              color: running ? Colors.greenAccent : Colors.redAccent),
+          line('Son ekran olayı', lastSeen),
+          line('Son uygulama', pkg?.toString() ?? '—'),
+          line('"Sistem Fiyatı"', labelFound ? 'BULUNDU' : 'bulunamadı',
+              color: labelFound ? Colors.greenAccent : Colors.orangeAccent),
+          line('Okunan fiyat',
+              price == null ? '—' : price.toString(),
+              color: price == null ? Colors.orangeAccent : Colors.greenAccent),
+          if (raw != null) line('Ham metin', raw.toString()),
+          const SizedBox(height: 4),
+          const Text('Ekranda görülen metinler:',
+              style: TextStyle(color: Colors.white54, fontSize: 11)),
+          Text(sample?.toString() ?? '—',
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 11),
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis),
         ],
       ),
     );

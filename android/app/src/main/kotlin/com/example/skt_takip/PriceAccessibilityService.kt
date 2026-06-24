@@ -56,6 +56,25 @@ class PriceAccessibilityService : AccessibilityService() {
         var serviceRunning: Boolean = false
             private set
 
+        // ── DEBUG alanlari (Fiyat Kontrol ekranindaki tani gostergesi icin) ──
+        @Volatile
+        var lastEventTime: Long = 0L
+            private set
+
+        @Volatile
+        var lastPackage: String? = null
+            private set
+
+        @Volatile
+        var lastLabelFound: Boolean = false
+            private set
+
+        // Son taranan ekrandan ornek metinler (tani icin; "Sistem Fiyati"
+        // gercekte ekranda nasil yaziyor gormek icin cok faydali).
+        @Volatile
+        var lastScreenSample: String? = null
+            private set
+
         /** Flutter "yeni tarama" baslattiginda eski degeri temizlemek icin. */
         fun clearLastPrice() {
             lastSystemPrice = null
@@ -81,6 +100,16 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val root = rootInActiveWindow ?: return
         try {
+            lastEventTime = System.currentTimeMillis()
+            lastPackage = event?.packageName?.toString()
+
+            // DEBUG: ekrandaki metinlerden ornek topla (ilk ~8 metin),
+            // boylece "Sistem Fiyati" gercekte nasil yaziyor gorebiliriz.
+            val texts = ArrayList<String>()
+            collectTexts(root, texts, 40)
+            lastLabelFound = texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }
+            lastScreenSample = texts.take(8).joinToString(" | ")
+
             val price = findPriceNearLabel(root, PRICE_LABEL)
             if (price != null) {
                 lastSystemPriceRaw = price.second
@@ -91,6 +120,21 @@ class PriceAccessibilityService : AccessibilityService() {
             Log.e(TAG, "Ekran taranirken hata: ${e.message}")
         } finally {
             root.recycle()
+        }
+    }
+
+    /** DEBUG: agactaki metinleri toplar (en fazla [max] adet). */
+    private fun collectTexts(
+        node: AccessibilityNodeInfo,
+        out: ArrayList<String>,
+        max: Int
+    ) {
+        if (out.size >= max) return
+        val t = node.text?.toString()
+        if (!t.isNullOrBlank()) out.add(t.trim())
+        for (i in 0 until node.childCount) {
+            if (out.size >= max) return
+            node.getChild(i)?.let { collectTexts(it, out, max) }
         }
     }
 
