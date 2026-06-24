@@ -123,14 +123,14 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             // oldugu icin cakismayi onlemek icin sol kose kullanilir).
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 96,
+              baseBottomPadding: 108,
             ),
             // Sag altta: "Manuel Ekle". Nav bar ile SENKRON: nav bar
             // gizlenince asagi iner, acilinca cikar (floating nav bar ile
             // cakismaz).
             Positioned(
               right: 16,
-              bottom: 96,
+              bottom: 108,
               child: ValueListenableBuilder<bool>(
                 valueListenable: navBarVisible,
                 builder: (_, navVisible, child) => AnimatedSlide(
@@ -209,6 +209,13 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                     padding: const EdgeInsets.only(top: 14),
                     child: TextField(
                       controller: _searchCtrl,
+                      textInputAction: TextInputAction.search,
+                      // Disari dokununca/arama yapinca klavye kapanir ve
+                      // imlec birakilir (geri donunce klavye acilmaz).
+                      onTapOutside: (_) =>
+                          FocusManager.instance.primaryFocus?.unfocus(),
+                      onSubmitted: (_) =>
+                          FocusManager.instance.primaryFocus?.unfocus(),
                       onChanged: (v) => setState(() => _query = v),
                       decoration: const InputDecoration(
                         hintText: 'Barkod, ürün veya stok kodu ara...',

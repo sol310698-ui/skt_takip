@@ -188,28 +188,6 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     return Stack(
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
-        // Ipucu
-        Positioned(
-          top: 24,
-          left: 24,
-          right: 24,
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.92),
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: const Text(
-              'Raf etiketini veya barkodu okutun',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15),
-            ),
-          ),
-        ),
         if (_busy)
           Container(
             color: Colors.black54,

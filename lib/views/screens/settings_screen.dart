@@ -33,6 +33,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   bool _exporting = false;
   bool _deduping = false;
 
+  // Bildirimler sekmesinde hangi urun grubu acik (genisletilmis).
+  final Set<int> _expandedGroups = <int>{};
+
   @override
   void initState() {
     super.initState();
@@ -462,7 +465,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   // ── Bildirimler sekmesi ────────────────────────────────────────────
+  // Duz liste yerine URUNE GORE gruplanir: once urun adi (kac bildirim),
+  // ustune basinca o urunun esik bildirimleri (30/15/7/3/1 gun) acilir.
+  // Urune bagli olmayan "Bagimsiz bildirimler" ayri bir grupta toplanir.
   Widget _buildNotifications() {
+    final groups = _groupedNotifications();
+    final totalCount = _notifications.length;
+
     return Column(
       children: [
         Padding(
@@ -473,7 +482,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 child: Text(
                   _loadingNotifs
                       ? 'Yükleniyor...'
-                      : '${_notifications.length} planlı bildirim',
+                      : '$totalCount planlı bildirim · ${groups.length} grup',
                   style: const TextStyle(
                       fontWeight: FontWeight.w700, fontSize: 14),
                 ),
@@ -494,51 +503,172 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             ],
           ),
         ),
+        // Manuel bildirim ekle butonu (barkoddan/urunden bagimsiz).
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _addStandaloneNotification,
+              icon: const Icon(Icons.add_alert_rounded, size: 20),
+              label: const Text('Manuel Bildirim Ekle'),
+            ),
+          ),
+        ),
         Expanded(
           child: _loadingNotifs
               ? const LoadingState()
-              : _notifications.isEmpty
+              : groups.isEmpty
                   ? const EmptyState(
                       icon: Icons.notifications_off_rounded,
                       title: 'Bildirim yok',
                       subtitle:
-                          'Planlanmış SKT bildirimi bulunmuyor.',
+                          'Planlanmış bildirim yok. Manuel ekleyebilirsiniz.',
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
-                      itemCount: _notifications.length,
-                      itemBuilder: (_, i) =>
-                          _notifTile(_notifications[i]),
+                      itemCount: groups.length,
+                      itemBuilder: (_, i) => _groupTile(groups[i]),
                     ),
         ),
       ],
     );
   }
 
-  Widget _notifTile(PendingNotificationRequest n) {
+  /// Pending bildirimleri urune gore gruplar.
+  /// Grup anahtari: standalone ise -1, degilse id ~/ 1000 (urun id).
+  List<_NotifGroup> _groupedNotifications() {
+    final svc = NotificationService.instance;
+    final Map<int, _NotifGroup> map = {};
+    for (final n in _notifications) {
+      final isStd = svc.isStandalone(n.id);
+      final key = isStd ? -1 : (n.id ~/ 1000);
+      final group = map.putIfAbsent(
+        key,
+        () => _NotifGroup(
+          key: key,
+          title: isStd
+              ? 'Bağımsız bildirimler'
+              : _productNameFromTitle(n.title) ?? 'Ürün #$key',
+          isStandalone: isStd,
+          items: [],
+        ),
+      );
+      group.items.add(n);
+    }
+    final list = map.values.toList();
+    // Bagimsiz grubu en uste al, sonra urunler alfabetik.
+    list.sort((a, b) {
+      if (a.isStandalone != b.isStandalone) return a.isStandalone ? -1 : 1;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+    // Her grubun bildirimlerini gun esigine gore (buyukten kucuge) sirala.
+    for (final g in list) {
+      g.items.sort((a, b) => (b.id % 1000).compareTo(a.id % 1000));
+    }
+    return list;
+  }
+
+  /// "SKT Yaklaşıyor: Koska helva" -> "Koska helva"
+  String? _productNameFromTitle(String? title) {
+    if (title == null) return null;
+    final idx = title.indexOf(':');
+    if (idx >= 0 && idx + 1 < title.length) {
+      return title.substring(idx + 1).trim();
+    }
+    return title.trim();
+  }
+
+  Widget _groupTile(_NotifGroup g) {
+    final expanded = _expandedGroups.contains(g.key);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: AppTheme.card(),
+      child: Column(
+        children: [
+          // Ust satir: urun adi + bildirim sayisi, basinca acilir/kapanir.
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() {
+              if (expanded) {
+                _expandedGroups.remove(g.key);
+              } else {
+                _expandedGroups.add(g.key);
+              }
+            }),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    g.isStandalone
+                        ? Icons.campaign_rounded
+                        : Icons.inventory_2_rounded,
+                    color: AppTheme.primary,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      g.title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14.5),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${g.items.length}',
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.primary)),
+                  ),
+                  const SizedBox(width: 6),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.expand_more_rounded,
+                        color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Acilinca: o urunun esik bildirimleri.
+          if (expanded) ...[
+            const Divider(height: 1),
+            ...g.items.map(_notifSubTile),
+            const SizedBox(height: 6),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _notifSubTile(PendingNotificationRequest n) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 0),
       child: Row(
         children: [
           const Icon(Icons.notifications_active_rounded,
-              color: AppTheme.primary, size: 20),
-          const SizedBox(width: 12),
+              color: AppTheme.primaryLight, size: 18),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(n.title ?? '(başlık yok)',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 13.5),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
                 if (n.body != null)
                   Text(n.body!,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.textSecondary),
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis),
                 Text('ID: ${n.id}',
@@ -557,6 +687,159 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       ),
     );
   }
+
+  /// Barkoddan/urunden bagimsiz, elle bildirim ekleme akisi:
+  /// baslik + tarih + saat sor, sonra planla.
+  Future<void> _addStandaloneNotification() async {
+    final titleCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    TimeOfDay selectedTime = const TimeOfDay(hour: 9, minute: 0);
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                  20, 18, 20, 18 + MediaQuery.of(ctx).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Manuel Bildirim',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: titleCtrl,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    onTapOutside: (_) =>
+                        FocusManager.instance.primaryFocus?.unfocus(),
+                    decoration: const InputDecoration(
+                      labelText: 'Bildirim metni',
+                      hintText: 'Örn: Reyon temizliği yap',
+                      prefixIcon: Icon(Icons.edit_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today_rounded,
+                              size: 18),
+                          label: Text(
+                            '${selectedDate.day.toString().padLeft(2, '0')}.'
+                            '${selectedDate.month.toString().padLeft(2, '0')}.'
+                            '${selectedDate.year}',
+                          ),
+                          onPressed: () async {
+                            final d = await showDatePicker(
+                              context: ctx,
+                              initialDate: selectedDate,
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now()
+                                  .add(const Duration(days: 3650)),
+                            );
+                            if (d != null) setSheet(() => selectedDate = d);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.access_time_rounded,
+                              size: 18),
+                          label: Text(selectedTime.format(ctx)),
+                          onPressed: () async {
+                            final t = await showTimePicker(
+                              context: ctx,
+                              initialTime: selectedTime,
+                            );
+                            if (t != null) setSheet(() => selectedTime = t);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Bildirimi Kur'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (saved != true) return;
+    final text = titleCtrl.text.trim();
+    if (text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bildirim metni boş olamaz.')),
+        );
+      }
+      return;
+    }
+
+    final when = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    );
+
+    final id = await NotificationService.instance.scheduleStandalone(
+      title: text,
+      body: '${selectedDate.day.toString().padLeft(2, '0')}.'
+          '${selectedDate.month.toString().padLeft(2, '0')}.'
+          '${selectedDate.year} ${selectedTime.format(context)}',
+      when: when,
+    );
+
+    if (!mounted) return;
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Bildirim kurulamadı (tarih geçmiş olabilir).')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bildirim kuruldu.')),
+      );
+      _expandedGroups.add(-1); // bagimsiz grubu acik gelsin
+      _loadNotifications();
+    }
+  }
+}
+
+/// Bildirimler sekmesinde bir urun (veya "bagimsiz") grubu.
+class _NotifGroup {
+  final int key;
+  final String title;
+  final bool isStandalone;
+  final List<PendingNotificationRequest> items;
+  _NotifGroup({
+    required this.key,
+    required this.title,
+    required this.isStandalone,
+    required this.items,
+  });
 }
 
 /// Ayarlar — Güvenlik bölümü: kilit aç/kapa, PIN değiştir, biyometri,

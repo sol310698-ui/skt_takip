@@ -89,6 +89,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _scrollCtrl.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -212,7 +213,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             // gizlenince (asagi kaydirinca) o da senkron asagi iner.
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 96,
+              baseBottomPadding: 108,
             ),
           ],
         ),
@@ -275,6 +276,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             child: TextField(
                               controller: _searchCtrl,
                               focusNode: _searchFocus,
+                              textInputAction: TextInputAction.search,
+                              // Disari dokununca klavye kapanir VE imlec
+                              // kaybolur (focus birakilir). Boylece baska
+                              // ekrandan geri donunce klavye kendiliginden
+                              // acilmaz.
+                              onTapOutside: (_) => _searchFocus.unfocus(),
+                              onSubmitted: (_) => _searchFocus.unfocus(),
                               onChanged: (v) => ref
                                   .read(searchQueryProvider.notifier)
                                   .state = v,

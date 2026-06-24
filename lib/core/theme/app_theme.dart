@@ -142,10 +142,10 @@ class AppTheme {
   /// Aurora gradyani — header arka planlarinda yavasca kayan, daha cok
   /// renk katmani iceren versiyon (animasyonlu kullanim icin tasarlandi).
   static const List<Color> auroraColors = [
-    Color(0xFF2563EB), // blue
-    Color(0xFF60A5FA), // light blue
-    Color(0xFFEF4444), // red
-    Color(0xFFB91C1C), // deep red
+    Color(0xFF1D4ED8), // canli mavi
+    Color(0xFF3B82F6), // parlak mavi
+    Color(0xFFDC2626), // canli kirmizi
+    Color(0xFF3B82F6), // parlak mavi (donguyu mor olmadan kapatir)
   ];
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────

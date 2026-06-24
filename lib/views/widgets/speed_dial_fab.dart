@@ -37,7 +37,7 @@ class SpeedDialFab extends StatefulWidget {
     required this.actions,
     this.backgroundColor,
     this.icon = Icons.add_rounded,
-    this.bottomOffset = 96,
+    this.bottomOffset = 108,
   });
 
   @override

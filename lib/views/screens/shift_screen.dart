@@ -192,7 +192,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             // Sol altta: yukari cik FAB.
             ScrollToTopFab(
               controller: _scrollCtrl,
-              baseBottomPadding: 96,
+              baseBottomPadding: 108,
             ),
           ],
         ),

@@ -301,6 +301,69 @@ class NotificationService {
     await _plugin.cancel(id);
   }
 
+  // ── BAGIMSIZ (manuel) BILDIRIMLER ──────────────────────────────────
+  // Urune bagli OLMAYAN, kullanicinin elle kurdugu tek seferlik
+  // bildirimler. Cakismayi kesin onlemek icin yuksek bir id araliginda
+  // tutulur (urun id*1000 ve yyyymmdd grup id'leri bu araligin cok
+  // altinda kalir). Boylece urun gruplamasi bunlari yanlislikla bir
+  // urune ait sanmaz.
+  static const int standaloneBase = 1500000000;
+
+  bool isStandalone(int id) => id >= standaloneBase;
+
+  /// Bagimsiz manuel bildirim planlar. Donus: olusturulan bildirim id'si
+  /// (basarisizsa null).
+  Future<int?> scheduleStandalone({
+    required String title,
+    String? body,
+    required DateTime when,
+  }) async {
+    await init();
+    if (when.isBefore(DateTime.now())) return null;
+
+    // Benzersiz id: taban + dakika cozunurluklu zaman damgasi (saniye
+    // bazinda cakisma neredeyse imkansiz; ayni dakika icin +1'lerle ilerle).
+    int id = standaloneBase +
+        (when.millisecondsSinceEpoch ~/ 60000) % 100000000;
+
+    try {
+      final pending = await _plugin.pendingNotificationRequests();
+      final used = pending.map((e) => e.id).toSet();
+      while (used.contains(id)) {
+        id++;
+      }
+
+      final scheduled = tz.TZDateTime(
+        tz.local,
+        when.year,
+        when.month,
+        when.day,
+        when.hour,
+        when.minute,
+      );
+
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body ?? _formatDate(when),
+        scheduled,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'skt_channel',
+            'SKT Uyarıları',
+            channelDescription: 'Son kullanma tarihi uyarıları',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      );
+      return id;
+    } catch (e) {
+      return null;
+    }
+  }
+
   int _groupNotifId(DateTime day) =>
       day.year * 10000 + day.month * 100 + day.day;
 

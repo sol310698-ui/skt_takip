@@ -236,7 +236,7 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildCustomNavBar() {
     return SizedBox(
-      height: 100,
+      height: 112,
       child: Stack(
         alignment: Alignment.topCenter,
         clipBehavior: Clip.none,
@@ -244,7 +244,7 @@ class _MainShellState extends State<MainShell> {
           // Alt bar — floating: yanlardan ve alttan bosluklu, tum koseler
           // yuvarlak (pill/rXl), Soft Glass frosted-glass (BackdropFilter).
           Positioned(
-            bottom: 0,
+            bottom: 12,
             left: 16,
             right: 16,
             child: SafeArea(
