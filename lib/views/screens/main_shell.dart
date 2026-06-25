@@ -32,7 +32,12 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int _navIndex = 0;
-  bool _priceCheckOpen = false; // Fiyat Kontrol ekrani su an acik mi
+  // NOT: Eskiden burada lokal bir `_priceCheckOpen` alani vardi. v2'de bu
+  // bilgi pending_products_queue.dart icindeki global `priceCheckScreenOpen`
+  // bayragina tasindi — neden oldugu hata sinifi icin o dosyadaki acikla-
+  // maya bakin. Bu State artik o karari KENDISI VERMEZ, sadece
+  // requestPriceCheckOpen() / PriceCheckScreen'in kendi push/pop
+  // yasam dongusu ile guncellenen global bayragi okur.
 
   @override
   void initState() {
@@ -75,15 +80,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (!mounted) return;
     // Ekran ZATEN ACIKSA: yeni ekran ACMA. Sadece acik ekrana "yeni tarama
     // istendi" sinyali gonder; boylece akis sifirlanmaz, kuyruktaki urun
-    // kaybolmaz. (Eski hata: her tikta ust uste yeni ekran push ediliyordu.)
-    if (_priceCheckOpen) {
-      requestQuickScan();
+    // kaybolmaz. (Eski hata: bu karar lokal bir State alanina dayaniyordu;
+    // o alan widget yasam dongusunden bagimsiz olmadigi icin bazi
+    // durumlarda yanlislikla "kapali" gorunup ust uste ekran push
+    // ediyordu. Artik tek dogru kaynak global `requestPriceCheckOpen()`.)
+    if (!requestPriceCheckOpen()) {
       return;
     }
-    _priceCheckOpen = true;
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const PriceCheckScreen()))
-        .then((_) => _priceCheckOpen = false);
+        .push(MaterialPageRoute(builder: (_) => const PriceCheckScreen()));
   }
 
   Future<void> _requestPermissions() async {
@@ -170,7 +175,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               title: 'Fiyat Kontrol (Sesli)',
               subtitle:
                   'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
-              onTap: () => _push(const PriceCheckScreen()),
+              // NOT: Duz _push() KULLANMIYORUZ. Ekran zaten acik olabilir
+              // (baska bir yoldan, ornegin baloncuktan acilip arka planda
+              // unutulmus olabilir); bu durumda yeni bir push yerine sadece
+              // sheet'i kapatip mevcut ekrana taze tarama sinyali gondeririz.
+              // Karar HER YERDE ayni fonksiyondan (requestPriceCheckOpen)
+              // gecer, boylece iki farkli yerde iki farkli "zaten acik mi"
+              // mantigi olusup birbirinden sapma riski kalmaz.
+              onTap: () {
+                Navigator.of(context).pop(); // sheet'i kapat
+                if (requestPriceCheckOpen()) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const PriceCheckScreen()),
+                  );
+                }
+              },
             ),
           ],
         ),

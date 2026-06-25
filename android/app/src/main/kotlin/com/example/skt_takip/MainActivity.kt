@@ -16,6 +16,7 @@ import java.util.Locale
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 // NOT: FlutterActivity yerine FlutterFragmentActivity kullaniliyor.
@@ -29,6 +30,17 @@ class MainActivity : FlutterFragmentActivity() {
     // FIYAT KONTROL ASISTANI icin ayri kanal. Mevcut "fullscreen" kanaliyla
     // hicbir ilgisi yoktur; bagimsiz calisir.
     private val priceChannel = "skt_takip/price_check"
+
+    // v2: Sistem fiyati guncellemelerini Flutter'a PUSH ile iletmek icin.
+    // Eskiden Flutter tarafi 600ms'lik Timer.periodic ile native'i
+    // POLLUYORDU; bu da "sirket uygulamasindan geri donunce fiyat gec
+    // okunuyor" sikayetinin birebir sebebiydi. Artik
+    // PriceAccessibilityService deger DEGISTIGI ANDA bu EventChannel
+    // uzerinden Flutter'a haber veriyor — gecikme native event-loop
+    // gecikmesinden ibaret (genelde <100ms), polling araligindan degil.
+    private val priceEventChannel = "skt_takip/price_check_events"
+    private var priceEventSink: EventChannel.EventSink? = null
+
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -86,6 +98,10 @@ class MainActivity : FlutterFragmentActivity() {
             pendingQuickScan = true
             // Flutter tarafina haber ver (resume'da consumeQuickScan sorar,
             // ama uygulama zaten acikken aninda tetiklemek icin de gonderir).
+            // NOT: Bu cagri idempotenttir — Flutter tarafindaki dinleyici
+            // (main_shell.dart) "Fiyat Kontrol ekrani zaten acik mi?" diye
+            // SORUP CEVABA gore push/refresh karari verir; native taraf bu
+            // karari ASLA kendisi vermez, sadece "istek geldi" der.
             quickScanChannel?.invokeMethod("openQuickScan", null)
         }
     }
@@ -138,8 +154,8 @@ class MainActivity : FlutterFragmentActivity() {
         // ── FIYAT KONTROL ASISTANI KANALI ───────────────────────────────
         // Mevcut "fullscreen" kanalindan tamamen bagimsiz. Flutter tarafi
         // bu kanal uzerinden: erisilebilirlik servisinin durumunu sorar,
-        // son okunan sistem fiyatini ceker, ayar sayfasini acar, sesli
-        // okuma (TTS) ve titresim tetikler.
+        // son okunan sistem fiyatini ceker (ilk yukleme / fallback icin),
+        // ayar sayfasini acar, sesli okuma (TTS) ve titresim tetikler.
         val priceCh = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, priceChannel)
         quickScanChannel = priceCh
         priceCh
@@ -158,27 +174,10 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                     }
                     "getLastSystemPrice" -> {
-                        val map = HashMap<String, Any?>()
-                        map["price"] = PriceAccessibilityService.lastSystemPrice
-                        map["raw"] = PriceAccessibilityService.lastSystemPriceRaw
-                        map["barcode"] = PriceAccessibilityService.lastBarcode
-                        map["stockCode"] = PriceAccessibilityService.lastStockCode
-                        map["productName"] = PriceAccessibilityService.lastProductName
-                        result.success(map)
+                        result.success(PriceAccessibilityService.snapshot())
                     }
                     "getDebugInfo" -> {
-                        val map = HashMap<String, Any?>()
-                        map["running"] = PriceAccessibilityService.serviceRunning
-                        map["price"] = PriceAccessibilityService.lastSystemPrice
-                        map["raw"] = PriceAccessibilityService.lastSystemPriceRaw
-                        map["barcode"] = PriceAccessibilityService.lastBarcode
-                        map["stockCode"] = PriceAccessibilityService.lastStockCode
-                        map["productName"] = PriceAccessibilityService.lastProductName
-                        map["lastEventTime"] = PriceAccessibilityService.lastEventTime
-                        map["lastPackage"] = PriceAccessibilityService.lastPackage
-                        map["labelFound"] = PriceAccessibilityService.lastLabelFound
-                        map["screenSample"] = PriceAccessibilityService.lastScreenSample
-                        result.success(map)
+                        result.success(PriceAccessibilityService.debugSnapshot())
                     }
                     "clearLastSystemPrice" -> {
                         PriceAccessibilityService.clearLastPrice()
@@ -206,7 +205,7 @@ class MainActivity : FlutterFragmentActivity() {
                             ) {
                                 val i = Intent(
                                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    android.net.Uri.parse("package:$packageName")
+                                    Uri.parse("package:$packageName")
                                 )
                                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 startActivity(i)
@@ -260,6 +259,36 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // ── FIYAT KONTROL — CANLI VERI AKISI (EventChannel) ─────────────
+        // PUSH modeli: PriceAccessibilityService deger degistirdigi anda
+        // PriceAccessibilityService.setListener(...) ile kayitli bu
+        // dinleyiciyi tetikler, biz de aninda guncel snapshot'i Flutter'a
+        // gondeririz. Flutter tarafi artik PERIYODIK SORGU (polling)
+        // YAPMAZ — sadece bu stream'i dinler. "Gec okuma" sikayetinin
+        // koku buradaydi; cozum budur.
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, priceEventChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(args: Any?, sink: EventChannel.EventSink?) {
+                    priceEventSink = sink
+                    PriceAccessibilityService.setListener(object :
+                        PriceAccessibilityService.PriceUpdateListener {
+                        override fun onPriceUpdate() {
+                            // sink Flutter tarafi dinlemeyi kestiyse null
+                            // olabilir; o an icin guvenli sekilde yut.
+                            priceEventSink?.success(PriceAccessibilityService.snapshot())
+                        }
+                    })
+                    // Dinleyici ilk baglandiginda mevcut durumu da hemen
+                    // gonder (ekran acildiginda son bilineni gostersin).
+                    priceEventSink?.success(PriceAccessibilityService.snapshot())
+                }
+
+                override fun onCancel(args: Any?) {
+                    PriceAccessibilityService.setListener(null)
+                    priceEventSink = null
+                }
+            })
     }
 
     // ── TTS (sesli okuma) ───────────────────────────────────────────────
@@ -322,6 +351,8 @@ class MainActivity : FlutterFragmentActivity() {
         } catch (_: Exception) {
         }
         tts = null
+        PriceAccessibilityService.setListener(null)
+        priceEventSink = null
         super.onDestroy()
     }
 

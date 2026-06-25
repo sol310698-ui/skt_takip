@@ -31,7 +31,8 @@ class PriceCheckScreen extends StatefulWidget {
   State<PriceCheckScreen> createState() => _PriceCheckScreenState();
 }
 
-class _PriceCheckScreenState extends State<PriceCheckScreen> {
+class _PriceCheckScreenState extends State<PriceCheckScreen>
+    with WidgetsBindingObserver {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     formats: const [BarcodeFormat.all],
@@ -46,7 +47,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   // ── TANI (debug) ──
   bool _debugOpen = true; // tani paneli acik mi
   Timer? _debugTimer;
-  Timer? _liveTimer; // sistem fiyatini CANLI takip (QR'dan bagimsiz)
+  StreamSubscription<SystemPriceSnapshot>? _liveSub; // canli sistem verisi
   Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
   Map<String, dynamic> _debug = {};
 
@@ -72,13 +73,35 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   @override
   void initState() {
     super.initState();
+    // v2: Sirket uygulamasina gecip GERI DONUS anini yakalamak icin
+    // gerekli. Eskiden bu ekran uygulama yasam dongusunu hic dinlemiyordu;
+    // bu yuzden donus anindaki kamera/erisilebilirlik durumu ELE
+    // ALINMIYORDU — kamera bazi cihazlarda arka plandan donerken
+    // bos/dondurulmus bir kare ile kalabiliyor, bu da "ekrana gelince
+    // taramiyor/gec basliyor" hissini guclendiriyordu. didChangeAppLifecycle
+    // State asagida bu durumu duzeltir.
+    WidgetsBinding.instance.addObserver(this);
+    // v2 — KRITIK: "Bu ekran su an acik mi?" sorusunun TEK dogru cevabi
+    // burasidir. Eskiden bu bilgi MainShell'in State'inde, dolayli yoldan
+    // (Navigator.push(...).then(...)) tutuluyordu; bu da widget yasam
+    // dongusu ile gercek navigasyon durumu arasinda senkron kaybina acikti
+    // (bkz. pending_products_queue.dart ust aciklamasi). initState/dispose,
+    // Flutter'da bir route'un "gercekten ekranda olma" suresini birebir
+    // yansitan EN GUVENILIR ciftir; bu yuzden bayrak artik buradan
+    // yonetiliyor.
+    priceCheckScreenOpen = true;
     _init();
     _initOverlay();
     // Baloncuktan "yeni tarama" sinyali: ekran zaten ACIKKEN baloncuga
     // tiklaninca yeni ekran ACILMAZ, bunun yerine bu sinyal gelir ve sadece
     // tarama tazelenir. Boylece kuyruktaki urun ve akis korunur.
     quickScanSignal.addListener(_onQuickScanSignal);
-    // TANI: her saniye servisin durumunu cek ve goster.
+    // TANI: her saniye servisin acik/kapali durumunu (ve son debug
+    // metnini) cek ve goster. Bu sadece TANI PANELI icindir, fiyat
+    // degerleri icin KULLANILMAZ — onlar artik asagidaki stream'den gelir.
+    // 1 saniyelik gecikme tani panelinde onemsiz (gozle takip edilen bir
+    // metin listesi), ama gercek fiyat/urun karsilastirmasini ASLA
+    // etkilemez.
     _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
       if (mounted) {
@@ -91,10 +114,15 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
       }
     });
 
-    // CANLI: sistem fiyatini surekli takip et. Sirket uygulamasinda urun
-    // degistikce (QR okutmaya gerek kalmadan) ekran ve baloncuk guncellenir.
-    _liveTimer = Timer.periodic(const Duration(milliseconds: 600), (_) async {
-      final sys = await PriceCheckChannel.getLastSystemPrice();
+    // ── CANLI sistem verisi: artik PUSH (stream), POLLING DEGIL ──
+    // Eskiden burada 600ms'lik Timer.periodic ile native SORGULANIYORDU.
+    // "Sirket uygulamasindan geri donunce fiyati gec okuyor" sikayetinin
+    // birebir sebebi buydu: gercek okuma ile bu Timer'in bir sonraki
+    // tick'i arasinda gecen sure kayipti. Artik PriceAccessibilityService
+    // deger DEGISTIGI ANDA bu stream'e basar; biz sadece dinleriz. Ekran
+    // acildigi an native taraf zaten bilinen son durumu hemen gonderir
+    // (bkz. MainActivity onListen), bu yuzden ilk kare de BOS kalmaz.
+    _liveSub = PriceCheckChannel.systemPriceStream.listen((sys) {
       if (!mounted) return;
       final changed = sys.price != _livePrice ||
           sys.barcode != _liveBarcode ||
@@ -110,7 +138,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
       // urun goruldugunu nötr renkle bildir (kullanici hangi urunde
       // oldugunu balondan anlasin).
       if (_overlayOn && _result == null) {
-        await PriceCheckChannel.updateOverlayState(
+        PriceCheckChannel.updateOverlayState(
             sys.price != null ? 'neutral' : 'nosystem');
       }
     });
@@ -177,12 +205,39 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
 
   @override
   void dispose() {
+    // Bu ekran gercekten kapaniyor (pop edildi). Global bayragi burada
+    // false yapmak, "ekran acik mi" sorusunun route'tan BAGIMSIZ, widget
+    // yasam dongusune dogrudan bagli kalmasini saglar (yukaridaki
+    // initState notuna bakin).
+    priceCheckScreenOpen = false;
+    WidgetsBinding.instance.removeObserver(this);
     _debugTimer?.cancel();
-    _liveTimer?.cancel();
+    _liveSub?.cancel();
     _autoRescanTimer?.cancel();
     quickScanSignal.removeListener(_onQuickScanSignal);
     _controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // v2: Sirket uygulamasindan GERI DONUS anini burada yakaliyoruz.
+    // Once: mobile_scanner'in kamera kaynagini OS'un arka planda geri
+    // alip almadigindan BAGIMSIZ olarak, taramayi guvenle yeniden
+    // baslatiyoruz (zaten calisiyorsa MobileScannerController bunu
+    // sessizce yutar). Sonra: native erisilebilirlik tarafinin da ayni
+    // resume olayini gormus olmasini beklemeden, kendi tarafimizdan
+    // "tani panelini hemen tazele" tetikliyoruz — boylece kullanici
+    // "Servis acik mi" / canli kart bilgisinin bayatlamadigini gorur.
+    // (Asil fiyat verisi zaten push/stream ile geldigi icin burada
+    // ekstra bir sorgu YAPMIYORUZ; sadece kamerayi ve tani panelini
+    // tazeliyoruz.)
+    if (state == AppLifecycleState.resumed) {
+      if (_scanning && !_busy) {
+        _controller.start();
+      }
+      _refreshServiceStatus();
+    }
   }
 
   // QR ham metnini parse et.

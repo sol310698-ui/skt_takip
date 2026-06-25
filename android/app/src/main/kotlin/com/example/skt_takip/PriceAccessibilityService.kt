@@ -2,6 +2,8 @@ package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -26,9 +28,35 @@ import java.util.regex.Pattern
  *  islevlerinden (SKT/barkod/mesai/alarm) tamamen BAGIMSIZDIR. Sadece
  *  "Fiyat Kontrol" ekrani aciksa anlam ifade eder. Servis kapaliyken
  *  uygulamanin geri kalani normal calismaya devam eder.
+ *
+ * ────────────────────────────────────────────────────────────────────
+ *  v2 DEGISIKLIKLERI — kullanicinin bildirdigi iki hatanin koku icin:
+ *
+ *  HATA 1: "Sirket uygulamasindan geri donunce fiyati GEC okuyor."
+ *    Eski mimaride Flutter tarafi native'i 600ms'lik Timer.periodic ile
+ *    POLLUYORDU. En kotu durumda gercek okuma ile Flutter'in bunu
+ *    GORMESI arasinda ~600ms+ gecikme oluyordu — "gec okuma" hissinin
+ *    birebir sebebi buydu. Cozum: native taraf artik deger GERCEKTEN
+ *    degistigi anda bir dinleyiciyi (PriceUpdateListener) tetikliyor;
+ *    MainActivity bunu bir EventChannel'a baglayip Flutter'a aninda,
+ *    push olarak iletiyor. Polling tamamen kaldirildi.
+ *
+ *  HATA 2 (alt nedeni): Baloncuga basinca/sirket uygulamasindan
+ *  donuste eski/yanlis bir fiyatin ekranda bir an gorunmesi, ekran
+ *  GECIS yarisindan (eski pencerenin son event'i yeni pencere render
+ *  olmadan once islenmesi) kaynaklaniyordu. Cozum: NESIL SAYACI.
+ *  clearLastPrice() her cagrildiginda bir sayac artar; o anda hala
+ *  devam eden bir tarama biterse ISLEDIGI nesil ile GUNCEL nesli
+ *  karsilastirir, farkliysa sonucu sessizce atar. Boylece bayat veri
+ *  matematiksel olarak guncel veriyi ezemez.
  * ════════════════════════════════════════════════════════════════════
  */
 class PriceAccessibilityService : AccessibilityService() {
+
+    /** Native'den Flutter'a (EventChannel araciligiyla) anlik veri itmek icin. */
+    interface PriceUpdateListener {
+        fun onPriceUpdate()
+    }
 
     companion object {
         private const val TAG = "PriceA11yService"
@@ -45,9 +73,6 @@ class PriceAccessibilityService : AccessibilityService() {
         private val PRICE_PATTERN: Pattern = Pattern.compile(
             "(\\d{1,6}[.,]\\d{1,2})"
         )
-
-        // 8-13 haneli barkod (EAN-13/EAN-8 vb.)
-        private val BARCODE_PATTERN: Pattern = Pattern.compile("\\b(\\d{8,13})\\b")
 
         // Son okunan sistem fiyati, Flutter tarafinin (MethodChannel ile)
         // erisebilmesi icin statik tutulur (ayni process icinde, basit ve
@@ -96,14 +121,65 @@ class PriceAccessibilityService : AccessibilityService() {
         var lastScreenSample: String? = null
             private set
 
+        // Bu deger her clearLastPrice() cagrisinda 1 artar. Halen suren bir
+        // onAccessibilityEvent taramasi bittiginde nesli kontrol eder; nesil
+        // degismisse (Flutter "yeni tarama" istemis) sonuc BAYAT sayilir ve
+        // sessizce atilir. "Eski urunun fiyati yeni urunun ustune yaziliyor"
+        // yarisini engelleyen tek mekanizma budur.
+        @Volatile
+        private var generation: Int = 0
+
+        // MainActivity, EventChannel acildiginda kendini buraya kaydeder.
+        // Kayitli degilse de statik alanlar MethodChannel ile okunabilir
+        // (geriye donuk uyumluluk / fallback).
+        @Volatile
+        private var listener: PriceUpdateListener? = null
+
+        private val mainHandler = Handler(Looper.getMainLooper())
+
+        fun setListener(l: PriceUpdateListener?) {
+            listener = l
+        }
+
+        private fun notifyListener() {
+            val l = listener ?: return
+            // onAccessibilityEvent zaten ana thread'de calisir, ama
+            // EventChannel.EventSink cagrilarinin HER ZAMAN ana thread'den
+            // yapildigini garanti etmek ucuz ve guvenli bir savunmadir.
+            mainHandler.post { l.onPriceUpdate() }
+        }
+
         /** Flutter "yeni tarama" baslattiginda eski degeri temizlemek icin. */
         fun clearLastPrice() {
+            generation++
             lastSystemPrice = null
             lastSystemPriceRaw = null
             lastBarcode = null
             lastStockCode = null
             lastProductName = null
+            notifyListener()
         }
+
+        fun snapshot(): Map<String, Any?> = mapOf(
+            "price" to lastSystemPrice,
+            "raw" to lastSystemPriceRaw,
+            "barcode" to lastBarcode,
+            "stockCode" to lastStockCode,
+            "productName" to lastProductName,
+        )
+
+        fun debugSnapshot(): Map<String, Any?> = mapOf(
+            "running" to serviceRunning,
+            "price" to lastSystemPrice,
+            "raw" to lastSystemPriceRaw,
+            "barcode" to lastBarcode,
+            "stockCode" to lastStockCode,
+            "productName" to lastProductName,
+            "lastEventTime" to lastEventTime,
+            "lastPackage" to lastPackage,
+            "labelFound" to lastLabelFound,
+            "screenSample" to lastScreenSample,
+        )
     }
 
     override fun onServiceConnected() {
@@ -130,7 +206,13 @@ class PriceAccessibilityService : AccessibilityService() {
                 info.flags = info.flags or
                     AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
             }
-            info.notificationTimeout = 100
+            // notificationTimeout DUSURULDU: 200ms -> 40ms. Bu deger
+            // Android'in ardisik onAccessibilityEvent cagrilarini ne kadar
+            // "debounce" edecegini belirler. 200ms, sirket uygulamasindan
+            // geri donuste ekranin GERCEKTE guncellendigi an ile bizim olayi
+            // ALMA animiz arasinda gozle gorulur bir gecikme yaratiyordu.
+            // 40ms hala pil/CPU acisindan guvenli ama "ani" hissettirir.
+            info.notificationTimeout = 40
             serviceInfo = info
         } catch (e: Exception) {
             Log.w(TAG, "serviceInfo runtime ayari basarisiz: ${e.message}")
@@ -149,6 +231,11 @@ class PriceAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Bu taramanin basladigi andaki nesli sabitle. Tarama (kok secimi +
+        // metin toplama + fiyat arama) bir kac milisaniye surebilir; bu sure
+        // icinde Flutter "yeni tarama" isteyip clearLastPrice() cagirmis
+        // olabilir. O durumda bu taramanin SONUCU artik gecersizdir.
+        val myGeneration = generation
         try {
             lastEventTime = System.currentTimeMillis()
             val pkg = event?.packageName?.toString()
@@ -163,58 +250,58 @@ class PriceAccessibilityService : AccessibilityService() {
             // ── DOGRU PENCEREYI SEC ──
             // MIUI/Xiaomi'de ve yuzen baloncuk (overlay) ekrandayken
             // rootInActiveWindow bazen BALONUN penceresini "aktif" sayar ve
-            // bos doner. TalkBack metni okuyabiliyorsa metin AGAÇTA VARDIR;
-            // sorun yanlis pencere secimidir. Bu yuzden aktif pencereye
-            // korkormez guvenmek yerine, tum pencereler arasindan EN COK
-            // metin iceren (kendi paketimiz/baloncuk haric) uygulama
-            // penceresini seciyoruz.
+            // bos doner. Bu yuzden aktif pencereye kor guvenmek yerine, tum
+            // pencereler arasindan EN COK metin iceren (kendi paketimiz/
+            // baloncuk haric) uygulama penceresini seciyoruz. TEK root
+            // cekilip HEM metin toplama HEM fiyat aramasi AYNI agactan
+            // yapiliyor — eskiden iki ayri bestContentRoot() cagrisi farkli
+            // pencereler dondurebiliyordu, bu da TUTARSIZ sonuca yol
+            // aciyordu (orn. metinlerde "Sistem Fiyati" bulunuyor ama fiyat
+            // baska bir pencereden arandigi icin bulunamiyordu).
+            val root = bestContentRoot() ?: rootInActiveWindow ?: return
+
             val texts = ArrayList<String>()
-            val best = bestContentRoot()
-            if (best != null) {
-                try {
-                    collectTexts(best, texts, 150)
-                } finally {
-                    best.recycle()
+            var price: Pair<Double, String>? = null
+            var labelFound: Boolean
+            try {
+                collectTexts(root, texts, 150)
+                labelFound = texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }
+
+                price = findPriceNearLabel(root, PRICE_LABEL)
+                if (price == null && labelFound) {
+                    price = priceFromTexts(texts)
                 }
-            }
-            // Yine de bos kaldiysa son care: aktif pencere.
-            if (texts.isEmpty()) {
-                val root = rootInActiveWindow
-                if (root != null) {
-                    try {
-                        collectTexts(root, texts, 150)
-                    } finally {
-                        root.recycle()
-                    }
-                }
+            } finally {
+                root.recycle()
             }
 
-            lastLabelFound = texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }
+            // ── NESIL KONTROLU ──
+            // Tarama bittiginde nesil hala basladigimiz nesilse sonucu yaz.
+            // Degismisse (clearLastPrice cagrildi) bu tarama BAYAT sayilir
+            // ve sessizce atilir; eski urunun verisi yenisinin ustune
+            // YAZILMAZ.
+            if (myGeneration != generation) {
+                return
+            }
+
+            lastLabelFound = labelFound
             lastScreenSample = texts.take(8).joinToString(" | ")
 
-            // Fiyat: once etikete yakin aramayi dene (dogru pencere agacindan).
-            val priceRoot = bestContentRoot()
-            if (priceRoot != null) {
-                try {
-                    val price = findPriceNearLabel(priceRoot, PRICE_LABEL)
-                    if (price != null) {
-                        lastSystemPriceRaw = price.second
-                        lastSystemPrice = price.first
-                    }
-                } finally {
-                    priceRoot.recycle()
-                }
-            }
-            // Etikete yakin bulunamadiysa: toplanan metinlerden fiyat cikar.
-            if (lastSystemPrice == null && lastLabelFound) {
-                priceFromTexts(texts)?.let {
-                    lastSystemPriceRaw = it.second
-                    lastSystemPrice = it.first
-                }
+            var changed = false
+            if (price != null && price.first != lastSystemPrice) {
+                lastSystemPriceRaw = price.second
+                lastSystemPrice = price.first
+                changed = true
             }
 
             // Barkod + stok kodu + urun adi: tum ekrandan cikar.
-            extractProductInfo(texts)
+            if (extractProductInfo(texts)) {
+                changed = true
+            }
+
+            if (changed) {
+                notifyListener()
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Ekran taranirken hata: ${e.message}")
@@ -255,8 +342,7 @@ class PriceAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "bestContentRoot basarisiz: ${e.message}")
         }
-        // Hic pencere bulunamadiysa aktif pencereye dus.
-        return best ?: rootInActiveWindow
+        return best
     }
 
     /** Bir agactaki (metni/contentDescription'i olan) dugum sayisini sayar. */
@@ -277,11 +363,11 @@ class PriceAccessibilityService : AccessibilityService() {
         }
         return c
     }
+
     private fun priceFromTexts(texts: List<String>): Pair<Double, String>? {
         for (t in texts) {
             if (t.contains(PRICE_LABEL, ignoreCase = true)) continue
             val p = parsePrice(t) ?: continue
-            // Cok kucuk/anlamsiz degerleri ele (orn. tek hane 0.0 gibi).
             return Pair(p, t)
         }
         return null
@@ -289,7 +375,8 @@ class PriceAccessibilityService : AccessibilityService() {
 
     /**
      * Denetim Formu ekranindaki metinlerden barkod, stok kodu ve urun
-     * adini cikarir.
+     * adini cikarir. Bir sey degistiyse true doner (degisim bildirimi
+     * gondermek icin kullanilir).
      *
      * KONUMSAL yaklasim (uzunluk DEGIL): Denetim Formu'nda urun barkodu
      * her zaman USTTE, stok kodu hemen ALTINDA gosterilir. Ekran agaci
@@ -304,9 +391,9 @@ class PriceAccessibilityService : AccessibilityService() {
      * Fiyat (ondalikli, "9,95") koddan sayilmaz; cesit no gibi cok kisa
      * (<4) degerler de elenir.
      */
-    private fun extractProductInfo(texts: List<String>) {
+    private fun extractProductInfo(texts: List<String>): Boolean {
         // Bu ekranda "Sistem Fiyati" yoksa urun ekrani degildir, dokunma.
-        if (!texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }) return
+        if (!texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }) return false
 
         // Ekran sirasinda gorulen sayisal kodlar (barkod/stok adaylari).
         val codes = ArrayList<String>()
@@ -328,7 +415,6 @@ class PriceAccessibilityService : AccessibilityService() {
             // Ondalikli fiyat (9,95 / 9.95) bir KOD degildir; atla.
             if (clean.matches(".*\\d[.,]\\d.*".toRegex()) &&
                 clean.replace("[^0-9]".toRegex(), "").length <= 6) {
-                // kucuk ondalikli sayi (fiyat) -> kod degil
                 continue
             }
 
@@ -357,12 +443,23 @@ class PriceAccessibilityService : AccessibilityService() {
         val barcode = codes.getOrNull(0)
         val stockCode = codes.getOrNull(1)
 
-        if (barcode != null) lastBarcode = barcode
-        if (stockCode != null) lastStockCode = stockCode
-        if (productName != null) lastProductName = productName
+        var changed = false
+        if (barcode != null && barcode != lastBarcode) {
+            lastBarcode = barcode
+            changed = true
+        }
+        if (stockCode != null && stockCode != lastStockCode) {
+            lastStockCode = stockCode
+            changed = true
+        }
+        if (productName != null && productName != lastProductName) {
+            lastProductName = productName
+            changed = true
+        }
+        return changed
     }
 
-    /** DEBUG: agactaki metinleri toplar (en fazla [max] adet). */
+    /** Agactaki metinleri toplar (en fazla [max] adet). */
     private fun collectTexts(
         node: AccessibilityNodeInfo,
         out: ArrayList<String>,

@@ -211,12 +211,32 @@ class PriceOverlayService : Service() {
         }
     }
 
+    // Baloncuga COK HIZLI ardisik dokunmalari (cift tiklama, titreyen el vb.)
+    // engellemek icin basit bir debounce. Eskiden bu yoktu: her dokunus
+    // ayri bir "openQuickScan" intent'i tetikliyordu; Flutter tarafi bunu
+    // tek bir acik ekranda tek bir tarama yenilemesi olarak ele alsa da,
+    // ust uste gelen cagrilar bazi cihazlarda Activity yasam dongusunde
+    // ekstra onNewIntent/onResume tetiklemelerine (ve dolayisiyla akisin
+    // gozle gorulur sekilde "sifirlanmasi" hissine) yol acabiliyordu.
+    private var lastTapAt = 0L
+    private val tapDebounceMs = 600L
+
     /** Baloncuga tiklayinca: uygulamayi hizli QR moduyla ac. */
     private fun onBubbleTap() {
+        val now = System.currentTimeMillis()
+        if (now - lastTapAt < tapDebounceMs) return
+        lastTapAt = now
         try {
             // Explicit olarak MainActivity'yi hedefle (launch intent yerine);
             // boylece "openQuickScan" extra'si guvenilir sekilde ulasir ve
             // mevcut gorev one gelir (SINGLE_TOP -> onNewIntent tetiklenir).
+            //
+            // ONEMLI: FLAG_ACTIVITY_NEW_TASK + SINGLE_TOP + REORDER_TO_FRONT,
+            // Activity zaten gorev yiginindaysa YENI bir Activity ORNEGI
+            // OLUSTURMAZ — mevcut ornegi one getirir ve onNewIntent'i
+            // cagirir. "Baloncuga basinca yeni sayfa aciliyor" hissi bu
+            // native davranistan DEGIL, Flutter tarafindaki Navigator
+            // push mantigindan kaynaklaniyordu (bkz. main_shell.dart).
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or

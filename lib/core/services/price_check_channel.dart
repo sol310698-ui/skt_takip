@@ -9,9 +9,34 @@ import 'package:flutter/services.dart';
 ///
 ///  Bu sinif SADECE Fiyat Kontrol ekrani tarafindan kullanilir; uygulamanin
 ///  geri kalanini etkilemez.
+///
+/// ────────────────────────────────────────────────────────────────────
+///  v2: CANLI VERI ARTIK STREAM (push), POLLING DEGIL.
+///  Eskiden ekran her 600ms'de bir [getLastSystemPrice] cagirip native'i
+///  SORGULUYORDU. Bu, "sirket uygulamasindan geri donunce fiyati gec
+///  okuyor" sikayetinin birebir sebebiydi: en kotu durumda gercek okuma
+///  ile ekranin bunu GORMESI arasinda ~600ms+ fark olusuyordu.
+///
+///  Artik [systemPriceStream] adinda tek, paylasilan bir broadcast stream
+///  var. Native taraf (PriceAccessibilityService) deger GERCEKTEN
+///  degistigi anda bu stream'e bir olay basar. Ekran sadece dinler;
+///  hicbir Timer.periodic YOK.
 /// ════════════════════════════════════════════════════════════════════
 class PriceCheckChannel {
   static const _ch = MethodChannel('skt_takip/price_check');
+  static const _eventCh = EventChannel('skt_takip/price_check_events');
+
+  /// Native'den anlik (push) sistem fiyati/urun guncellemeleri.
+  ///
+  /// Birden fazla dinleyici (ornegin ekran + baloncuk renk mantigi) ayni
+  /// stream'i guvenle paylasabilsin diye broadcast'tir. Native taraf yeni
+  /// bir dinleyici baglandiginda mevcut son durumu da hemen gonderir, bu
+  /// yuzden ekran acilir acilmaz (henuz hicbir degisiklik olmasa da) en az
+  /// bir deger alinir.
+  static final Stream<SystemPriceSnapshot> systemPriceStream = _eventCh
+      .receiveBroadcastStream()
+      .map((event) => SystemPriceSnapshot._fromMap(event as Map))
+      .asBroadcastStream();
 
   /// Erisilebilirlik servisi acik mi (kullanici Ayarlar'dan acmis mi)?
   static Future<bool> isServiceRunning() async {
@@ -32,32 +57,17 @@ class PriceCheckChannel {
   }
 
   /// Servisin en son okudugu degerleri getirir (fiyat + urun bilgileri).
-  static Future<
-      ({
-        double? price,
-        String? raw,
-        String? barcode,
-        String? stockCode,
-        String? productName,
-      })> getLastSystemPrice() async {
+  ///
+  /// NOT: Bu artik SADECE ilk yukleme / fallback icin kullanilir (ornegin
+  /// stream henuz ilk olayini yollamadan once anlik bir durum gerekirse).
+  /// Canli takip icin [systemPriceStream] kullanin.
+  static Future<SystemPriceSnapshot> getLastSystemPrice() async {
     try {
-      final r = await _ch.invokeMethod<Map<dynamic, dynamic>>(
-          'getLastSystemPrice');
-      return (
-        price: (r?['price'] as num?)?.toDouble(),
-        raw: r?['raw'] as String?,
-        barcode: r?['barcode'] as String?,
-        stockCode: r?['stockCode'] as String?,
-        productName: r?['productName'] as String?,
-      );
+      final r =
+          await _ch.invokeMethod<Map<dynamic, dynamic>>('getLastSystemPrice');
+      return SystemPriceSnapshot._fromMap(r ?? const {});
     } catch (_) {
-      return (
-        price: null,
-        raw: null,
-        barcode: null,
-        stockCode: null,
-        productName: null,
-      );
+      return SystemPriceSnapshot.empty;
     }
   }
 
@@ -155,4 +165,38 @@ class PriceCheckChannel {
       return null;
     });
   }
+}
+
+/// Native tarafin tek bir anda gonderdigi sistem fiyati + urun bilgisi
+/// goruntusu (snapshot). Hem [PriceCheckChannel.getLastSystemPrice] hem de
+/// [PriceCheckChannel.systemPriceStream] bu tipi kullanir, boylece ekran
+/// kodu ikisi arasinda gecis yaparken tip degistirmek zorunda kalmaz.
+class SystemPriceSnapshot {
+  final double? price;
+  final String? raw;
+  final String? barcode;
+  final String? stockCode;
+  final String? productName;
+
+  const SystemPriceSnapshot({
+    this.price,
+    this.raw,
+    this.barcode,
+    this.stockCode,
+    this.productName,
+  });
+
+  static const empty = SystemPriceSnapshot();
+
+  factory SystemPriceSnapshot._fromMap(Map<dynamic, dynamic> r) {
+    return SystemPriceSnapshot(
+      price: (r['price'] as num?)?.toDouble(),
+      raw: r['raw'] as String?,
+      barcode: r['barcode'] as String?,
+      stockCode: r['stockCode'] as String?,
+      productName: r['productName'] as String?,
+    );
+  }
+
+  bool get hasData => price != null || productName != null;
 }
