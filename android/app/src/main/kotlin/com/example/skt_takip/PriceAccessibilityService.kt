@@ -1,6 +1,7 @@
 package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -108,6 +109,33 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceRunning = true
+
+        // ── KRITIK: Bazi kurumsal uygulamalar view'larini
+        // importantForAccessibility=no olarak isaretler; XML flag'i bazen
+        // yetmez. serviceInfo'yu RUNTIME'da yeniden yazarak "onemsiz" sayilan
+        // view'lari da, web/Flutter icerigini de okumayi GARANTILERIZ.
+        // Boylece "erisilebilirlik servisi bu uygulamayi okuyamiyor" sorunu
+        // (bos node agaci) cogunlukla cozulur.
+        try {
+            val info = serviceInfo ?: AccessibilityServiceInfo()
+            info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+            info.flags = info.flags or
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            @Suppress("DEPRECATION")
+            run {
+                info.flags = info.flags or
+                    AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
+            }
+            info.notificationTimeout = 100
+            serviceInfo = info
+        } catch (e: Exception) {
+            Log.w(TAG, "serviceInfo runtime ayari basarisiz: ${e.message}")
+        }
+
         Log.i(TAG, "Servis baglandi, ekran taramasi basliyor.")
     }
 
@@ -121,7 +149,6 @@ class PriceAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val root = rootInActiveWindow ?: return
         try {
             lastEventTime = System.currentTimeMillis()
             val pkg = event?.packageName?.toString()
@@ -133,17 +160,57 @@ class PriceAccessibilityService : AccessibilityService() {
                 return
             }
 
-            // Ekrandaki tum metinleri topla.
+            // ── DOGRU PENCEREYI SEC ──
+            // MIUI/Xiaomi'de ve yuzen baloncuk (overlay) ekrandayken
+            // rootInActiveWindow bazen BALONUN penceresini "aktif" sayar ve
+            // bos doner. TalkBack metni okuyabiliyorsa metin AGAÇTA VARDIR;
+            // sorun yanlis pencere secimidir. Bu yuzden aktif pencereye
+            // korkormez guvenmek yerine, tum pencereler arasindan EN COK
+            // metin iceren (kendi paketimiz/baloncuk haric) uygulama
+            // penceresini seciyoruz.
             val texts = ArrayList<String>()
-            collectTexts(root, texts, 80)
+            val best = bestContentRoot()
+            if (best != null) {
+                try {
+                    collectTexts(best, texts, 150)
+                } finally {
+                    best.recycle()
+                }
+            }
+            // Yine de bos kaldiysa son care: aktif pencere.
+            if (texts.isEmpty()) {
+                val root = rootInActiveWindow
+                if (root != null) {
+                    try {
+                        collectTexts(root, texts, 150)
+                    } finally {
+                        root.recycle()
+                    }
+                }
+            }
+
             lastLabelFound = texts.any { it.contains(PRICE_LABEL, ignoreCase = true) }
             lastScreenSample = texts.take(8).joinToString(" | ")
 
-            // Fiyat: "Sistem Fiyati" etiketine yakin olani al.
-            val price = findPriceNearLabel(root, PRICE_LABEL)
-            if (price != null) {
-                lastSystemPriceRaw = price.second
-                lastSystemPrice = price.first
+            // Fiyat: once etikete yakin aramayi dene (dogru pencere agacindan).
+            val priceRoot = bestContentRoot()
+            if (priceRoot != null) {
+                try {
+                    val price = findPriceNearLabel(priceRoot, PRICE_LABEL)
+                    if (price != null) {
+                        lastSystemPriceRaw = price.second
+                        lastSystemPrice = price.first
+                    }
+                } finally {
+                    priceRoot.recycle()
+                }
+            }
+            // Etikete yakin bulunamadiysa: toplanan metinlerden fiyat cikar.
+            if (lastSystemPrice == null && lastLabelFound) {
+                priceFromTexts(texts)?.let {
+                    lastSystemPriceRaw = it.second
+                    lastSystemPrice = it.first
+                }
             }
 
             // Barkod + stok kodu + urun adi: tum ekrandan cikar.
@@ -151,9 +218,73 @@ class PriceAccessibilityService : AccessibilityService() {
 
         } catch (e: Exception) {
             Log.e(TAG, "Ekran taranirken hata: ${e.message}")
-        } finally {
-            root.recycle()
         }
+    }
+
+    /**
+     * Tum erisilebilir pencereler arasindan, OKUNMASI gereken gercek
+     * uygulama penceresinin kok dugumunu dondurur.
+     *
+     *  - Kendi paketimizi (OWN_PACKAGE) atlar — kendi baloncuk/UI metinleri
+     *    yanlis veri uretmesin.
+     *  - En cok metin dugumu iceren pencereyi secer; boylece bos sistem
+     *    katmanlari veya tek-iconlu overlay yerine asil icerik penceresi
+     *    gelir.
+     *  - Cagiran taraf donen node'u recycle ETMELIDIR.
+     */
+    private fun bestContentRoot(): AccessibilityNodeInfo? {
+        var best: AccessibilityNodeInfo? = null
+        var bestCount = -1
+        try {
+            for (w in windows) {
+                val r = w?.root ?: continue
+                val pkg = r.packageName?.toString()
+                if (pkg == OWN_PACKAGE) {
+                    r.recycle()
+                    continue
+                }
+                val count = countTextNodes(r, 0, 200)
+                if (count > bestCount) {
+                    best?.recycle()
+                    best = r
+                    bestCount = count
+                } else {
+                    r.recycle()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "bestContentRoot basarisiz: ${e.message}")
+        }
+        // Hic pencere bulunamadiysa aktif pencereye dus.
+        return best ?: rootInActiveWindow
+    }
+
+    /** Bir agactaki (metni/contentDescription'i olan) dugum sayisini sayar. */
+    private fun countTextNodes(
+        node: AccessibilityNodeInfo,
+        acc: Int,
+        cap: Int
+    ): Int {
+        if (acc >= cap) return acc
+        var c = acc
+        val t = node.text?.toString()
+        val cd = node.contentDescription?.toString()
+        if (!t.isNullOrBlank() || !cd.isNullOrBlank()) c++
+        for (i in 0 until node.childCount) {
+            if (c >= cap) break
+            val child = node.getChild(i) ?: continue
+            c = countTextNodes(child, c, cap)
+        }
+        return c
+    }
+    private fun priceFromTexts(texts: List<String>): Pair<Double, String>? {
+        for (t in texts) {
+            if (t.contains(PRICE_LABEL, ignoreCase = true)) continue
+            val p = parsePrice(t) ?: continue
+            // Cok kucuk/anlamsiz degerleri ele (orn. tek hane 0.0 gibi).
+            return Pair(p, t)
+        }
+        return null
     }
 
     /**
@@ -240,6 +371,10 @@ class PriceAccessibilityService : AccessibilityService() {
         if (out.size >= max) return
         val t = node.text?.toString()
         if (!t.isNullOrBlank()) out.add(t.trim())
+        // Bazi uygulamalar gorunur metni 'text' yerine 'contentDescription'
+        // alaninda tutar (ozellikle custom/Compose view'lar). Onu da topla.
+        val cd = node.contentDescription?.toString()
+        if (!cd.isNullOrBlank() && cd != t) out.add(cd.trim())
         for (i in 0 until node.childCount) {
             if (out.size >= max) return
             node.getChild(i)?.let { collectTexts(it, out, max) }
