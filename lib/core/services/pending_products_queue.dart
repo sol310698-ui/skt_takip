@@ -31,6 +31,19 @@ class PendingProduct {
 /// onay sayfasi dinler/siler/kaydeder.
 final pendingProductsQueue = ValueNotifier<List<PendingProduct>>([]);
 
+/// Baloncuktan gelen "hizli QR" istegi icin global sinyal.
+///
+/// AMAC: Fiyat Kontrol ekrani ZATEN ACIKKEN baloncuga tiklayinca yeni bir
+/// ekran ACMAMAK (eski davranis: her tikta ust uste yeni ekran push edilip
+/// akis sifirlaniyor, kullanicinin kaydetmek istedigi urun kayboluyordu).
+/// Onun yerine acik ekran bu sinyali dinler ve sadece taramayi tazeler.
+/// Deger her artirildiginda "yeni bir tarama istendi" demektir.
+final quickScanSignal = ValueNotifier<int>(0);
+
+void requestQuickScan() {
+  quickScanSignal.value = quickScanSignal.value + 1;
+}
+
 /// Kuyruga ekler. Ayni barkod zaten varsa gunceller (mukerrer olmasin).
 void addPendingProduct(PendingProduct p) {
   final list = List<PendingProduct>.from(pendingProductsQueue.value);

@@ -46,8 +46,16 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   // ── TANI (debug) ──
   bool _debugOpen = true; // tani paneli acik mi
   Timer? _debugTimer;
+  Timer? _liveTimer; // sistem fiyatini CANLI takip (QR'dan bagimsiz)
   Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
   Map<String, dynamic> _debug = {};
+
+  // ── CANLI sistem verisi (erisilebilirlik servisinden surekli okunur) ──
+  // QR okutmadan, sirket uygulamasinda urun degistikce guncellenir.
+  double? _livePrice;
+  String? _liveProductName;
+  String? _liveBarcode;
+  String? _liveStockCode;
 
   // Son sonuc
   String? _labelBarcode;
@@ -66,6 +74,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
     super.initState();
     _init();
     _initOverlay();
+    // Baloncuktan "yeni tarama" sinyali: ekran zaten ACIKKEN baloncuga
+    // tiklaninca yeni ekran ACILMAZ, bunun yerine bu sinyal gelir ve sadece
+    // tarama tazelenir. Boylece kuyruktaki urun ve akis korunur.
+    quickScanSignal.addListener(_onQuickScanSignal);
     // TANI: her saniye servisin durumunu cek ve goster.
     _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
@@ -78,11 +90,43 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         });
       }
     });
+
+    // CANLI: sistem fiyatini surekli takip et. Sirket uygulamasinda urun
+    // degistikce (QR okutmaya gerek kalmadan) ekran ve baloncuk guncellenir.
+    _liveTimer = Timer.periodic(const Duration(milliseconds: 600), (_) async {
+      final sys = await PriceCheckChannel.getLastSystemPrice();
+      if (!mounted) return;
+      final changed = sys.price != _livePrice ||
+          sys.barcode != _liveBarcode ||
+          sys.productName != _liveProductName;
+      if (!changed) return;
+      setState(() {
+        _livePrice = sys.price;
+        _liveProductName = sys.productName;
+        _liveBarcode = sys.barcode;
+        _liveStockCode = sys.stockCode;
+      });
+      // Baloncuk aciksa, henuz QR karsilastirmasi yapilmadiysa sistemde
+      // urun goruldugunu nötr renkle bildir (kullanici hangi urunde
+      // oldugunu balondan anlasin).
+      if (_overlayOn && _result == null) {
+        await PriceCheckChannel.updateOverlayState(
+            sys.price != null ? 'neutral' : 'nosystem');
+      }
+    });
   }
 
   Future<void> _initOverlay() async {
     final running = await PriceCheckChannel.isOverlayRunning();
     if (mounted) setState(() => _overlayOn = running);
+  }
+
+  /// Baloncuktan gelen "yeni tarama" sinyali. Ekran zaten acik oldugu icin
+  /// YENI EKRAN ACILMAZ; sadece bir onceki sonucu temizleyip taramayi
+  /// yeniden baslatir. Kuyruktaki bekleyen urunlere DOKUNMAZ.
+  void _onQuickScanSignal() {
+    if (!mounted) return;
+    _scanAgain();
   }
 
   Future<void> _toggleOverlay(bool on) async {
@@ -134,7 +178,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
   @override
   void dispose() {
     _debugTimer?.cancel();
+    _liveTimer?.cancel();
     _autoRescanTimer?.cancel();
+    quickScanSignal.removeListener(_onQuickScanSignal);
     _controller.dispose();
     super.dispose();
   }
@@ -411,9 +457,81 @@ class _PriceCheckScreenState extends State<PriceCheckScreen> {
         children: [
           if (!_serviceOn) _serviceWarning(),
           _overlayToggleBar(),
+          if (_serviceOn) _liveSystemCard(),
           if (_debugOpen) _debugPanel(),
           Expanded(
             child: _result == null ? _scannerView() : _resultView(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// CANLI sistem verisi kartı: erisilebilirlik servisi sirket
+  /// uygulamasinda urunu gordukce surekli guncellenir (QR okutmaya gerek
+  /// yok). Hangi urunde oldugunu ve sistem fiyatini anlik gosterir.
+  Widget _liveSystemCard() {
+    final hasData = _livePrice != null || _liveProductName != null;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF14181E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasData
+              ? AppTheme.primaryLight.withOpacity(0.5)
+              : Colors.white24,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasData ? Icons.sensors_rounded : Icons.sensors_off_rounded,
+            color: hasData ? AppTheme.primaryLight : Colors.white38,
+            size: 22,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasData
+                      ? (_liveProductName ?? 'Ürün okunuyor…')
+                      : 'Sistemde ürün bekleniyor',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (_liveBarcode != null)
+                  Text(
+                    'Barkod: $_liveBarcode'
+                    '${_liveStockCode != null ? '  •  Stok: $_liveStockCode' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            _livePrice != null
+                ? '${_livePrice!.toStringAsFixed(2)} ₺'
+                : '—',
+            style: TextStyle(
+              color: _livePrice != null
+                  ? AppTheme.primaryLight
+                  : Colors.white38,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),

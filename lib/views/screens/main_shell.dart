@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import '../../core/services/price_check_channel.dart';
+import '../../core/services/pending_products_queue.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
@@ -71,7 +72,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _openPriceCheck() {
-    if (!mounted || _priceCheckOpen) return;
+    if (!mounted) return;
+    // Ekran ZATEN ACIKSA: yeni ekran ACMA. Sadece acik ekrana "yeni tarama
+    // istendi" sinyali gonder; boylece akis sifirlanmaz, kuyruktaki urun
+    // kaybolmaz. (Eski hata: her tikta ust uste yeni ekran push ediliyordu.)
+    if (_priceCheckOpen) {
+      requestQuickScan();
+      return;
+    }
     _priceCheckOpen = true;
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const PriceCheckScreen()))
