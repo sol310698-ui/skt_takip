@@ -44,13 +44,6 @@ class MainActivity : FlutterFragmentActivity() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
-    // Baloncuktan "hizli QR" istegi geldi mi? Flutter consumeQuickScan ile
-    // okur. onCreate/onNewIntent intent extra'sindan set edilir.
-    private var pendingQuickScan = false
-
-    // priceChannel referansi — onNewIntent'ten Flutter'a haber gondermek icin.
-    private var quickScanChannel: MethodChannel? = null
-
     // ONEMLI: Activity'ye kilit ekrani bayraklari (setShowWhenLocked /
     // setTurnScreenOn) EKLEMIYORUZ. "alarm" paketi 5.x, alarm calarken kilit
     // ekrani uzerinde gosterimi ve ekrani uyandirmayi KENDI yonetir. Resmi
@@ -86,24 +79,11 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyEdgeToEdge()
-        if (intent?.getBooleanExtra("openQuickScan", false) == true) {
-            pendingQuickScan = true
-        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra("openQuickScan", false)) {
-            pendingQuickScan = true
-            // Flutter tarafina haber ver (resume'da consumeQuickScan sorar,
-            // ama uygulama zaten acikken aninda tetiklemek icin de gonderir).
-            // NOT: Bu cagri idempotenttir — Flutter tarafindaki dinleyici
-            // (main_shell.dart) "Fiyat Kontrol ekrani zaten acik mi?" diye
-            // SORUP CEVABA gore push/refresh karari verir; native taraf bu
-            // karari ASLA kendisi vermez, sadece "istek geldi" der.
-            quickScanChannel?.invokeMethod("openQuickScan", null)
-        }
     }
 
     override fun onResume() {
@@ -157,7 +137,6 @@ class MainActivity : FlutterFragmentActivity() {
         // son okunan sistem fiyatini ceker (ilk yukleme / fallback icin),
         // ayar sayfasini acar, sesli okuma (TTS) ve titresim tetikler.
         val priceCh = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, priceChannel)
-        quickScanChannel = priceCh
         priceCh
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -192,69 +171,6 @@ class MainActivity : FlutterFragmentActivity() {
                         val mismatch = call.argument<Boolean>("mismatch") ?: false
                         vibrate(mismatch)
                         result.success(true)
-                    }
-                    "canDrawOverlays" -> {
-                        val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-                            Settings.canDrawOverlays(this) else true
-                        result.success(ok)
-                    }
-                    "requestOverlayPermission" -> {
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                                !Settings.canDrawOverlays(this)
-                            ) {
-                                val i = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:$packageName")
-                                )
-                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                startActivity(i)
-                            }
-                            result.success(true)
-                        } catch (e: Exception) {
-                            result.success(false)
-                        }
-                    }
-                    "startOverlay" -> {
-                        try {
-                            val i = Intent(this, PriceOverlayService::class.java)
-                            i.action = PriceOverlayService.ACTION_START
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                startForegroundService(i)
-                            } else {
-                                startService(i)
-                            }
-                            result.success(true)
-                        } catch (e: Exception) {
-                            result.success(false)
-                        }
-                    }
-                    "stopOverlay" -> {
-                        val i = Intent(this, PriceOverlayService::class.java)
-                        i.action = PriceOverlayService.ACTION_STOP
-                        stopService(i)
-                        result.success(true)
-                    }
-                    "isOverlayRunning" -> {
-                        result.success(PriceOverlayService.isRunning)
-                    }
-                    "updateOverlayState" -> {
-                        val state = call.argument<String>("state") ?: "neutral"
-                        PriceOverlayService.pendingState = state
-                        if (PriceOverlayService.isRunning) {
-                            val i = Intent(this, PriceOverlayService::class.java)
-                            i.action = PriceOverlayService.ACTION_UPDATE
-                            i.putExtra(PriceOverlayService.EXTRA_STATE, state)
-                            startService(i)
-                        }
-                        result.success(true)
-                    }
-                    "consumeQuickScan" -> {
-                        // Flutter acilista/resume'da sorar: baloncuktan QR
-                        // modu istegi var mi? Varsa true doner ve bayragi siler.
-                        val want = pendingQuickScan
-                        pendingQuickScan = false
-                        result.success(want)
                     }
                     else -> result.notImplemented()
                 }

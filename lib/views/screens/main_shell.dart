@@ -6,8 +6,6 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
-import '../../core/services/price_check_channel.dart';
-import '../../core/services/pending_products_queue.dart';
 import 'barcode_list_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
@@ -30,65 +28,14 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
+class _MainShellState extends State<MainShell> {
   int _navIndex = 0;
-  // NOT: Eskiden burada lokal bir `_priceCheckOpen` alani vardi. v2'de bu
-  // bilgi pending_products_queue.dart icindeki global `priceCheckScreenOpen`
-  // bayragina tasindi — neden oldugu hata sinifi icin o dosyadaki acikla-
-  // maya bakin. Bu State artik o karari KENDISI VERMEZ, sadece
-  // requestPriceCheckOpen() / PriceCheckScreen'in kendi push/pop
-  // yasam dongusu ile guncellenen global bayragi okur.
 
   @override
   void initState() {
     super.initState();
     _navIndex = widget.initialNavIndex;
-    WidgetsBinding.instance.addObserver(this);
     _requestPermissions();
-    _setupQuickScan();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Uygulama her one geldiginde (baloncuktan donus dahil) bekleyen
-    // "hizli QR" istegi var mi diye bak. Bu, onNewIntent'in anlik cagrisina
-    // bagli kalmadan calisir; en guvenilir yontem.
-    if (state == AppLifecycleState.resumed) {
-      _checkQuickScan();
-    }
-  }
-
-  Future<void> _checkQuickScan() async {
-    final quick = await PriceCheckChannel.consumeQuickScan();
-    if (quick && mounted) _openPriceCheck();
-  }
-
-  void _setupQuickScan() {
-    // Baloncuktan anlik cagri (uygulama zaten acikken).
-    PriceCheckChannel.setQuickScanHandler(_openPriceCheck);
-    // Soguk baslangic: ilk frame'den sonra bekleyen istegi tuket.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkQuickScan());
-  }
-
-  void _openPriceCheck() {
-    if (!mounted) return;
-    // Ekran ZATEN ACIKSA: yeni ekran ACMA. Sadece acik ekrana "yeni tarama
-    // istendi" sinyali gonder; boylece akis sifirlanmaz, kuyruktaki urun
-    // kaybolmaz. (Eski hata: bu karar lokal bir State alanina dayaniyordu;
-    // o alan widget yasam dongusunden bagimsiz olmadigi icin bazi
-    // durumlarda yanlislikla "kapali" gorunup ust uste ekran push
-    // ediyordu. Artik tek dogru kaynak global `requestPriceCheckOpen()`.)
-    if (!requestPriceCheckOpen()) {
-      return;
-    }
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const PriceCheckScreen()));
   }
 
   Future<void> _requestPermissions() async {
@@ -175,22 +122,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
               title: 'Fiyat Kontrol (Sesli)',
               subtitle:
                   'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
-              // NOT: Duz _push() KULLANMIYORUZ. Ekran zaten acik olabilir
-              // (baska bir yoldan, ornegin baloncuktan acilip arka planda
-              // unutulmus olabilir); bu durumda yeni bir push yerine sadece
-              // sheet'i kapatip mevcut ekrana taze tarama sinyali gondeririz.
-              // Karar HER YERDE ayni fonksiyondan (requestPriceCheckOpen)
-              // gecer, boylece iki farkli yerde iki farkli "zaten acik mi"
-              // mantigi olusup birbirinden sapma riski kalmaz.
-              onTap: () {
-                Navigator.of(context).pop(); // sheet'i kapat
-                if (requestPriceCheckOpen()) {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                        builder: (_) => const PriceCheckScreen()),
-                  );
-                }
-              },
+              onTap: () => _push(const PriceCheckScreen()),
             ),
           ],
         ),

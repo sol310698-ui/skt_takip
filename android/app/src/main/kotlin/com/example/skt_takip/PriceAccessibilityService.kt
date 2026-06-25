@@ -135,12 +135,11 @@ class PriceAccessibilityService : AccessibilityService() {
         @Volatile
         private var listener: PriceUpdateListener? = null
 
-        // Bu servisin CALISAN tek ornegine (instance) erisim icin. Baloncuk
-        // (PriceOverlayService), kullanici baloncuga BASTIGI anda — yani
-        // Activity gecisinden ONCE — sirket uygulamasinin o anki ekranini
-        // event beklemeden ZORLA okumak icin forceRescanNow() araciligiyla
-        // bu referansi kullanir. Servis kapaliysa null'dir; o durumda
-        // forceRescanNow() guvenle hicbir sey yapmaz.
+        // Bu servisin CALISAN tek ornegine (instance) erisim icin. Disaridan
+        // (ornegin Flutter'dan bir "manuel yenile" istegiyle) event beklemeden
+        // ZORLA okuma tetiklemek istenirse forceRescanNow() bu referansi
+        // kullanir. Servis kapaliysa null'dir; o durumda forceRescanNow()
+        // guvenle hicbir sey yapmaz.
         @Volatile
         private var instance: PriceAccessibilityService? = null
 
@@ -155,21 +154,17 @@ class PriceAccessibilityService : AccessibilityService() {
          * hemen calistirir.
          *
          * NEDEN GEREKLI: onAccessibilityEvent SADECE bir DEGISIKLIK event'i
-         * geldiginde calisir. Kullanici sirket uygulamasinda barkodu okutup
-         * "Sistem Fiyati" ciktigi an HEMEN baloncuga basarsa, o ekran icin
-         * event henuz islenmemis olabilir (Android event'leri
-         * notificationTimeout kadar gecikmeli yollar). Baloncuga basildiginda
-         * Activity'mizi one getirdigimiz an sirket uygulamasinin penceresi
-         * arka plana duser ve o anki icerigi BIR DAHA OKUMA SANSIMIZ KALMAZ.
+         * geldiginde calisir; Android event'leri notificationTimeout kadar
+         * gecikmeli yollar. Bazi senaryolarda (ornegin uygulamalar arasi
+         * cok hizli gecis) bu pasif bekleme yetersiz kalabilir. Bu fonksiyon,
+         * dis bir tetikleyici (ornegin Flutter tarafindan "su anki ekrani
+         * hemen oku" istegi) geldiginde event'ten bagimsiz olarak ayni
+         * tarama mantigini calistirir.
          *
-         * Bu fonksiyon, Activity gecisi tetiklenmeden ONCE (hala sirket
-         * uygulamasi on plandayken) ayni tarama mantigini event'ten
-         * bagimsiz olarak calistirip son sansi degerlendirir. "Baloncuktan
-         * donerken veri eski geliyor, ama elle (recents/back) donunce veri
-         * dogru geliyor" sikayetinin kok nedeni tam olarak buydu: elle
-         * donuste kullanici sirket uygulamasi ekraninda zaten biraz vakit
-         * geciriyordu (event'in islenmesi icin yeterli sure), baloncukta ise
-         * tepki anlik oldugu icin bu sure hic olmuyordu.
+         * NOT: Yuzen baloncuk ozelligi (eskiden bu fonksiyonun tek
+         * cagiranıydı) kullanici talebiyle tamamen kaldirildi. Fonksiyon,
+         * ileride benzer bir "aninda yenile" ihtiyaci dogarsa diye
+         * altyapida tutulmaktadir; su an icin hicbir yerden cagrilmamaktadir.
          */
         fun forceRescanNow() {
             instance?.scanNow()
@@ -280,14 +275,14 @@ class PriceAccessibilityService : AccessibilityService() {
      * Asil tarama mantigi: dogru pencereyi sec, metinleri topla, fiyati ve
      * urun bilgilerini cikar, degisiklik varsa Flutter'a haber ver.
      *
-     * Bu fonksiyon IKI YERDEN cagrilir:
+     * Bu fonksiyon IKI YERDEN cagrilabilir:
      *  1) onAccessibilityEvent — PASIF: Android bir ekran degisikligi
-     *     event'i yolladiginda otomatik calisir.
-     *  2) forceRescanNow (companion'dan, PriceOverlayService.onBubbleTap
-     *     araciligiyla) — AKTIF: baloncuga basildigi anda, herhangi bir
-     *     event beklemeden hemen calistirilir. Bu, "baloncuga aninda basinca
-     *     veri eski geliyor" sikayetinin cozumudur (bkz. forceRescanNow
-     *     yorumu).
+     *     event'i yolladiginda otomatik calisir. (Bu, su an icin TEK
+     *     gercek tetikleyicidir.)
+     *  2) forceRescanNow (companion'dan) — AKTIF: event beklemeden disaridan
+     *     manuel tetiklenebilir. Su an hicbir yerden cagrilmamaktadir;
+     *     ileride benzer bir "aninda yenile" ihtiyaci dogarsa diye
+     *     altyapida tutulmaktadir.
      *
      * Iki cagiran da AYNI mantigi calistirir; davranis FARKLILASMAZ, sadece
      * tetiklenme ZAMANLAMASI farklidir.

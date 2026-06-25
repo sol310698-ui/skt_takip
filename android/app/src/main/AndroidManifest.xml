@@ -33,7 +33,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
     <!-- "alarm" paketinin Samsung/Xiaomi/Oppo gibi OEM cihazlarda
          full-screen intent + arka plan baslatma icin gerekli gordugu izin -->
@@ -133,21 +132,6 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <!--
-          FIYAT KONTROL — yuzen baloncuk (overlay) servisi.
-          Sirket uygulamasi ustunde duran kabarcigi cizer. SYSTEM_ALERT_WINDOW
-          izni gerekir (kullanici elle verir). foreground service tipi
-          specialUse: baloncuk surekli gorunur kalsin diye.
-        -->
-        <service
-            android:name=".PriceOverlayService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="price_check_overlay" />
         </service>
     </application>
     <queries>

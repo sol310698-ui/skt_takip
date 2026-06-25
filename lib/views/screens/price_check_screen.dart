@@ -42,14 +42,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   bool _scanning = false;
   bool _busy = false;
   bool _serviceOn = false;
-  bool _overlayOn = false; // yuzen baloncuk acik mi
 
-  // ── TANI (debug) ──
-  bool _debugOpen = true; // tani paneli acik mi
-  Timer? _debugTimer;
+  // Servis acik/kapali durumunu periyodik kontrol eden zamanlayici.
+  // (Eskiden burada gorunur bir "TANI PANELI" de besleniyordu; kullanici
+  // istegiyle o panel KALDIRILDI — bu zamanlayici artik SADECE _serviceOn
+  // bayragini güncellemek icin var, ekranda hicbir gorunur cikti uretmez.)
+  Timer? _serviceStatusTimer;
   StreamSubscription<SystemPriceSnapshot>? _liveSub; // canli sistem verisi
   Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
-  Map<String, dynamic> _debug = {};
 
   // ── CANLI sistem verisi (erisilebilirlik servisinden surekli okunur) ──
   // QR okutmadan, sirket uygulamasinda urun degistikce guncellenir.
@@ -66,10 +66,6 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   String? _systemProductName;
   _CompareResult? _result;
 
-  // TANI: en son okunan QR ham metni + parse sonucu
-  String? _lastQrRaw;
-  String? _lastQrNote;
-
   @override
   void initState() {
     super.initState();
@@ -81,36 +77,17 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // taramiyor/gec basliyor" hissini guclendiriyordu. didChangeAppLifecycle
     // State asagida bu durumu duzeltir.
     WidgetsBinding.instance.addObserver(this);
-    // v2 — KRITIK: "Bu ekran su an acik mi?" sorusunun TEK dogru cevabi
-    // burasidir. Eskiden bu bilgi MainShell'in State'inde, dolayli yoldan
-    // (Navigator.push(...).then(...)) tutuluyordu; bu da widget yasam
-    // dongusu ile gercek navigasyon durumu arasinda senkron kaybina acikti
-    // (bkz. pending_products_queue.dart ust aciklamasi). initState/dispose,
-    // Flutter'da bir route'un "gercekten ekranda olma" suresini birebir
-    // yansitan EN GUVENILIR ciftir; bu yuzden bayrak artik buradan
-    // yonetiliyor.
-    priceCheckScreenOpen = true;
     _init();
-    _initOverlay();
-    // Baloncuktan "yeni tarama" sinyali: ekran zaten ACIKKEN baloncuga
-    // tiklaninca yeni ekran ACILMAZ, bunun yerine bu sinyal gelir ve sadece
-    // tarama tazelenir. Boylece kuyruktaki urun ve akis korunur.
-    quickScanSignal.addListener(_onQuickScanSignal);
-    // TANI: her saniye servisin acik/kapali durumunu (ve son debug
-    // metnini) cek ve goster. Bu sadece TANI PANELI icindir, fiyat
-    // degerleri icin KULLANILMAZ — onlar artik asagidaki stream'den gelir.
-    // 1 saniyelik gecikme tani panelinde onemsiz (gozle takip edilen bir
-    // metin listesi), ama gercek fiyat/urun karsilastirmasini ASLA
-    // etkilemez.
-    _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+    // Servis acik/kapali durumunu her saniye kontrol et (sadece uyari
+    // satirinin gosterilip gosterilmeyecegine karar vermek icin).
+    _serviceStatusTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
-      if (mounted) {
-        setState(() {
-          _debug = info;
-          if (info.containsKey('running')) {
-            _serviceOn = info['running'] == true;
-          }
-        });
+      if (mounted && info.containsKey('running')) {
+        final running = info['running'] == true;
+        if (running != _serviceOn) {
+          setState(() => _serviceOn = running);
+        }
       }
     });
 
@@ -134,56 +111,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         _liveBarcode = sys.barcode;
         _liveStockCode = sys.stockCode;
       });
-      // Baloncuk aciksa, henuz QR karsilastirmasi yapilmadiysa sistemde
-      // urun goruldugunu nötr renkle bildir (kullanici hangi urunde
-      // oldugunu balondan anlasin).
-      if (_overlayOn && _result == null) {
-        PriceCheckChannel.updateOverlayState(
-            sys.price != null ? 'neutral' : 'nosystem');
-      }
     });
-  }
-
-  Future<void> _initOverlay() async {
-    final running = await PriceCheckChannel.isOverlayRunning();
-    if (mounted) setState(() => _overlayOn = running);
-  }
-
-  /// Baloncuktan gelen "yeni tarama" sinyali. Ekran zaten acik oldugu icin
-  /// YENI EKRAN ACILMAZ; sadece bir onceki sonucu temizleyip taramayi
-  /// yeniden baslatir. Kuyruktaki bekleyen urunlere DOKUNMAZ.
-  ///
-  /// clearSystemData: false — bkz. _scanAgain ust aciklamasi. Baloncuga
-  /// basildigi anda native taraf (forceRescanNow) zaten TAZE sistem
-  /// verisini yazmis olur; burada o veriyi SILMEYIZ, sadece QR sonuc
-  /// ekranini (varsa onceki karsilastirma sonucunu) sifirlariz.
-  void _onQuickScanSignal() {
-    if (!mounted) return;
-    _scanAgain(clearSystemData: false);
-  }
-
-  Future<void> _toggleOverlay(bool on) async {
-    if (on) {
-      final can = await PriceCheckChannel.canDrawOverlays();
-      if (!can) {
-        await PriceCheckChannel.requestOverlayPermission();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                  '"Üstte göster" iznini verin, sonra anahtarı tekrar açın.'),
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return; // izin verilince kullanici tekrar acar
-      }
-      final ok = await PriceCheckChannel.startOverlay();
-      if (mounted) setState(() => _overlayOn = ok);
-    } else {
-      await PriceCheckChannel.stopOverlay();
-      if (mounted) setState(() => _overlayOn = false);
-    }
   }
 
   Future<void> _init() async {
@@ -210,16 +138,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
 
   @override
   void dispose() {
-    // Bu ekran gercekten kapaniyor (pop edildi). Global bayragi burada
-    // false yapmak, "ekran acik mi" sorusunun route'tan BAGIMSIZ, widget
-    // yasam dongusune dogrudan bagli kalmasini saglar (yukaridaki
-    // initState notuna bakin).
-    priceCheckScreenOpen = false;
     WidgetsBinding.instance.removeObserver(this);
-    _debugTimer?.cancel();
+    _serviceStatusTimer?.cancel();
     _liveSub?.cancel();
     _autoRescanTimer?.cancel();
-    quickScanSignal.removeListener(_onQuickScanSignal);
     _controller.dispose();
     super.dispose();
   }
@@ -318,17 +240,22 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
 
     final parsed = _parseLabelQr(raw);
     if (parsed == null) {
-      // QR okundu AMA fiyat cikarilamadi. Taniya yaz, taramaya devam et.
-      setState(() {
-        _lastQrRaw = raw;
-        _lastQrNote = 'Okundu ama fiyat bulunamadı';
-      });
+      // QR okundu AMA fiyat cikarilamadi. Tani paneli kaldirildigi icin
+      // (kullanici istegiyle) bu durumu kisa bir SnackBar ile bildiriyoruz;
+      // sessizce yutmak kullaniciyi "hicbir sey olmuyor" hissiyle bas basa
+      // birakirdi.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('QR okundu ama fiyat bulunamadı, tekrar deneyin'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
       return;
     }
 
     setState(() {
-      _lastQrRaw = raw;
-      _lastQrNote = 'Fiyat: ${parsed.price}';
       _busy = true;
       _scanning = false;
     });
@@ -387,37 +314,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // Sesli + titresimli geri bildirim.
     await _announce(result, parsed.price, systemPrice);
 
-    // Baloncuk (overlay) acikssa rengini guncelle + otomatik arka plana
-    // donerek kullaniciyi sirket uygulamasina birak.
-    if (_overlayOn) {
-      await PriceCheckChannel.updateOverlayState(_overlayStateOf(result));
-      // Kisa sure sonucu gosterip arka plana don (sirket uygulamasi one gelir).
-      _autoRescanTimer?.cancel();
-      _autoRescanTimer = Timer(const Duration(milliseconds: 1400), () async {
-        if (mounted) {
-          await _scanAgain(); // bir sonraki QR icin hazir tut
-          // Uygulamayi arka plana at -> altta duran sirket uygulamasi gelir.
-          await SystemNavigator.pop();
-        }
-      });
-      return;
-    }
-
     // OTOMATIK DEVAM: kullanici "Tekrar Okut"a basmak zorunda kalmasin.
     _scheduleAutoRescan();
-  }
-
-  String _overlayStateOf(_CompareResult r) {
-    switch (r) {
-      case _CompareResult.match:
-        return 'match';
-      case _CompareResult.mismatch:
-        return 'mismatch';
-      case _CompareResult.wrongLabel:
-        return 'wrong';
-      case _CompareResult.noSystem:
-        return 'nosystem';
-    }
   }
 
   void _scheduleAutoRescan() {
@@ -476,27 +374,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
   }
 
-  Future<void> _scanAgain({bool clearSystemData = true}) async {
+  Future<void> _scanAgain() async {
     _autoRescanTimer?.cancel();
-    // v2 — KRITIK: clearSystemData=false SADECE baloncuktan gelen "yeni
-    // tarama" sinyali (_onQuickScanSignal) icin kullanilir.
-    //
-    // NEDEN: Baloncuga basildigi anda PriceOverlayService.onBubbleTap,
-    // Activity'yi one getirmeden ONCE PriceAccessibilityService.
-    // forceRescanNow() ile native tarafa TAZE veriyi yazdirir (sirket
-    // uygulamasi hala on plandayken). Eskiden buradaki clearLastSystemPrice()
-    // cagrisi bu TAZE veriyi, ekran onu hic gormeden SILIYORDU — "baloncuktan
-    // donerken veri eski geliyor" sikayetinin asil nedeni tam buydu (elle
-    // recents/back ile donuste bu sinyal hic tetiklenmiyordu, bu yuzden o
-    // yolda sorun gorunmuyordu).
-    //
-    // Sonuc ekranindan sonraki "bir sonraki tarama icin hazirlan" cagrilarinda
-    // (overlay otomatik geri donus, otomatik yeniden tarama) ise eski urunun
-    // kalinti verisini silmek hala dogru — orada clearSystemData=true
-    // (varsayilan) kullanilir.
-    if (clearSystemData) {
-      await PriceCheckChannel.clearLastSystemPrice();
-    }
+    await PriceCheckChannel.clearLastSystemPrice();
     setState(() {
       _result = null;
       _labelBarcode = null;
@@ -515,74 +395,148 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     if (mounted) setState(() => _serviceOn = on);
   }
 
+  /// Split-screen / freeform (kucuk pencere) modunu tespit eder.
+  ///
+  /// NEDEN GEREKLI: Kullanici telefonu split-screen'e aldiginda (veya bir
+  /// Android cihazda freeform/kucuk pencere modunda actiginda) Fiyat
+  /// Kontrol ekrani cok az dikey alana sahip olur; sabit yukseklikteki
+  /// AppBar bu durumda orantisiz buyuk bir pay kaplar ve kamera/sonuc
+  /// alani sikisir. Bu yuzden AppBar'i byle pencerelerde TAMAMEN
+  /// KALDIRIYORUZ, normal tam ekran kullanımda ise dokunmuyoruz.
+  ///
+  /// TESPIT YONTEMI: Mutlak bir "kucuk pencere modu" API'si Flutter'da
+  /// yok (Android'in isInMultiWindowMode'u native taraf gerektirir); bunun
+  /// yerine MediaQuery'den gelen mevcut pencere boyutunu cihazin GERCEK
+  /// (fiziksel) ekran boyutuyla karsilastiriyoruz. Pencere yuksekligi,
+  /// fiziksel ekran yuksekliginin belirli bir esigin (yaklasik %65)
+  /// ALTINDAYSA, bu uygulamanin ekranin tamamini kaplamadigi -> split-
+  /// screen/freeform modda oldugu anlamina gelir. Oran tabanli oldugu icin
+  /// farkli cihaz/cozunurluklerde de dogru calisir.
+  bool _isSmallWindowMode(BuildContext context) {
+    final view = View.of(context);
+    final physicalSize = view.physicalSize;
+    final devicePixelRatio = view.devicePixelRatio;
+    if (physicalSize.isEmpty || devicePixelRatio == 0) return false;
+    final fullScreenHeight = physicalSize.height / devicePixelRatio;
+    final currentHeight = MediaQuery.sizeOf(context).height;
+    if (fullScreenHeight <= 0) return false;
+    return (currentHeight / fullScreenHeight) < 0.65;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final smallWindow = _isSmallWindowMode(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: _appBarColor(),
-        foregroundColor: Colors.white,
-        title: const Text('Fiyat Kontrol'),
-        actions: [
-          // Okunan urunler (onay) sayfasi — rozette bekleyen sayisi.
-          ValueListenableBuilder<List<PendingProduct>>(
-            valueListenable: pendingProductsQueue,
-            builder: (_, items, __) => Stack(
-              alignment: Alignment.center,
-              children: [
-                IconButton(
-                  tooltip: 'Okunan ürünler',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                        builder: (_) => const PendingProductsScreen()),
-                  ),
-                  icon: const Icon(Icons.inventory_2_rounded),
-                ),
-                if (items.isNotEmpty)
-                  Positioned(
-                    right: 6,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: AppTheme.statusExpired,
-                        shape: BoxShape.circle,
+      // Kucuk pencere (split-screen/freeform) modunda AppBar TAMAMEN
+      // KALDIRILIR — dar alanda yer kazanmak icin. Normal tam ekranda
+      // her zamanki gibi gosterilir.
+      appBar: smallWindow
+          ? null
+          : AppBar(
+              backgroundColor: _appBarColor(),
+              foregroundColor: Colors.white,
+              title: const Text('Fiyat Kontrol'),
+              actions: [
+                // Okunan urunler (onay) sayfasi — rozette bekleyen sayisi.
+                ValueListenableBuilder<List<PendingProduct>>(
+                  valueListenable: pendingProductsQueue,
+                  builder: (_, items, __) => Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Okunan ürünler',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) => const PendingProductsScreen()),
+                        ),
+                        icon: const Icon(Icons.inventory_2_rounded),
                       ),
-                      constraints:
-                          const BoxConstraints(minWidth: 18, minHeight: 18),
-                      child: Text('${items.length}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800)),
-                    ),
+                      if (items.isNotEmpty)
+                        Positioned(
+                          right: 6,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: AppTheme.statusExpired,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                                minWidth: 18, minHeight: 18),
+                            child: Text('${items.length}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800)),
+                          ),
+                        ),
+                    ],
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Servis durumunu yenile',
+                  onPressed: _refreshServiceStatus,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: 'Tanı panelini aç/kapat',
-            onPressed: () => setState(() => _debugOpen = !_debugOpen),
-            icon: Icon(_debugOpen
-                ? Icons.bug_report_rounded
-                : Icons.bug_report_outlined),
-          ),
-          IconButton(
-            tooltip: 'Servis durumunu yenile',
-            onPressed: _refreshServiceStatus,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
+      body: SafeArea(
+        // AppBar yokken (kucuk pencere) geri donus icin minik bir kapatma
+        // kontrolu olmazsa kullanici ekrandan cikamaz. SafeArea + bu satir
+        // sadece smallWindow durumunda gorunur, normal modda hicbir sey
+        // degismez.
+        child: Column(
+          children: [
+            if (smallWindow) _smallWindowBar(),
+            if (!_serviceOn) _serviceWarning(),
+            if (_serviceOn) _liveSystemCard(),
+            Expanded(
+              child: _result == null ? _scannerView() : _resultView(),
+            ),
+          ],
+        ),
       ),
-      body: Column(
+    );
+  }
+
+  /// AppBar'in yerini tutan, kucuk pencere modunda gosterilen minimal
+  /// ust serit: geri donus + okunan urunler kisayolu. AppBar'in
+  /// kapladigi standart yuksekligin (56) cok altinda, ince bir serit.
+  Widget _smallWindowBar() {
+    return Container(
+      color: _appBarColor(),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Row(
         children: [
-          if (!_serviceOn) _serviceWarning(),
-          _overlayToggleBar(),
-          if (_serviceOn) _liveSystemCard(),
-          if (_debugOpen) _debugPanel(),
-          Expanded(
-            child: _result == null ? _scannerView() : _resultView(),
+          IconButton(
+            tooltip: 'Geri',
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            iconSize: 20,
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+          ),
+          const Expanded(
+            child: Text('Fiyat Kontrol',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600)),
+          ),
+          ValueListenableBuilder<List<PendingProduct>>(
+            valueListenable: pendingProductsQueue,
+            builder: (_, items, __) => IconButton(
+              tooltip: 'Okunan ürünler (${items.length})',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PendingProductsScreen()),
+              ),
+              icon: const Icon(Icons.inventory_2_rounded, color: Colors.white),
+              iconSize: 20,
+              padding: const EdgeInsets.all(6),
+              constraints: const BoxConstraints(),
+            ),
           ),
         ],
       ),
@@ -660,31 +614,6 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     );
   }
 
-  Widget _overlayToggleBar() {
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFF14181E),
-      padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-      child: Row(
-        children: [
-          const Icon(Icons.bubble_chart_rounded,
-              color: AppTheme.primaryLight, size: 20),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              'Yüzen baloncuk (uygulamadan çıkmadan kontrol)',
-              style: TextStyle(color: Colors.white, fontSize: 13),
-            ),
-          ),
-          Switch(
-            value: _overlayOn,
-            onChanged: _toggleOverlay,
-          ),
-        ],
-      ),
-    );
-  }
-
   /// App bar rengi duruma gore: dogru=yesil, yanlis fiyat/etiket=kirmizi,
   /// sistem fiyati yok=sari, henuz sonuc yok=normal (mor).
   Color _appBarColor() {
@@ -701,93 +630,6 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
   }
 
-  Widget _debugPanel() {
-    final running = _debug['running'] == true;
-    final price = _debug['price'];
-    final raw = _debug['raw'];
-    final labelFound = _debug['labelFound'] == true;
-    final pkg = _debug['lastPackage'];
-    final sample = _debug['screenSample'];
-    final lastEvent = _debug['lastEventTime'];
-    String lastSeen = '—';
-    if (lastEvent is int && lastEvent > 0) {
-      final secsAgo =
-          ((DateTime.now().millisecondsSinceEpoch - lastEvent) / 1000).round();
-      lastSeen = '$secsAgo sn önce';
-    }
-
-    Widget line(String k, String v, {Color? color}) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 120,
-                child: Text(k,
-                    style: const TextStyle(
-                        color: Colors.white70, fontSize: 12)),
-              ),
-              Expanded(
-                child: Text(v,
-                    style: TextStyle(
-                        color: color ?? Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-        );
-
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFF101418),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.bug_report_rounded,
-                  color: Colors.amber, size: 16),
-              const SizedBox(width: 6),
-              const Text('TANI PANELİ',
-                  style: TextStyle(
-                      color: Colors.amber,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          line('Servis açık mı', running ? 'EVET' : 'HAYIR',
-              color: running ? Colors.greenAccent : Colors.redAccent),
-          line('Son ekran olayı', lastSeen),
-          line('Son uygulama', pkg?.toString() ?? '—'),
-          line('"Sistem Fiyatı"', labelFound ? 'BULUNDU' : 'bulunamadı',
-              color: labelFound ? Colors.greenAccent : Colors.orangeAccent),
-          line('Okunan fiyat',
-              price == null ? '—' : price.toString(),
-              color: price == null ? Colors.orangeAccent : Colors.greenAccent),
-          if (raw != null) line('Ham metin', raw.toString()),
-          const SizedBox(height: 4),
-          line('Son QR', _lastQrRaw ?? 'henüz okunmadı',
-              color: _lastQrRaw == null ? Colors.white54 : Colors.cyanAccent),
-          if (_lastQrNote != null)
-            line('QR durumu', _lastQrNote!,
-                color: _lastQrNote!.startsWith('Fiyat')
-                    ? Colors.greenAccent
-                    : Colors.orangeAccent),
-          const SizedBox(height: 4),
-          const Text('Ekranda görülen metinler:',
-              style: TextStyle(color: Colors.white54, fontSize: 11)),
-          Text(sample?.toString() ?? '—',
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 11),
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
-  }
 
   Widget _serviceWarning() {
     return Container(
@@ -829,23 +671,6 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     return Stack(
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
-        Positioned(
-          top: 24,
-          left: 24,
-          right: 24,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.6),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Text(
-              '1) Sirket uygulamasinda barkodu okutun (Sistem Fiyati ciksin)\n'
-              '2) Buraya gelip etiketin QR kodunu okutun',
-              style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-            ),
-          ),
-        ),
         // Tarama cercevesi
         Center(
           child: Container(
