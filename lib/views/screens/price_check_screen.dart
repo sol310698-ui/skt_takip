@@ -152,9 +152,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   /// Baloncuktan gelen "yeni tarama" sinyali. Ekran zaten acik oldugu icin
   /// YENI EKRAN ACILMAZ; sadece bir onceki sonucu temizleyip taramayi
   /// yeniden baslatir. Kuyruktaki bekleyen urunlere DOKUNMAZ.
+  ///
+  /// clearSystemData: false — bkz. _scanAgain ust aciklamasi. Baloncuga
+  /// basildigi anda native taraf (forceRescanNow) zaten TAZE sistem
+  /// verisini yazmis olur; burada o veriyi SILMEYIZ, sadece QR sonuc
+  /// ekranini (varsa onceki karsilastirma sonucunu) sifirlariz.
   void _onQuickScanSignal() {
     if (!mounted) return;
-    _scanAgain();
+    _scanAgain(clearSystemData: false);
   }
 
   Future<void> _toggleOverlay(bool on) async {
@@ -273,6 +278,39 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     return null;
   }
 
+  /// "Denetim Formu" / sube-magaza adi gibi sabit, urune ozel OLMAYAN
+  /// basliklarin kuyruga yanlislikla urun adi olarak eklenmesini engelleyen
+  /// son kontrol katmani. Native taraftaki ayni adli mantigin (bkz.
+  /// PriceAccessibilityService.isLikelyStaticFormLabel) Flutter tarafindaki
+  /// karsiligidir — iki bagimsiz katmanda kontrol, tek noktada olabilecek
+  /// bir gozden kacirmaya karsi savunma saglar.
+  bool _looksLikeStaticFormLabel(String line) {
+    final normalized = line.trim();
+    final lower = normalized.toLowerCase();
+    const staticPhrases = [
+      'denetim formu',
+      'kontrol formu',
+      'fiyat kontrol',
+      'fiyat kontrolü',
+      'ürün denetim',
+      'urun denetim',
+    ];
+    if (staticPhrases.any((p) => lower == p || lower.startsWith('$p '))) {
+      return true;
+    }
+    final upper = normalized.toUpperCase();
+    const storeKeywords = [
+      'AVM',
+      'MAĞAZA',
+      'MAGAZA',
+      'ŞUBE',
+      'SUBE',
+      'STORE',
+      'PLAZA',
+    ];
+    return storeKeywords.any((k) => upper.contains(k));
+  }
+
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (!_scanning || _busy) return;
     final raw = capture.barcodes.firstOrNull?.rawValue;
@@ -312,13 +350,24 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // Sistemde gecerli urun bilgisi varsa, onay kuyruguna ekle (DB'ye
     // dogrudan YAZMAZ; kullanici onay sayfasinda kaydedecek). Yanlis etiket
     // olsa bile sistem urunu dogru oldugundan kuyruga sistem barkodu yazilir.
+    //
+    // v2 — EK GUVENLIK KATMANI: Native taraf (PriceAccessibilityService)
+    // zaten "Denetim Formu" / sube-magaza adi gibi sabit form basliklarini
+    // urun adi olarak SECMEMELI (konumsal + anahtar kelime filtresiyle
+    // engellendi). Ama iki bagimsiz katmanda da kontrol etmek (defense in
+    // depth) tek bir noktada olabilecek bir gozden kacirmayi tolere eder.
+    // Bu yuzden Flutter tarafinda da ayni sabit-etiket kontrolu tekrarlanir
+    // — boylece "Denetim Formu" gibi bir deger HER NE OLURSA OLSUN kuyruga
+    // bir urun gibi eklenemez.
+    final candidateName = sys.productName?.trim();
     if (systemBarcode != null &&
-        sys.productName != null &&
-        sys.productName!.trim().isNotEmpty) {
+        candidateName != null &&
+        candidateName.isNotEmpty &&
+        !_looksLikeStaticFormLabel(candidateName)) {
       addPendingProduct(PendingProduct(
         barcode: systemBarcode,
         stockCode: sys.stockCode,
-        productName: sys.productName!.trim(),
+        productName: candidateName,
         systemPrice: systemPrice,
         scannedAt: DateTime.now(),
       ));
@@ -427,9 +476,27 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
   }
 
-  Future<void> _scanAgain() async {
+  Future<void> _scanAgain({bool clearSystemData = true}) async {
     _autoRescanTimer?.cancel();
-    await PriceCheckChannel.clearLastSystemPrice();
+    // v2 — KRITIK: clearSystemData=false SADECE baloncuktan gelen "yeni
+    // tarama" sinyali (_onQuickScanSignal) icin kullanilir.
+    //
+    // NEDEN: Baloncuga basildigi anda PriceOverlayService.onBubbleTap,
+    // Activity'yi one getirmeden ONCE PriceAccessibilityService.
+    // forceRescanNow() ile native tarafa TAZE veriyi yazdirir (sirket
+    // uygulamasi hala on plandayken). Eskiden buradaki clearLastSystemPrice()
+    // cagrisi bu TAZE veriyi, ekran onu hic gormeden SILIYORDU — "baloncuktan
+    // donerken veri eski geliyor" sikayetinin asil nedeni tam buydu (elle
+    // recents/back ile donuste bu sinyal hic tetiklenmiyordu, bu yuzden o
+    // yolda sorun gorunmuyordu).
+    //
+    // Sonuc ekranindan sonraki "bir sonraki tarama icin hazirlan" cagrilarinda
+    // (overlay otomatik geri donus, otomatik yeniden tarama) ise eski urunun
+    // kalinti verisini silmek hala dogru — orada clearSystemData=true
+    // (varsayilan) kullanilir.
+    if (clearSystemData) {
+      await PriceCheckChannel.clearLastSystemPrice();
+    }
     setState(() {
       _result = null;
       _labelBarcode = null;

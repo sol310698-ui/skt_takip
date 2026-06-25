@@ -226,6 +226,27 @@ class PriceOverlayService : Service() {
         val now = System.currentTimeMillis()
         if (now - lastTapAt < tapDebounceMs) return
         lastTapAt = now
+
+        // ── KRITIK DUZELTME ──
+        // "Baloncuktan donerken veri eski geliyor" sikayetinin kok nedeni
+        // buradaydi: PriceAccessibilityService sadece PASIF olarak
+        // onAccessibilityEvent BEKLER — yani sirket uygulamasi ekraninda
+        // bir DEGISIKLIK (yeni event) olmadan hicbir sey okumaz. Kullanici
+        // barkodu okutup "Sistem Fiyati" ciktigi ANDA hemen baloncuga
+        // basarsa, o ekran icin event HENUZ TETIKLENMEMIS/ISLENMEMIS
+        // olabilir (Android event'leri kucuk bir debounce ile yollar).
+        // Biz Activity'yi one getirdigimizde sirket uygulamasinin penceresi
+        // arka plana duser ve bir DAHA o anki icerigi okuma sansimiz
+        // KALMAZ — elimizde kalan tek sey, varsa daha ONCEKI bir event'ten
+        // gelen BAYAT veridir.
+        //
+        // Cozum: startActivity() cagirmadan ONCE, sirket uygulamasi HALA
+        // on planda iken, PriceAccessibilityService'e dogrudan (event
+        // beklemeden) "su an aktif pencereyi HEMEN tara" komutu veriyoruz.
+        // Bu, pasif dinlemeye ek bir AKTIF okuma turu saglar ve "anlik
+        // dokunus" senaryosunda da en taze veriyi garantiler.
+        PriceAccessibilityService.forceRescanNow()
+
         try {
             // Explicit olarak MainActivity'yi hedefle (launch intent yerine);
             // boylece "openQuickScan" extra'si guvenilir sekilde ulasir ve

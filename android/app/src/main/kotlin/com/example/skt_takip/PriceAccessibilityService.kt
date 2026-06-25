@@ -135,10 +135,44 @@ class PriceAccessibilityService : AccessibilityService() {
         @Volatile
         private var listener: PriceUpdateListener? = null
 
+        // Bu servisin CALISAN tek ornegine (instance) erisim icin. Baloncuk
+        // (PriceOverlayService), kullanici baloncuga BASTIGI anda — yani
+        // Activity gecisinden ONCE — sirket uygulamasinin o anki ekranini
+        // event beklemeden ZORLA okumak icin forceRescanNow() araciligiyla
+        // bu referansi kullanir. Servis kapaliysa null'dir; o durumda
+        // forceRescanNow() guvenle hicbir sey yapmaz.
+        @Volatile
+        private var instance: PriceAccessibilityService? = null
+
         private val mainHandler = Handler(Looper.getMainLooper())
 
         fun setListener(l: PriceUpdateListener?) {
             listener = l
+        }
+
+        /**
+         * Event beklemeden, AKTIF olarak "su an ekranda ne var" taramasini
+         * hemen calistirir.
+         *
+         * NEDEN GEREKLI: onAccessibilityEvent SADECE bir DEGISIKLIK event'i
+         * geldiginde calisir. Kullanici sirket uygulamasinda barkodu okutup
+         * "Sistem Fiyati" ciktigi an HEMEN baloncuga basarsa, o ekran icin
+         * event henuz islenmemis olabilir (Android event'leri
+         * notificationTimeout kadar gecikmeli yollar). Baloncuga basildiginda
+         * Activity'mizi one getirdigimiz an sirket uygulamasinin penceresi
+         * arka plana duser ve o anki icerigi BIR DAHA OKUMA SANSIMIZ KALMAZ.
+         *
+         * Bu fonksiyon, Activity gecisi tetiklenmeden ONCE (hala sirket
+         * uygulamasi on plandayken) ayni tarama mantigini event'ten
+         * bagimsiz olarak calistirip son sansi degerlendirir. "Baloncuktan
+         * donerken veri eski geliyor, ama elle (recents/back) donunce veri
+         * dogru geliyor" sikayetinin kok nedeni tam olarak buydu: elle
+         * donuste kullanici sirket uygulamasi ekraninda zaten biraz vakit
+         * geciriyordu (event'in islenmesi icin yeterli sure), baloncukta ise
+         * tepki anlik oldugu icin bu sure hic olmuyordu.
+         */
+        fun forceRescanNow() {
+            instance?.scanNow()
         }
 
         private fun notifyListener() {
@@ -185,6 +219,7 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceRunning = true
+        instance = this
 
         // ── KRITIK: Bazi kurumsal uygulamalar view'larini
         // importantForAccessibility=no olarak isaretler; XML flag'i bazen
@@ -228,25 +263,42 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         serviceRunning = false
+        instance = null
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pkg = event?.packageName?.toString()
+        lastEventTime = System.currentTimeMillis()
+        lastPackage = pkg
+        // Kendi uygulamamizi OKUMA — kendi ekranindaki metinler yanlis
+        // veri uretmesin. Sadece debug paketi gosterilir, veri alinmaz.
+        if (pkg == OWN_PACKAGE) return
+        scanNow()
+    }
+
+    /**
+     * Asil tarama mantigi: dogru pencereyi sec, metinleri topla, fiyati ve
+     * urun bilgilerini cikar, degisiklik varsa Flutter'a haber ver.
+     *
+     * Bu fonksiyon IKI YERDEN cagrilir:
+     *  1) onAccessibilityEvent — PASIF: Android bir ekran degisikligi
+     *     event'i yolladiginda otomatik calisir.
+     *  2) forceRescanNow (companion'dan, PriceOverlayService.onBubbleTap
+     *     araciligiyla) — AKTIF: baloncuga basildigi anda, herhangi bir
+     *     event beklemeden hemen calistirilir. Bu, "baloncuga aninda basinca
+     *     veri eski geliyor" sikayetinin cozumudur (bkz. forceRescanNow
+     *     yorumu).
+     *
+     * Iki cagiran da AYNI mantigi calistirir; davranis FARKLILASMAZ, sadece
+     * tetiklenme ZAMANLAMASI farklidir.
+     */
+    private fun scanNow() {
         // Bu taramanin basladigi andaki nesli sabitle. Tarama (kok secimi +
         // metin toplama + fiyat arama) bir kac milisaniye surebilir; bu sure
         // icinde Flutter "yeni tarama" isteyip clearLastPrice() cagirmis
         // olabilir. O durumda bu taramanin SONUCU artik gecersizdir.
         val myGeneration = generation
         try {
-            lastEventTime = System.currentTimeMillis()
-            val pkg = event?.packageName?.toString()
-            lastPackage = pkg
-
-            // Kendi uygulamamizi OKUMA — kendi ekranindaki metinler yanlis
-            // veri uretmesin. Sadece debug paketi gosterilir, veri alinmaz.
-            if (pkg == OWN_PACKAGE) {
-                return
-            }
-
             // ── DOGRU PENCEREYI SEC ──
             // MIUI/Xiaomi'de ve yuzen baloncuk (overlay) ekrandayken
             // rootInActiveWindow bazen BALONUN penceresini "aktif" sayar ve
@@ -397,11 +449,13 @@ class PriceAccessibilityService : AccessibilityService() {
 
         // Ekran sirasinda gorulen sayisal kodlar (barkod/stok adaylari).
         val codes = ArrayList<String>()
-        var productName: String? = null
-        var longestNameLen = 0
-        // Barkod/stok kodu "Sistem Fiyati" etiketinin USTUNDE yer alir.
-        // Fiyattan SONRAKI sayilar (tarih, ID, kampanya vb.) karismasin diye
-        // etiketi gorunce kod toplamayi durdururuz.
+        // Kod GORULMEDEN once gecen TUM metin satirlari, sirayla.
+        // Gercek urun adi bunlarin SONUNCUSUDUR (barkoda en yakin olan),
+        // BASKASI DEGIL. Form basligi ("Denetim Formu") ve sube/magaza adi
+        // ("BJK FULYA AVM") da bu listeye girer ama onlar ilk siralarda
+        // kalir; gercek urun adi varsa o satirlarin ALTINDA, barkoddan
+        // hemen once gelir.
+        val candidateLines = ArrayList<String>()
         var reachedPriceLabel = false
 
         for (t in texts) {
@@ -426,17 +480,47 @@ class PriceAccessibilityService : AccessibilityService() {
                 continue
             }
 
-            // Urun adi adayi: en az 5 karakter, harf icermeli, etiket/fiyat
-            // metni olmamali. (En uzun aday secilir.)
-            if (clean.length >= 5 &&
+            // Henuz ilk koda (barkoda) ulasilmadiysa ve bu satir gercek bir
+            // metin satiriysa (harf icerir, etiket/fiyat metni degil) aday
+            // listesine ekle. SIRALAMA korunur — listenin SONU barkoda en
+            // yakin olandir.
+            if (!reachedPriceLabel &&
+                codes.isEmpty() &&
+                clean.length >= 5 &&
                 clean.any { it.isLetter() } &&
                 !clean.contains(PRICE_LABEL, ignoreCase = true) &&
-                !clean.contains("₺") &&
-                clean.length > longestNameLen
+                !clean.contains("₺")
             ) {
-                longestNameLen = clean.length
-                productName = clean
+                candidateLines.add(clean)
             }
+        }
+
+        // ── URUN ADI SECIMI ──
+        // v2 — KOK NEDEN DUZELTMESI: Eskiden "en uzun metin" sezgisi
+        // kullaniliyordu. Bu, "Denetim Formu" / "BJK FULYA AVM" gibi SABIT
+        // form basligi ve sube adi satirlarinin (ozellikle henuz hicbir
+        // urun okutulmamisken, formun BOS/baslangic halinde) gercek urun
+        // adi olarak yanlislikla secilmesine yol aciyordu — bu satirlar da
+        // harf icerip yeterince uzun olabiliyordu.
+        //
+        // Artik tek kural: gercek urun adi, BARKOD KODUNDAN HEMEN ONCEKI
+        // metin satiridir (candidateLines listesinin SONUNCU elemani).
+        // Boylece "Denetim Formu" / sube adi gibi ustteki sabit satirlar,
+        // varsa altlarinda gercek bir urun adi oldugunda otomatik elenir
+        // (listede ONCEKI siraya duserler, secilmezler). Eger ekranda
+        // GERCEKTEN hicbir urun adi yoksa (form henuz acilmis, urun
+        // okutulmamis), candidateLines'da TEK sey form basligi/sube adi
+        // kalir — bu durumda urun adini HICBIR SEKILDE KAYDETMEYIZ (asagidaki
+        // bilinen-sabit-metin filtresi).
+        var productName = candidateLines.lastOrNull()
+
+        // Ek guvenlik: candidateLines'da SADECE bilinen sabit form/sube
+        // metinleri varsa (yani barkoddan once baska hicbir gercek urun
+        // satiri yoksa), bunlari urun adi olarak KABUL ETME. Bu, formun
+        // "henuz urun okutulmadan once" tarandigi anlik durumun, kuyruga
+        // hatali bir kayit eklemesini engeller.
+        if (productName != null && isLikelyStaticFormLabel(productName)) {
+            productName = null
         }
 
         // KONUMSAL ayrim: ilk kod = barkod, ikinci kod = stok kodu.
@@ -457,6 +541,36 @@ class PriceAccessibilityService : AccessibilityService() {
             changed = true
         }
         return changed
+    }
+
+    // Sirket uygulamasinin Denetim Formu ekraninda HER URUNDE/HER ACILISTA
+    // AYNI KALAN, urune ozel olmayan sabit basliklar. Bunlar bir urun adi
+    // OLAMAZ; "Denetim Formu" ekran basligidir, sube/magaza adlari ise
+    // (ornegin "BJK FULYA AVM") formun ust kisminda sabit gosterilir ve
+    // urun degistikce DEGISMEZ — gercek urun adinin tersine.
+    //
+    // NOT: Bu liste KAPALI bir kara liste degil, ek bir GUVENLIK AGIDIR.
+    // Asil ayrim mekanizmasi konumsaldir (yukaridaki candidateLines
+    // mantigi); bu liste sadece "form henuz bos/baslangic halinde" gibi
+    // uc durumlarda son bir kontrol katmanidir.
+    private val staticFormLabelPatterns = listOf(
+        Regex("^denetim\\s*formu$", RegexOption.IGNORE_CASE),
+        Regex("^kontrol\\s*formu$", RegexOption.IGNORE_CASE),
+        Regex("^fiyat\\s*kontrol(u)?$", RegexOption.IGNORE_CASE),
+        Regex("^urun\\s*denetim(i)?$", RegexOption.IGNORE_CASE),
+    )
+
+    private fun isLikelyStaticFormLabel(line: String): Boolean {
+        val normalized = line.trim()
+        if (staticFormLabelPatterns.any { it.matches(normalized) }) return true
+        // AVM / magaza / sube adlari genelde TAMAMI BUYUK HARF, kisa (<=30
+        // karakter) ve "AVM", "MAGAZA", "SUBE", "STORE" gibi kelimeler
+        // icerir. Gercek urun adlari da buyuk harfli olabildigi icin SADECE
+        // uzunluk/harf büyüklüğüne degil, bu anahtar kelimelere bakariz.
+        val upper = normalized.uppercase()
+        val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "MARKET MD", "PLAZA")
+        if (storeKeywords.any { upper.contains(it) }) return true
+        return false
     }
 
     /** Agactaki metinleri toplar (en fazla [max] adet). */
