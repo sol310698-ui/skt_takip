@@ -465,9 +465,18 @@ class PriceAccessibilityService : AccessibilityService() {
      *  - Cagiran taraf donen node'u recycle ETMELIDIR.
      */
     private fun bestContentRoot(): AccessibilityNodeInfo? {
-        var best: AccessibilityNodeInfo? = null
-        var bestCount = -1
         try {
+            // ── ONCELIK 1: TYPE_APPLICATION tipindeki (gercek uygulama)
+            // pencereler arasindan en cok metin icereni sec. Status bar /
+            // bildirim panelleri TYPE_SYSTEM'dir; onlar ürün icermez ama
+            // bazen birkac node (saat/pil/sinyal) ile "en cok"muş gibi
+            // gorunup yanlis seciliyordu. Bu yuzden APP pencerelerini
+            // sistem pencerelerinden KESIN olarak ayiriyoruz.
+            var bestApp: AccessibilityNodeInfo? = null
+            var bestAppCount = -1
+            var bestOther: AccessibilityNodeInfo? = null
+            var bestOtherCount = -1
+
             for (w in windows) {
                 val r = w?.root ?: continue
                 val pkg = r.packageName?.toString()
@@ -475,19 +484,52 @@ class PriceAccessibilityService : AccessibilityService() {
                     r.recycle()
                     continue
                 }
+                // Sistem UI (status bar / bildirim golgesi) — ürün penceresi
+                // DEGIL. Okuma kapsamindan cikar.
+                val isSystemUi = pkg == "com.android.systemui"
+                val isAppWindow =
+                    w.type == AccessibilityWindowInfo.TYPE_APPLICATION && !isSystemUi
                 val count = countTextNodes(r, 0, 200)
-                if (count > bestCount) {
-                    best?.recycle()
-                    best = r
-                    bestCount = count
+
+                if (isAppWindow) {
+                    if (count > bestAppCount) {
+                        bestApp?.recycle()
+                        bestApp = r
+                        bestAppCount = count
+                    } else r.recycle()
+                } else if (!isSystemUi) {
+                    // APP olmayan ama systemui de olmayan (ör. IME yok sayilir
+                    // ama bazi uygulamalar TYPE_? kullanir) — yedek olarak tut.
+                    if (count > bestOtherCount) {
+                        bestOther?.recycle()
+                        bestOther = r
+                        bestOtherCount = count
+                    } else r.recycle()
                 } else {
                     r.recycle()
+                }
+            }
+
+            // Gercek uygulama penceresi varsa ONU dondur; yoksa yedek.
+            return when {
+                bestApp != null && bestAppCount > 0 -> {
+                    bestOther?.recycle()
+                    bestApp
+                }
+                bestOther != null -> {
+                    bestApp?.recycle()
+                    bestOther
+                }
+                else -> {
+                    bestApp?.recycle()
+                    bestOther?.recycle()
+                    null
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "bestContentRoot basarisiz: ${e.message}")
         }
-        return best
+        return null
     }
 
     /** Bir agactaki (metni/contentDescription'i olan) dugum sayisini sayar. */
