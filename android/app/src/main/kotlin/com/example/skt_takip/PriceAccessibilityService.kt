@@ -568,13 +568,29 @@ class PriceAccessibilityService : AccessibilityService() {
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
+
+                // Ondalikli sayi (fiyat: 119,90 / 119.90) iceren satiri kod
+                // olarak ALMA — ama yine de urun adi da degil, atla.
                 if (clean.matches(".*\\d[.,]\\d.*".toRegex())) continue
-                val digits = clean.replace("[\\s-]".toRegex(), "")
-                if (digits.matches("\\d{6,14}".toRegex())) {
-                    if (!codes.contains(digits)) codes.add(digits)
+
+                // KOD CIKARMA: Sayilar node'da TEK BASINA gelmeyebilir —
+                // "Stok kodu 3401879" / "Barkod: 8695608230014" gibi etiketle
+                // birlikte gelebilir. Bu yuzden TUM string'in sayisal olmasini
+                // beklemek YANLISTI (bc=YOK hatasinin koku buydu). Bunun
+                // yerine satirin ICINDEN 6-14 haneli sayi dizilerini cikar.
+                val matches = Regex("\\d{6,14}").findAll(clean.replace("-", ""))
+                var foundCode = false
+                for (m in matches) {
+                    val d = m.value
+                    if (!codes.contains(d)) codes.add(d)
+                    foundCode = true
+                }
+                if (foundCode) {
                     if (codes.size >= 2) break
                     continue
                 }
+
+                // Urun adi: ilk anlamli, sayisal-olmayan, etiket-olmayan satir.
                 if (productName == null &&
                     clean.length >= 5 &&
                     clean.any { it.isLetter() } &&
@@ -592,11 +608,14 @@ class PriceAccessibilityService : AccessibilityService() {
                 else -> { stockCode = codes[0]; barcode = codes[1] }
             }
 
-            // TANI: parse sonucu — neden eklenmedigi panelde net gorunsun.
+            // TANI: parse sonucu + collect'in GERCEKTE okudugu ilk satirlar.
+            // (tani paneli ayri bir okuma yapar; collect kendi okumasini
+            // burada gosterir ki ikisi karsilastirilabilsin.)
+            val rawDump = texts.take(8).joinToString(" ⏎ ")
             lastCollectDebug =
-                "ad=${productName ?: "YOK"} | kod=${codes.joinToString(",")} | " +
-                "bc=${barcode ?: "YOK"} | listener=${if (collectListener != null) "VAR" else "YOK"} | " +
-                "son=${lastCollectedBarcode ?: "-"}"
+                "ad=${productName ?: "YOK"} | kod=[${codes.joinToString(",")}] | " +
+                "bc=${barcode ?: "YOK"} | listener=${if (collectListener != null) "VAR" else "YOK"}\n" +
+                "RAW($rawNodeCount): $rawDump"
 
             if (barcode == null || productName == null) {
                 lastCollectDebug = "EKSIK: $lastCollectDebug"
