@@ -3,24 +3,38 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// Internetten barkod -> urun adi cozumu (Open Food Facts).
+import 'db_source_prefs.dart';
+
+/// Internetten barkod -> urun adi cozumu.
 ///
-/// Kademeli aramanin SON halkasidir: once yerel dizin ve aktif/gecmis
-/// urunler denenir, bulunamazsa bu servis cagrilir.
+/// MERKEZI SORGU NOKTASI: Uygulamadaki TUM internet barkod sorgulari bu
+/// servisten gecer. Hangi acik veri tabanlarinin kullanilacagi
+/// DbSourcePrefs'ten okunur:
+///   - Open Food Facts (OFF): gida/market urunleri
+///   - Open Beauty Facts (OBF): kozmetik/kisisel bakim urunleri
+/// Ikisi de aciksa once OFF, bulunamazsa OBF denenir (gida urunleri daha
+/// yaygin oldugu icin OFF once). Tek bir tanesi aciksa sadece o denenir.
+/// Hicbiri acik degilse sorgu yapilmaz (disabled doner).
 ///
-/// Open Food Facts kurallari geregi ozel bir User-Agent gonderilir.
-/// Okuma islemleri kimlik dogrulama gerektirmez.
+/// Her iki veri tabani da AYNI API semasini kullanir (Open*Facts ailesi):
+///   GET {base}/api/v2/product/{barkod}.json
+/// Bu yuzden tek bir parse mantigi her ikisi icin de yeterlidir; sadece
+/// taban URL degisir.
+///
+/// Open*Facts kurallari geregi ozel bir User-Agent gonderilir. Okuma
+/// islemleri kimlik dogrulama gerektirmez.
 class BarcodeLookupService {
   BarcodeLookupService._();
   static final BarcodeLookupService instance = BarcodeLookupService._();
 
-  // OFF, bot sanilmamak icin "AppAdi/Surum (iletisim)" biciminde
+  // Open*Facts, bot sanilmamak icin "AppAdi/Surum (iletisim)" biciminde
   // bir User-Agent ister.
   static const String _userAgent =
       'SKTTakip/1.0 (skt-takip-app@example.com)';
 
-  // Uretim uc noktasi (.net test/staging icindir).
-  static const String _base = 'https://world.openfoodfacts.org';
+  // Veri tabani taban uc noktalari.
+  static const String _offBase = 'https://world.openfoodfacts.org';
+  static const String _obfBase = 'https://world.openbeautyfacts.org';
 
   // Asiri bekleme olmasin: kullanici hemen geri bildirim gormeli.
   static const Duration _timeout = Duration(seconds: 6);
@@ -47,6 +61,10 @@ class BarcodeLookupService {
   }
 
   /// Tanilama icin: adi + ne olduğunu (bulundu / bulunamadi / hata) doner.
+  ///
+  /// Aktif kaynaklari (DbSourcePrefs) sirayla dener; ilkinde bulunursa onu
+  /// doner, bulunamazsa sonrakini dener. Boylece kozmetik bir urun OFF'ta
+  /// yoksa otomatik OBF'te aranir (ikisi de acikken).
   Future<BarcodeLookupResult> lookupDetailed(String barcode) async {
     // Sadece rakamlari al (kamera bazen bosluk/gizli karakter ekler).
     final code = barcode.replaceAll(RegExp(r'[^0-9]'), '').trim();
@@ -55,9 +73,37 @@ class BarcodeLookupService {
           name: null, status: BarcodeLookupStatus.invalid);
     }
 
+    // Hangi kaynaklar acik? (Merkezi tercih.)
+    final prefs = DbSourcePrefs.instance;
+    final bases = <String>[];
+    if (prefs.offEnabled) bases.add(_offBase);
+    if (prefs.obfEnabled) bases.add(_obfBase);
+
+    // Hicbir kaynak acik degil: internet sorgusu yapma.
+    if (bases.isEmpty) {
+      return const BarcodeLookupResult(
+          name: null, status: BarcodeLookupStatus.disabled);
+    }
+
+    BarcodeLookupResult? lastNonFound;
+    for (final base in bases) {
+      final result = await _lookupFromBase(base, code);
+      if (result.found) return result; // ilk bulan kazanir
+      lastNonFound = result;
+    }
+    // Hicbiri bulamadi: son anlamli sonucu (notFound/timeout/error) dondur.
+    return lastNonFound ??
+        const BarcodeLookupResult(
+            name: null, status: BarcodeLookupStatus.notFound);
+  }
+
+  /// Tek bir veri tabani tabanindan (OFF veya OBF) sorgular. Iki veri tabani
+  /// da ayni semayi kullandigi icin parse mantigi ortaktir.
+  Future<BarcodeLookupResult> _lookupFromBase(
+      String base, String code) async {
     // Yanit boyutunu kucult: ad/marka/kategori/gorsel/miktar alanlari.
     final uri = Uri.parse(
-      '$_base/api/v2/product/$code.json'
+      '$base/api/v2/product/$code.json'
       '?fields=product_name,product_name_tr,brands,categories,'
       'categories_tags_tr,quantity,image_front_small_url,image_small_url',
     );
@@ -69,7 +115,7 @@ class BarcodeLookupService {
       ).timeout(_timeout);
 
       if (res.statusCode != 200) {
-        return BarcodeLookupResult(
+        return const BarcodeLookupResult(
             name: null, status: BarcodeLookupStatus.httpError);
       }
 
@@ -147,7 +193,15 @@ class BarcodeLookupService {
   }
 }
 
-enum BarcodeLookupStatus { found, notFound, timeout, httpError, error, invalid }
+enum BarcodeLookupStatus {
+  found,
+  notFound,
+  timeout,
+  httpError,
+  error,
+  invalid,
+  disabled, // hicbir veri tabani kaynagi acik degil
+}
 
 class BarcodeLookupResult {
   final String? name;

@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
+import 'core/services/db_source_prefs.dart';
 import 'core/services/flow_prefs.dart';
 import 'core/services/theme_prefs.dart';
 import 'core/services/app_lock_service.dart';
@@ -69,6 +70,10 @@ Future<void> main() async {
 
   // 6) Hizli akis tercihini yukle (SKT Tara ekranindaki toggle hatirlanir).
   await FlowPrefs.instance.load();
+
+  // 6b) Veri tabani kaynak tercihlerini yukle (OFF/OBF — barkod sorgulari
+  //     icin hangi acik veri tabanlarinin aktif oldugu).
+  await DbSourcePrefs.instance.load();
 
   // 7) Tema tercihini yukle (Aydinlik/Koyu/Sistem).
   await ThemePrefs.instance.load();

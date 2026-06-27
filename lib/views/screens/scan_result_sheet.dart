@@ -91,6 +91,8 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
         return 'İnternetten sorgulanırken hata oluştu.';
       case BarcodeLookupStatus.invalid:
         return 'Geçersiz barkod.';
+      case BarcodeLookupStatus.disabled:
+        return 'İnternet veri tabanı kapalı (Ayarlar\'dan açabilirsiniz).';
       case BarcodeLookupStatus.found:
       case null:
         return null;

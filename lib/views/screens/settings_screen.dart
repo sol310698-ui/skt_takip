@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/app_lock_service.dart';
 import '../../core/services/backup_service.dart';
+import '../../core/services/db_source_prefs.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -343,6 +344,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const WorkScheduleScreen())),
         ),
+        const SizedBox(height: 16),
+        const SectionLabel('İnternet Veri Tabanı'),
+        const SizedBox(height: 8),
+        const _DbSourceSection(),
         const SizedBox(height: 16),
         const SectionLabel('Güvenlik'),
         const SizedBox(height: 8),
@@ -1233,6 +1238,89 @@ class _ChangePinScreenState extends State<_ChangePinScreen> {
                   color: AppTheme.textPrimary)),
         ),
       ),
+    );
+  }
+}
+
+/// Internet barkod sorgularinda hangi acik veri tabanlarinin kullanilacagi
+/// (OFF/OBF). Ikisi de acik/biri acik/ikisi kapali olabilir. Tercih
+/// DbSourcePrefs'te kalici saklanir ve tum uygulamayi (merkezi sorgu
+/// noktasi BarcodeLookupService uzerinden) etkiler.
+class _DbSourceSection extends StatefulWidget {
+  const _DbSourceSection();
+
+  @override
+  State<_DbSourceSection> createState() => _DbSourceSectionState();
+}
+
+class _DbSourceSectionState extends State<_DbSourceSection> {
+  bool _off = DbSourcePrefs.instance.offEnabled;
+  bool _obf = DbSourcePrefs.instance.obfEnabled;
+
+  Future<void> _setOff(bool v) async {
+    await DbSourcePrefs.instance.setOff(v);
+    setState(() => _off = v);
+  }
+
+  Future<void> _setObf(bool v) async {
+    await DbSourcePrefs.instance.setObf(v);
+    setState(() => _obf = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: AppTheme.card(),
+          child: SwitchListTile(
+            value: _off,
+            onChanged: _setOff,
+            activeColor: AppTheme.primary,
+            secondary: const Icon(Icons.restaurant_rounded,
+                color: AppTheme.primary),
+            title: const Text('Open Food Facts',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text('Gıda / market ürünleri',
+                style:
+                    TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: AppTheme.card(),
+          child: SwitchListTile(
+            value: _obf,
+            onChanged: _setObf,
+            activeColor: AppTheme.accent,
+            secondary: const Icon(Icons.spa_rounded, color: AppTheme.accent),
+            title: const Text('Open Beauty Facts',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text('Kozmetik / kişisel bakım ürünleri',
+                style:
+                    TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          ),
+        ),
+        if (!_off && !_obf)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    size: 16, color: AppTheme.textTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Her ikisi de kapalı: barkodlar internette aranmayacak (sadece yerel kayıtlar).',
+                    style: TextStyle(
+                        fontSize: 11, color: AppTheme.textTertiary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

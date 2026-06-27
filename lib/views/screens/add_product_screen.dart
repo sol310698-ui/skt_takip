@@ -263,6 +263,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           case BarcodeLookupStatus.timeout:
             info = 'İnternet yanıt vermedi';
             break;
+          case BarcodeLookupStatus.disabled:
+            info = 'İnternet veri tabanı kapalı';
+            break;
           default:
             info = 'Bilgi alınamadı';
         }
