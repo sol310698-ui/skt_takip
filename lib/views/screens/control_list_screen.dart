@@ -6,6 +6,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
@@ -86,7 +91,7 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
         });
         return;
       }
-      await _saveItems(parsed, replaceAll: true);
+      await _saveItems(parsed, replaceAll: false);
     } catch (e) {
       setState(() {
         _loading = false;
@@ -264,9 +269,9 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
         });
         return;
       }
-      // Birden fazla foto birlestirilebilsin diye replaceAll=true ile tek
-      // seferde yaziyoruz (tum fotograflarin birikimi).
-      await _saveItems(all, replaceAll: true);
+      // MERGE: eski liste KORUNUR. Yeni foto/Excel mevcut urunleri gunceller
+      // veya yenilerini ekler; eskileri SILMEZ (veri kaybi hatasinin koku).
+      await _saveItems(all, replaceAll: false);
     } catch (e) {
       setState(() {
         _loading = false;
@@ -338,6 +343,226 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
     setState(() => _status = null);
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //  BARKOD TARAMA (KONTROL / ESLESTIRME)
+  // ────────────────────────────────────────────────────────────────────
+  //  Kullanici elindeki urunun barkodunu okutur. Okunan barkod kontrol
+  //  listesinde aranir:
+  //    • Listede VARSA  -> "Bu o urun" + urun adi gosterilir, satir
+  //      'checked' (kontrol edildi) isaretlenir ve listede o satira kaydirilir.
+  //    • Listede YOKSA  -> "Bu urun listede degil" uyarisi verilir.
+  //  Boylece kullanici aradigi urunu elindeki urunle eslestirebilir.
+  // ════════════════════════════════════════════════════════════════════
+  Future<void> _scanToMatch() async {
+    if (_items.isEmpty) {
+      setState(() => _status = 'Once Excel/foto ile liste yukleyin.');
+      return;
+    }
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const _MatchScannerScreen()),
+    );
+    if (code == null || code.trim().isEmpty) return;
+    final scanned = code.trim();
+
+    // Listede bu barkodu ara (barkod birebir; bazi okuyucular bas/son
+    // bosluk/sifir ekleyebildigi icin once birebir, sonra trim/sondaki
+    // sifirsiz karsilastir).
+    final idx = _items.indexWhere((e) {
+      final b = e.barcode?.trim();
+      if (b == null || b.isEmpty) return false;
+      return b == scanned;
+    });
+
+    if (idx == -1) {
+      // Listede yok.
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Eşleşme Yok'),
+          content: Text(
+              'Okutulan barkod ($scanned) kontrol listesinde bulunamadı.\n\n'
+              'Bu ürün aradığınız ürün değil.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Tamam')),
+          ],
+        ),
+      );
+      setState(() => _status = 'Barkod listede yok: $scanned');
+      return;
+    }
+
+    // Eslesti: kontrol edildi isaretle + ekrani o satira getir.
+    final matched = _items[idx];
+    if (matched.id != null) {
+      await ref.read(controlListRepositoryProvider).setChecked(matched.id!, true);
+    }
+    if (!mounted) return;
+    setState(() {
+      _items[idx] = matched.copyWith(checked: true);
+      _selectedId = matched.id;
+      _status = '✓ Eşleşti: ${matched.productName ?? scanned}';
+    });
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('✓ Eşleşti'),
+        content: Text(
+            '${matched.productName ?? "(isimsiz)"}\n\n'
+            'Barkod: $scanned\n'
+            '${matched.stockCode != null ? "Stok Kodu: ${matched.stockCode}\n" : ""}'
+            'Bu, aradığınız üründür.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Tamam')),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  PDF RAPOR
+  // ────────────────────────────────────────────────────────────────────
+  //  Yoneticinin attigi (atanan) kontrol listesi uzerinden ozet rapor:
+  //    • Atanan toplam urun
+  //    • Okutulan / kontrol edilen urun (checked)
+  //    • Kalan (kontrol edilmemis) urun
+  //  Ardindan tum urunler durum (✓ / -) ile listelenir. Yazdir/paylas
+  //  menusu acilir.
+  // ════════════════════════════════════════════════════════════════════
+  Future<void> _generateReport() async {
+    if (_items.isEmpty) {
+      setState(() => _status = 'Rapor için liste boş.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _status = 'Rapor hazırlanıyor...';
+    });
+
+    try {
+      final total = _items.length;
+      final checked = _items.where((e) => e.checked).length;
+      final remaining = total - checked;
+      final now = DateTime.now();
+      final dateStr = DateFormat('dd.MM.yyyy HH:mm').format(now);
+
+      final doc = pw.Document();
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(28),
+          build: (ctx) => [
+            pw.Header(
+              level: 0,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Kontrol Listesi Raporu',
+                      style: pw.TextStyle(
+                          fontSize: 20, fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 4),
+                  pw.Text('Tarih: $dateStr',
+                      style: const pw.TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 12),
+            // Ozet kutulari.
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                _pdfStat('Atanan', '$total', PdfColors.blue800),
+                _pdfStat('Okutulan', '$checked', PdfColors.green800),
+                _pdfStat('Kalan', '$remaining', PdfColors.orange800),
+              ],
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text('Ürün Listesi',
+                style: pw.TextStyle(
+                    fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            // Tablo.
+            pw.TableHelper.fromTextArray(
+              headers: ['Durum', 'Ürün Adı', 'Barkod', 'Stok Kodu', 'RBG'],
+              headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold, fontSize: 9,
+                  color: PdfColors.white),
+              headerDecoration:
+                  const pw.BoxDecoration(color: PdfColors.blueGrey700),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignments: {
+                0: pw.Alignment.center,
+                4: pw.Alignment.center,
+              },
+              columnWidths: {
+                0: const pw.FixedColumnWidth(36),
+                1: const pw.FlexColumnWidth(3),
+                2: const pw.FlexColumnWidth(2),
+                3: const pw.FlexColumnWidth(1.4),
+                4: const pw.FixedColumnWidth(36),
+              },
+              data: _items.map((e) {
+                return [
+                  e.checked ? '✓' : '-',
+                  e.productName ?? '(isimsiz)',
+                  e.barcode ?? '',
+                  e.stockCode ?? '',
+                  e.rbgDays?.toString() ?? '',
+                ];
+              }).toList(),
+            ),
+          ],
+        ),
+      );
+
+      final bytes = await doc.save();
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _status = 'Rapor hazır';
+      });
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'kontrol_raporu_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _status = 'Rapor hatası: $e';
+      });
+    }
+  }
+
+  pw.Widget _pdfStat(String label, String value, PdfColor color) {
+    return pw.Expanded(
+      child: pw.Container(
+        margin: const pw.EdgeInsets.symmetric(horizontal: 4),
+        padding: const pw.EdgeInsets.symmetric(vertical: 12),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey100,
+          border: pw.Border.all(color: color, width: 1.5),
+          borderRadius: pw.BorderRadius.circular(8),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Text(value,
+                style: pw.TextStyle(
+                    fontSize: 24, fontWeight: pw.FontWeight.bold, color: color)),
+            pw.SizedBox(height: 2),
+            pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Urune dokununca: alttaki tarayicida barkodu arat ──
   void _openInBrowser(ControlListItem item) {
     final query = (item.barcode?.isNotEmpty == true)
@@ -387,6 +612,17 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            tooltip: 'Barkod okut (kontrol)',
+            onPressed: _loading ? null : _scanToMatch,
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+          ),
+          if (_items.isNotEmpty)
+            IconButton(
+              tooltip: 'PDF rapor',
+              onPressed: _loading ? null : _generateReport,
+              icon: const Icon(Icons.picture_as_pdf_rounded),
+            ),
           if (_items.isNotEmpty)
             IconButton(
               tooltip: 'Listeyi temizle',
@@ -654,6 +890,97 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
             child: _webController == null
                 ? const Center(child: CircularProgressIndicator())
                 : WebViewWidget(controller: _webController!),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  BARKOD ESLESTIRME TARAYICISI
+/// ────────────────────────────────────────────────────────────────────
+///  Tek amac: bir barkod okutup geri dondurmek. Okunan ilk gecerli
+///  barkod Navigator.pop ile string olarak doner. Cagiran ekran (kontrol
+///  listesi) bunu listede arar.
+/// ════════════════════════════════════════════════════════════════════
+class _MatchScannerScreen extends StatefulWidget {
+  const _MatchScannerScreen();
+
+  @override
+  State<_MatchScannerScreen> createState() => _MatchScannerScreenState();
+}
+
+class _MatchScannerScreenState extends State<_MatchScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.normal,
+    facing: CameraFacing.back,
+  );
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    for (final b in capture.barcodes) {
+      final raw = b.rawValue?.trim();
+      if (raw != null && raw.isNotEmpty) {
+        _handled = true;
+        Navigator.of(context).pop(raw);
+        return;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Barkod Okut'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on_rounded),
+            onPressed: () => _controller.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cameraswitch_rounded),
+            onPressed: () => _controller.switchCamera(),
+          ),
+        ],
+      ),
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(controller: _controller, onDetect: _onDetect),
+          // Hedef cercevesi.
+          Container(
+            width: 260,
+            height: 160,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.greenAccent, width: 3),
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          const Positioned(
+            bottom: 48,
+            left: 24,
+            right: 24,
+            child: Text(
+              'Ürünün barkodunu çerçeveye getirin',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
