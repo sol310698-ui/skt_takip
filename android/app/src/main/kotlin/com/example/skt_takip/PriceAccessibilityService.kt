@@ -75,6 +75,10 @@ class PriceAccessibilityService : AccessibilityService() {
         // Kendi uygulamamizin paketi — bunu OKUMAYIZ (kendi ekranindaki
         // "Sistem fiyati 9,95" gibi test metinleri yanlis veri yaratmasin).
         private const val OWN_PACKAGE = "com.example.skt_takip"
+        // Sirket uygulamasinin paketi. Veri toplama SADECE bu paketten
+        // okur; boylece kendi ekranimiz, ekran-goruntusu araci
+        // (smartcapture), sistem UI vb. yanlislikla toplanmaz.
+        private const val TARGET_PACKAGE = "com.anpagross.work"
 
         // "Sistem Fiyati" etiketinin aranacagi metin.
         private const val PRICE_LABEL = "Sistem Fiyatı"
@@ -584,10 +588,43 @@ class PriceAccessibilityService : AccessibilityService() {
      */
     private fun collectProductDetail() {
         try {
-            val root = bestContentRoot() ?: rootInActiveWindow ?: run {
+            var root = bestContentRoot() ?: rootInActiveWindow ?: run {
                 lastCollectDebug = "KOK YOK"
                 return
             }
+
+            // ── SADECE SIRKET UYGULAMASINI OKU ──
+            // Root'un paketi sirket uygulamasi degilse, PES ETMEDEN once
+            // tum pencereler arasinda sirket penceresini ARA. Boylece
+            // bestContentRoot baska bir pencere (overlay/sistem) dondurse
+            // bile, sirket uygulamasi ekranda ise yakalanir. Hicbir
+            // pencerede sirket yoksa ATLA (kendi ekranimiz/smartcapture/
+            // sistem UI yanlislikla toplanmasin).
+            var rootPkg = root.packageName?.toString()
+            if (rootPkg != TARGET_PACKAGE) {
+                var companyRoot: AccessibilityNodeInfo? = null
+                try {
+                    for (w in windows) {
+                        val wr = w?.root ?: continue
+                        if (wr.packageName?.toString() == TARGET_PACKAGE) {
+                            companyRoot = wr
+                            break
+                        }
+                        wr.recycle()
+                    }
+                } catch (_: Exception) {}
+
+                if (companyRoot != null) {
+                    root.recycle()
+                    root = companyRoot
+                    rootPkg = TARGET_PACKAGE
+                } else {
+                    root.recycle()
+                    lastCollectDebug = "ATLANDI (paket=$rootPkg, sirket ekranda degil)"
+                    return
+                }
+            }
+
             val texts = ArrayList<String>()
             var rawNodeCount = 0
             try {
@@ -638,12 +675,27 @@ class PriceAccessibilityService : AccessibilityService() {
                 }
             }
 
-            val stockCode: String?
-            val barcode: String?
-            when (codes.size) {
-                0 -> { stockCode = null; barcode = null }
-                1 -> { stockCode = null; barcode = codes[0] }
-                else -> { stockCode = codes[0]; barcode = codes[1] }
+            // ── BARKOD / STOK KODU AYRIMI: UZUNLUGA gore (konum DEGIL) ──
+            // Okuma sirasi ekrana gore degisebildigi icin "ilk kod stok"
+            // varsayimi YANLISTI (barkod/stok ters dusuyordu). EAN-13/EAN-8
+            // barkodlar 12-13 (veya 8) hane; stok kodu daha kisadir (5-9).
+            //   - 12-14 hane -> BARKOD
+            //   - en kisa digeri -> STOK KODU
+            var barcode: String? = null
+            var stockCode: String? = null
+            for (c in codes) {
+                if (c.length in 12..14) {
+                    if (barcode == null) barcode = c
+                } else {
+                    // Daha kisa kod = stok kodu adayi (ilk bulunani al).
+                    if (stockCode == null) stockCode = c
+                }
+            }
+            // Barkod hala bulunamadiysa (ör. yabanci 8 haneli EAN-8 tek
+            // kod), en uzun kodu barkod kabul et.
+            if (barcode == null && codes.isNotEmpty()) {
+                barcode = codes.maxByOrNull { it.length }
+                if (barcode == stockCode) stockCode = null
             }
 
             // TANI: parse sonucu + collect'in GERCEKTE okudugu ilk satirlar.
