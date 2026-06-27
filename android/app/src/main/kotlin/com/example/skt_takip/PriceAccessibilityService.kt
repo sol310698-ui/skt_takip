@@ -169,6 +169,7 @@ class PriceAccessibilityService : AccessibilityService() {
         // ════════════════════════════════════════════════════════════════
         @Volatile
         var collectMode: Boolean = false
+            private set
 
         @Volatile
         private var collectListener: ProductCollectedListener? = null
@@ -297,9 +298,8 @@ class PriceAccessibilityService : AccessibilityService() {
         super.onDestroy()
         serviceRunning = false
         instance = null
-        collectMode = false
-        collectListener = null
-        lastCollectedBarcode = null
+        setCollectMode(false)
+        setCollectListener(null)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
