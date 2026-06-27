@@ -643,6 +643,7 @@ class PriceAccessibilityService : AccessibilityService() {
 
             val codes = ArrayList<String>()
             var productName: String? = null
+            var bestNameScore = -1
 
             for (raw in texts) {
                 val clean = raw.trim()
@@ -661,17 +662,20 @@ class PriceAccessibilityService : AccessibilityService() {
                     }
                 }
 
-                // 2) URUN ADI: koddan BAGIMSIZ. Ilk anlamli, etiket-olmayan,
-                //    icinde 6-14 haneli "saf kod" OLMAYAN satir. (Ürün adinda
-                //    400GR/*12 gibi kisa rakamlar olabilir ama uzun barkod
-                //    olmaz; o yuzden ad satiri kod listesine girmez.)
-                if (productName == null &&
-                    clean.length >= 5 &&
+                // 2) URUN ADI: koddan BAGIMSIZ. En IYI adayi sec (ilk degil).
+                //    Gercek urun adi: uzun, harf agirlikli, ve genelde urun
+                //    isaretleri icerir (*, (, GR/ML/KG/LT gramaj, KVN/PLT kod).
+                //    "Hareket", "Sekme 1/5" gibi kisa sekme metinleri elenir.
+                if (clean.length >= 5 &&
                     clean.any { it.isLetter() } &&
                     !Regex("\\d{6,14}").containsMatchIn(clean.replace("-", "")) &&
                     !isCollectNoiseLabel(clean)
                 ) {
-                    productName = clean
+                    val score = nameScore(clean)
+                    if (score > bestNameScore) {
+                        bestNameScore = score
+                        productName = clean
+                    }
                 }
             }
 
@@ -741,6 +745,39 @@ class PriceAccessibilityService : AccessibilityService() {
      * Veri toplama modunda urun adi olarak SECILMEMESI gereken sabit/gurultu
      * metinleri (magaza adi, sekme baslıklari, sabit alan etiketleri).
      */
+    /**
+     * Bir metnin "urun adi olma" puani. Yuksek = daha guclu aday.
+     * Gercek urun adlari uzundur ve urun isaretleri (*, (, gramaj birimi,
+     * koli/palet kodu) icerir. Sekme/baslik metinleri kisa ve isaretsizdir.
+     */
+    private fun nameScore(line: String): Int {
+        val u = line.uppercase()
+        var s = line.length  // uzunluk temel puan
+
+        // ── BUYUK HARF SINYALI (en guclu ayrac) ──
+        // Urun adlari HEP BUYUK HARF'tir (ITH.GLORA KARAMELIZE...). "Hareket",
+        // "Sekme", "Bildirim" gibi normal yazimli metinler urun adi degildir.
+        // Harflerin buyuk-harf oranina gore puan ver/cez ver.
+        val letters = line.filter { it.isLetter() }
+        if (letters.isNotEmpty()) {
+            val upperCount = letters.count { it.isUpperCase() }
+            val ratio = upperCount.toDouble() / letters.length
+            when {
+                ratio >= 0.9 -> s += 40   // neredeyse tamami BUYUK -> guclu aday
+                ratio >= 0.7 -> s += 10
+                ratio < 0.5 -> s -= 50    // cogunlukla kucuk harf -> urun DEGIL
+            }
+        }
+
+        if (line.contains("*")) s += 15
+        if (line.contains("(")) s += 10
+        for (unit in listOf("GR", "ML", "KG", "LT", "CL")) {
+            if (u.contains(unit)) { s += 8; break }
+        }
+        if (u.contains("PLT") || u.contains("KVN") || u.contains("KOLI")) s += 5
+        return s
+    }
+
     private fun isCollectNoiseLabel(line: String): Boolean {
         val u = line.uppercase().trim()
 
@@ -754,7 +791,8 @@ class PriceAccessibilityService : AccessibilityService() {
             "LOJISTIK STOK", "LOJISTIK", "SEVIYE", "KOLI", "SATINALMA",
             "ACIK SIP", "AÇIK SIP", "AVM STOK", "STOK:", "MÜŞTERI", "MUSTERI",
             "MÜŞTERİSAYISI", "MUSTERISAYISI", "GÖRSEL HAZIRLAN",
-            "GORSEL HAZIRLAN", "SATINALMA"
+            "GORSEL HAZIRLAN", "SEKME", "SEKTÖR", "SEKTOR", "OKUTULMAYAN",
+            "OKUTULAN", "ARA...", "DENETIM", "DENETİM"
         )
         if (containsNoise.any { u.contains(it) }) return true
 
