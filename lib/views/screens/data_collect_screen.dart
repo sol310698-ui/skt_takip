@@ -94,8 +94,10 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
     _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
       final sample = (info['screenSample'] as String?) ?? '';
-      if (mounted && sample != _debugSample) {
-        setState(() => _debugSample = sample);
+      final cd = (info['collectDebug'] as String?) ?? '';
+      final combined = cd.isEmpty ? sample : 'COLLECT: $cd\n\n$sample';
+      if (mounted && combined != _debugSample) {
+        setState(() => _debugSample = combined);
       }
     });
 
@@ -202,6 +204,8 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
 
   Widget _debugPanel() {
     final empty = _debugSample.trim().isEmpty;
+    final cs = Theme.of(context).colorScheme;
+    final onBg = cs.onSurface;
     final String statusLine;
     if (!_serviceOn) {
       statusLine = 'Servis KAPALI — erişilebilirlik servisini açın.';
@@ -215,7 +219,7 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
     }
     return Container(
       width: double.infinity,
-      color: Colors.black.withOpacity(0.05),
+      color: onBg.withOpacity(0.06),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,13 +227,13 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
           Row(
             children: [
               Icon(Icons.bug_report_outlined,
-                  size: 14, color: Colors.grey.shade600),
+                  size: 14, color: onBg.withOpacity(0.7)),
               const SizedBox(width: 6),
               Text('Ekran okuma (tanı)',
                   style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700)),
+                      color: onBg.withOpacity(0.8))),
             ],
           ),
           const SizedBox(height: 4),
@@ -239,18 +243,17 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
                   fontWeight: FontWeight.w500,
                   color: (empty || !_serviceOn || !_collecting)
                       ? AppTheme.statusWarning
-                      : Colors.green.shade700)),
+                      : Colors.greenAccent.shade400)),
           if (!empty) ...[
             const SizedBox(height: 4),
-            Text(
+            SelectableText(
               _debugSample,
-              maxLines: 8,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  fontSize: 10,
+              maxLines: 14,
+              style: TextStyle(
+                  fontSize: 11,
                   fontFamily: 'monospace',
-                  color: Colors.black54,
-                  height: 1.3),
+                  color: onBg.withOpacity(0.85),
+                  height: 1.35),
             ),
           ],
         ],

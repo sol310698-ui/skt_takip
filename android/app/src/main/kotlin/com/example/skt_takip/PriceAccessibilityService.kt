@@ -130,6 +130,7 @@ class PriceAccessibilityService : AccessibilityService() {
         // gercekte ekranda nasil yaziyor gormek icin cok faydali).
         @Volatile
         var lastScreenSample: String? = null
+        var lastCollectDebug: String? = null
             private set
 
         // Bu deger her clearLastPrice() cagrisinda 1 artar. Halen suren bir
@@ -248,6 +249,7 @@ class PriceAccessibilityService : AccessibilityService() {
             "lastPackage" to lastPackage,
             "labelFound" to lastLabelFound,
             "screenSample" to lastScreenSample,
+            "collectDebug" to lastCollectDebug,
         )
     }
 
@@ -540,7 +542,10 @@ class PriceAccessibilityService : AccessibilityService() {
      */
     private fun collectProductDetail() {
         try {
-            val root = bestContentRoot() ?: rootInActiveWindow ?: return
+            val root = bestContentRoot() ?: rootInActiveWindow ?: run {
+                lastCollectDebug = "KOK YOK"
+                return
+            }
             val texts = ArrayList<String>()
             var rawNodeCount = 0
             try {
@@ -551,53 +556,25 @@ class PriceAccessibilityService : AccessibilityService() {
             }
 
             lastEventTime = System.currentTimeMillis()
-            // TANI: ham metin dugum sayisi + ilk ornekler. "Bos" sorununu
-            // teshis etmek icin kac dugum okundugu da gosterilir.
-            lastScreenSample =
-                "[$rawNodeCount nd] " + texts.take(14).joinToString(" | ")
 
-            // ── ERKEN/BOS OKUMA KORUMASI ──
-            // Sirket uygulamasinin detay ekrani ASENKRON render olur; ilk
-            // content-changed event'inde node agaci HENUZ BOS olabilir. Bu
-            // durumda state'i BOZMADAN sessizce cikariz; ekran dolunca bir
-            // sonraki event'te tekrar deneriz. (Fiyat kontrolun "calisip"
-            // collect'in "bos" gorunmesinin sebebi buydu: collect erken bir
-            // event'te bos okuyup, sonra ayni barkod gelmedigi icin tekrar
-            // denemiyordu.) Esik dusuk tutuldu (>=3) ki gercek detay ekrani
-            // kacmasin.
-            if (texts.size < 3) return
+            if (texts.size < 3) {
+                lastCollectDebug = "az metin (${texts.size})"
+                return
+            }
 
-            // ════════════════════════════════════════════════════════════
-            //  KONUMSAL TARAMA (ekran yapisina gore)
-            //  Gercek ekran:
-            //     BJK FULYA AVM   <- atla (AVM/sube)
-            //     SAMET DEMIRAL   <- atla (kisi adi)
-            //     BAGCI GURME 400 GR KURU SELE ZEYTIN*12  <- ILK gercek ad
-            //     44009116        <- STOK KODU (QR, ustte)
-            //     8695336110503   <- BARKOD (barkod ikonu, altta)
-            //     149.90 ...
-            //   • Urun adi = ilk anlamli urun-adi satiri.
-            //   • Kodlar SIRAYLA: 1.=STOK, 2.=BARKOD.
-            //   • 6-14 hane TAM sayisal = kod. Ilk 2 kod bulununca DUR.
-            // ════════════════════════════════════════════════════════════
-
-            val codes = ArrayList<String>()   // [0]=stok, [1]=barkod
+            val codes = ArrayList<String>()
             var productName: String? = null
 
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
-
-                // Ondalikli sayi (fiyat: 149,90 / 149.90) — kod degildir.
                 if (clean.matches(".*\\d[.,]\\d.*".toRegex())) continue
-
                 val digits = clean.replace("[\\s-]".toRegex(), "")
                 if (digits.matches("\\d{6,14}".toRegex())) {
                     if (!codes.contains(digits)) codes.add(digits)
                     if (codes.size >= 2) break
                     continue
                 }
-
                 if (productName == null &&
                     clean.length >= 5 &&
                     clean.any { it.isLetter() } &&
@@ -607,7 +584,6 @@ class PriceAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Stok ustte, barkod altta. Tek kod varsa onu barkod say.
             val stockCode: String?
             val barcode: String?
             when (codes.size) {
@@ -616,23 +592,38 @@ class PriceAccessibilityService : AccessibilityService() {
                 else -> { stockCode = codes[0]; barcode = codes[1] }
             }
 
-            // Barkod ve urun adi ZORUNLU; stok kodu opsiyonel.
-            // Eksikse state'i BOZMA, sessizce cik (sonraki event'te tekrar
-            // denensin — ekran hala doluyor olabilir).
-            if (barcode == null || productName == null) return
+            // TANI: parse sonucu — neden eklenmedigi panelde net gorunsun.
+            lastCollectDebug =
+                "ad=${productName ?: "YOK"} | kod=${codes.joinToString(",")} | " +
+                "bc=${barcode ?: "YOK"} | listener=${if (collectListener != null) "VAR" else "YOK"} | " +
+                "son=${lastCollectedBarcode ?: "-"}"
 
-            // Ayni urunu pespese tekrar gondermeyi engelle.
-            if (barcode == lastCollectedBarcode) return
+            if (barcode == null || productName == null) {
+                lastCollectDebug = "EKSIK: $lastCollectDebug"
+                return
+            }
+
+            if (barcode == lastCollectedBarcode) {
+                lastCollectDebug = "TEKRAR (ayni barkod): $lastCollectDebug"
+                return
+            }
             lastCollectedBarcode = barcode
 
+            val l = collectListener
+            if (l == null) {
+                lastCollectDebug = "LISTENER YOK: $lastCollectDebug"
+                return
+            }
+
+            lastCollectDebug = "GONDERILDI: $lastCollectDebug"
             val finalBarcode = barcode
             val finalName = productName
             val finalStock = stockCode
-            val l = collectListener ?: return
             mainHandler.post {
                 l.onProductCollected(finalBarcode, finalName, finalStock)
             }
         } catch (e: Exception) {
+            lastCollectDebug = "HATA: ${e.message}"
             Log.e(TAG, "collectProductDetail hata: ${e.message}")
         }
     }
