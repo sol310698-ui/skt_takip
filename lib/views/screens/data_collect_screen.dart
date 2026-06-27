@@ -36,7 +36,13 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
   bool _serviceOn = false;
   bool _collecting = false;
   Timer? _serviceStatusTimer;
+  Timer? _debugTimer;
   StreamSubscription<CollectedProduct>? _sub;
+
+  // TANI: servisin ekrandan en son ne okudugunu gosterir (node sayisi +
+  // ornek metinler). "Hic urun gelmiyor" durumunda ekranin gercekte
+  // okunup okunmadigini gormek icin.
+  String _debugSample = '';
 
   // Bu oturumda toplanan urunler (en yeni ustte). Sadece gosterim icin;
   // asil kayit aninda DB'ye yazilir.
@@ -57,6 +63,7 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _serviceStatusTimer?.cancel();
+    _debugTimer?.cancel();
     _sub?.cancel();
     // Ekran kapaninca toplama modunu MUTLAKA durdur (servis bos yere
     // urun detaylarini taramaya devam etmesin).
@@ -81,6 +88,16 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
 
     // Gelen urunleri dinle ve aninda DB'ye yaz.
     _sub = PriceCheckChannel.collectedProductStream.listen(_onProductCollected);
+
+    // TANI: 1 sn'de bir servisin ekrandan ne okudugunu cek (sadece bu
+    // ekran acikken; pil dostu, sadece gosterim icin).
+    _debugTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final info = await PriceCheckChannel.getDebugInfo();
+      final sample = (info['screenSample'] as String?) ?? '';
+      if (mounted && sample != _debugSample) {
+        setState(() => _debugSample = sample);
+      }
+    });
 
     // Servis aciksa toplamayi hemen baslat.
     if (on) {
@@ -148,6 +165,7 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
           if (!_serviceOn) _serviceWarning(),
           _statusCard(),
           const Divider(height: 1),
+          _debugPanel(),
           Expanded(child: _collectedList()),
         ],
       ),
@@ -176,6 +194,45 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
             onPressed: PriceCheckChannel.openAccessibilitySettings,
             icon: const Icon(Icons.settings_accessibility_rounded),
             label: const Text('Erişilebilirlik Ayarları'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _debugPanel() {
+    final empty = _debugSample.trim().isEmpty;
+    return Container(
+      width: double.infinity,
+      color: Colors.black.withOpacity(0.04),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bug_report_outlined,
+                  size: 14, color: Colors.grey.shade600),
+              const SizedBox(width: 6),
+              Text('Ekran okuma (tanı)',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            empty
+                ? 'Şirket ekranından hiç metin okunamıyor (boş). Ürün detayına girin.'
+                : _debugSample,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              color: empty ? AppTheme.statusWarning : Colors.black54,
+              height: 1.3,
+            ),
           ),
         ],
       ),

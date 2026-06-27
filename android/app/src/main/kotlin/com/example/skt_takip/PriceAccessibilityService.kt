@@ -498,59 +498,62 @@ class PriceAccessibilityService : AccessibilityService() {
         try {
             val root = bestContentRoot() ?: rootInActiveWindow ?: return
             val texts = ArrayList<String>()
+            var rawNodeCount = 0
             try {
                 collectTexts(root, texts, 200)
+                rawNodeCount = countTextNodes(root, 0, 400)
             } finally {
                 root.recycle()
             }
 
             lastEventTime = System.currentTimeMillis()
-            lastScreenSample = texts.take(12).joinToString(" | ")
+            // TANI: ham metin dugum sayisi + ilk ornekler. "Bos" sorununu
+            // teshis etmek icin kac dugum okundugu da gosterilir.
+            lastScreenSample =
+                "[$rawNodeCount nd] " + texts.take(14).joinToString(" | ")
+
+            // ── ERKEN/BOS OKUMA KORUMASI ──
+            // Sirket uygulamasinin detay ekrani ASENKRON render olur; ilk
+            // content-changed event'inde node agaci HENUZ BOS olabilir. Bu
+            // durumda state'i BOZMADAN sessizce cikariz; ekran dolunca bir
+            // sonraki event'te tekrar deneriz. (Fiyat kontrolun "calisip"
+            // collect'in "bos" gorunmesinin sebebi buydu: collect erken bir
+            // event'te bos okuyup, sonra ayni barkod gelmedigi icin tekrar
+            // denemiyordu.) Esik dusuk tutuldu (>=3) ki gercek detay ekrani
+            // kacmasin.
+            if (texts.size < 3) return
 
             // ════════════════════════════════════════════════════════════
-            //  KONUMSAL TARAMA (ekran yapisina gore — uzunluk tahmini DEGIL)
-            // ────────────────────────────────────────────────────────────
-            //  Gercek ekran (kullanicinin paylastigi):
-            //     [magaza]      BJK FULYA AVM            <- atla (AVM/sube)
-            //     [personel]    SAMET DEMIRAL            <- atla (kisi adi)
-            //     [URUN ADI]    BURCU RANCH SOS 290GR... <- ILK gercek ad
-            //     [STOK KODU]   44008471   (QR ikonu, USTTE)
-            //     [BARKOD]      8691573072970 (barkod ikonu, ALTTA)
-            //     [fiyat]       36.95
-            //     ... Bildirim / Yorumlar / Lojistik Stok / Analiz tablosu
-            //
-            //  KURALLAR:
-            //   • Urun adi = yukaridan asagi ILK anlamli urun-adi satiri
-            //     (magaza/kisi/sekme/etiket DEGIL). "En uzun" mantigi
-            //     KULLANILMAZ — Analiz tablosundaki uzun gurultu satirlari
-            //     (SAKARYA ADA AVM, MUSTERISAYISI...) onu ezemesin diye.
-            //   • Sayisal kodlar SIRAYLA: 1. kod = STOK, 2. kod = BARKOD
-            //     (kullanicinin ekraninda stok ustte, barkod altta).
-            //   • Sadece 6-14 haneli TAM sayisal degerler kod sayilir;
-            //     boylece tablodaki 2360/840/22 gibi sayilar ve tek haneli
-            //     hucreler elenir.
-            //   • Ilk iki kod bulununca DUR — Analiz tablosuna inme.
+            //  KONUMSAL TARAMA (ekran yapisina gore)
+            //  Gercek ekran:
+            //     BJK FULYA AVM   <- atla (AVM/sube)
+            //     SAMET DEMIRAL   <- atla (kisi adi)
+            //     BAGCI GURME 400 GR KURU SELE ZEYTIN*12  <- ILK gercek ad
+            //     44009116        <- STOK KODU (QR, ustte)
+            //     8695336110503   <- BARKOD (barkod ikonu, altta)
+            //     149.90 ...
+            //   • Urun adi = ilk anlamli urun-adi satiri.
+            //   • Kodlar SIRAYLA: 1.=STOK, 2.=BARKOD.
+            //   • 6-14 hane TAM sayisal = kod. Ilk 2 kod bulununca DUR.
             // ════════════════════════════════════════════════════════════
 
-            val codes = ArrayList<String>()   // sirayla: [0]=stok, [1]=barkod
+            val codes = ArrayList<String>()   // [0]=stok, [1]=barkod
             var productName: String? = null
 
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
 
-                // Ondalikli sayi (fiyat: 36,95 / 36.95) — kod degildir.
+                // Ondalikli sayi (fiyat: 149,90 / 149.90) — kod degildir.
                 if (clean.matches(".*\\d[.,]\\d.*".toRegex())) continue
 
                 val digits = clean.replace("[\\s-]".toRegex(), "")
                 if (digits.matches("\\d{6,14}".toRegex())) {
                     if (!codes.contains(digits)) codes.add(digits)
-                    // Iki kod yeterli (stok + barkod). Gerisini tarama.
                     if (codes.size >= 2) break
                     continue
                 }
 
-                // Urun adi: HENUZ secilmemisse, anlamli ilk satiri al.
                 if (productName == null &&
                     clean.length >= 5 &&
                     clean.any { it.isLetter() } &&
@@ -560,9 +563,7 @@ class PriceAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // ── KOD ATAMA (konumsal) ──
-            // Stok ustte, barkod altta. Eger TEK kod bulunduysa onu barkod
-            // kabul et (barkod zorunlu, stok opsiyonel).
+            // Stok ustte, barkod altta. Tek kod varsa onu barkod say.
             val stockCode: String?
             val barcode: String?
             when (codes.size) {
@@ -572,10 +573,11 @@ class PriceAccessibilityService : AccessibilityService() {
             }
 
             // Barkod ve urun adi ZORUNLU; stok kodu opsiyonel.
+            // Eksikse state'i BOZMA, sessizce cik (sonraki event'te tekrar
+            // denensin — ekran hala doluyor olabilir).
             if (barcode == null || productName == null) return
 
-            // Ayni urunu pespese tekrar gondermeyi engelle (ekran her
-            // kaydirildiginda/yeniden cizildiginde event tetiklenir).
+            // Ayni urunu pespese tekrar gondermeyi engelle.
             if (barcode == lastCollectedBarcode) return
             lastCollectedBarcode = barcode
 
