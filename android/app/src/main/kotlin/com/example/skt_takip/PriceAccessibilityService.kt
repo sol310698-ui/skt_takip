@@ -743,29 +743,36 @@ class PriceAccessibilityService : AccessibilityService() {
      */
     private fun isCollectNoiseLabel(line: String): Boolean {
         val u = line.uppercase().trim()
-        // Sekme/etiket/bolum basliklari: bunlar TEK BASINA bir satirdir
-        // (urun adi degil). TAM ESITLIK ile elenir — boylece urun adinin
-        // icinde gecen bir kelime (orn. "... STOK ...") yanlislikla urunu
-        // elemez.
+
+        // ── ICERIK-BAZLI ELEME (etiket satirlari) ──
+        // Bu kelimeleri ICEREN satirlar urun adi DEGILDIR — degerle birlikte
+        // gelse bile (orn. "İstanbul Lojistik Stok: 36", "MAX. Seviye: 30",
+        // "Koli İçi: 12"). Onceki TAM-ESITLIK kontrolu bunlari kaciriyordu
+        // ("Lojistik Stok" != "İstanbul Lojistik Stok: 36"); o yuzden parse
+        // yanlislikla "İstanbul Lojistik Stok: 36"yi urun adi seciyordu.
+        val containsNoise = listOf(
+            "LOJISTIK STOK", "LOJISTIK", "SEVIYE", "KOLI", "SATINALMA",
+            "ACIK SIP", "AÇIK SIP", "AVM STOK", "STOK:", "MÜŞTERI", "MUSTERI",
+            "MÜŞTERİSAYISI", "MUSTERISAYISI", "GÖRSEL HAZIRLAN",
+            "GORSEL HAZIRLAN", "SATINALMA"
+        )
+        if (containsNoise.any { u.contains(it) }) return true
+
+        // ── TAM-ESITLIK ELEME (sekme/bolum basliklari, tek kelime) ──
         val exactNoise = setOf(
-            "LOJISTIK STOK", "MAX. SEVIYE", "MAX SEVIYE", "KOLI ICI", "KOLI İÇİ",
-            "SATINALMA", "ACIK SIP", "AÇIK SIP", "HAREKET", "ANALIZ", "SATIS",
-            "SATIŞ", "STOK", "OKUTMA", "BILDIRIM", "BİLDİRİM", "YORUMLAR",
-            "MARKA", "REYON", "ADET", "GORSEL HAZIRLANMAKTADIR",
-            "GÖRSEL HAZIRLANMAKTADIR", "MUSTERISAYISI", "MÜŞTERİSAYISI"
+            "HAREKET", "ANALIZ", "SATIS", "SATIŞ", "STOK", "OKUTMA",
+            "BILDIRIM", "BİLDİRİM", "YORUMLAR", "MARKA", "REYON", "ADET",
+            "BACK", "VERI TOPLAMA"
         )
         if (u in exactNoise) return true
 
-        // Magaza / sube / AVM adlari: bu anahtar kelimeleri ICEREN kisa
-        // satirlar (BJK FULYA AVM, SAKARYA ADA AVM). Urun adlari bu
-        // kelimeleri normalde icermez.
+        // ── MAGAZA / SUBE / AVM adlari ──
         val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "PLAZA")
         if (storeKeywords.any { u.contains(it) }) return true
 
-        // Kisi adi (SAMET DEMIRAL): genelde 2-3 kelime, tamami harf, hic
-        // rakam/sembol yok. Urun adlarinda neredeyse her zaman rakam veya
-        // '*' / '(' bulunur (gramaj, koli, PLT kodu). Rakam/sembol icermeyen
-        // kisa metinler urun adi DEGILDIR.
+        // ── KISI ADI (SAMET DEMIRAL): rakam/sembol icermeyen, 2-3 kelimelik
+        // metinler urun adi degildir. Urun adlarinda neredeyse her zaman
+        // rakam veya '*' / '(' bulunur (gramaj, koli, PLT kodu).
         val hasDigitOrSymbol = line.any { it.isDigit() || it == '*' || it == '(' }
         if (!hasDigitOrSymbol && line.split("\\s+".toRegex()).size <= 3) {
             return true
