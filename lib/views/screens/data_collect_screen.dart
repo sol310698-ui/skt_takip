@@ -202,9 +202,20 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
 
   Widget _debugPanel() {
     final empty = _debugSample.trim().isEmpty;
+    final String statusLine;
+    if (!_serviceOn) {
+      statusLine = 'Servis KAPALI — erişilebilirlik servisini açın.';
+    } else if (!_collecting) {
+      statusLine = 'Servis açık ama toplama DURDU — "Başlat"a basın.';
+    } else if (empty) {
+      statusLine = 'Toplama açık, ama ekrandan hiç event/metin gelmedi. '
+          'Şirket uygulamasında bir ürün detayına girin.';
+    } else {
+      statusLine = 'Okunan ekran (canlı):';
+    }
     return Container(
       width: double.infinity,
-      color: Colors.black.withOpacity(0.04),
+      color: Colors.black.withOpacity(0.05),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,18 +233,23 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            empty
-                ? 'Şirket ekranından hiç metin okunamıyor (boş). Ürün detayına girin.'
-                : _debugSample,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11,
-              color: empty ? AppTheme.statusWarning : Colors.black54,
-              height: 1.3,
+          Text(statusLine,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: (empty || !_serviceOn || !_collecting)
+                      ? AppTheme.statusWarning
+                      : Colors.green.shade700)),
+          if (!empty) ...[
+            const SizedBox(height: 4),
+            Text(
+              _debugSample,
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 11, color: Colors.black54, height: 1.3),
             ),
-          ),
+          ],
         ],
       ),
     );

@@ -309,6 +309,28 @@ class PriceAccessibilityService : AccessibilityService() {
         // Kendi uygulamamizi OKUMA — kendi ekranindaki metinler yanlis
         // veri uretmesin. Sadece debug paketi gosterilir, veri alinmaz.
         if (pkg == OWN_PACKAGE) return
+
+        // ── TANI: HER event'te (collectMode'dan BAGIMSIZ) ekrandan ham bir
+        // ornek yakala. Boylece Veri Toplama paneli, collect modu acik
+        // olmasa BILE servisin gercekte ne gordugunu gosterir. Panel hala
+        // bos kaliyorsa sorun "event hic gelmiyor / node agaci bos"tur;
+        // doluyorsa sorun parse mantigindadir. Bu ayrimi kesinlestirir.
+        try {
+            val r = bestContentRoot() ?: rootInActiveWindow
+            if (r != null) {
+                val t = ArrayList<String>()
+                val n = countTextNodes(r, 0, 400)
+                collectTexts(r, t, 200)
+                r.recycle()
+                lastScreenSample = "[$pkg | $n nd] " +
+                    t.take(16).joinToString(" | ")
+            } else {
+                lastScreenSample = "[$pkg | KOK YOK]"
+            }
+        } catch (e: Exception) {
+            lastScreenSample = "[tani hata: ${e.message}]"
+        }
+
         scanNow()
     }
 
