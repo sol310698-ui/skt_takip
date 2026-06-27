@@ -184,10 +184,16 @@ class PriceAccessibilityService : AccessibilityService() {
         // gondermemek icin son toplanan barkodu hatirlar.
         @Volatile
         private var lastCollectedBarcode: String? = null
+        // Liste modunda gonderilen barkodlar — ayni urun kaydirmada tekrar
+        // gorununce iki kez eklenmesin diye. setCollectMode ile sifirlanir.
+        private val sentBarcodes = HashSet<String>()
 
         fun setCollectMode(on: Boolean) {
             collectMode = on
-            if (!on) lastCollectedBarcode = null
+            if (!on) {
+                lastCollectedBarcode = null
+                sentBarcodes.clear()
+            }
         }
 
         fun setCollectListener(l: ProductCollectedListener?) {
@@ -586,41 +592,54 @@ class PriceAccessibilityService : AccessibilityService() {
      * URUN ADI: ekrandaki, sayisal olmayan, yeterince uzun (>=5 harf iceren)
      * ve magaza/sekme/sabit-etiket OLMAYAN ilk anlamli metin satiri.
      */
+    /**
+     * VERI TOPLAMA — LISTE MODU.
+     *
+     * Sirket uygulamasinin "Denetim Urunler" LISTE ekranindan, gorunen TUM
+     * urun kartlarini (urun adi + barkod) cikarir ve her YENI urunu
+     * collectListener'a iletir. (Detay ekrani DEGIL — liste ekrani; her
+     * kaydirmada birden cok urun gorunur.)
+     *
+     * Liste karti yapisi (kullanicinin paylastigi gercek ekran):
+     *   FORA Y.ZEYTIN KOKTEYL 400GR *12 KVN (PLT-90)   <- urun adi (BUYUK HARF)
+     *   24   8695608230014                             <- adet rozeti + barkod
+     *
+     * ALGORITMA:
+     *   - Ekrandan tum metinleri yukaridan asagi sirayla oku.
+     *   - "Urun adi adayi" = BUYUK HARF agirlikli, >=8 karakter, sekme/baslik/
+     *     etiket OLMAYAN, icinde 12-14 haneli barkod OLMAYAN satir.
+     *   - Bir urun adi bulununca, ONDAN SONRA gelen ILK 12-14 haneli sayiyi
+     *     o urunun barkodu kabul et. (ad -> hemen altinda barkod sirasi.)
+     *   - (ad, barkod) ciftini, daha once gonderilmediyse, listener'a yolla.
+     *   - Stok kodu liste ekraninda YOK -> null gonderilir.
+     *
+     * Tekrar engelleme: gonderilen barkodlar 'sentBarcodes' kumesinde
+     * tutulur; ayni barkod ikinci kez gonderilmez (kaydirma sirasinda ayni
+     * urun tekrar gorunur).
+     */
     private fun collectProductDetail() {
         try {
-            var root = bestContentRoot() ?: rootInActiveWindow ?: run {
-                lastCollectDebug = "KOK YOK"
-                return
-            }
-
             // ── SADECE SIRKET UYGULAMASINI OKU ──
-            // Root'un paketi sirket uygulamasi degilse, PES ETMEDEN once
-            // tum pencereler arasinda sirket penceresini ARA. Boylece
-            // bestContentRoot baska bir pencere (overlay/sistem) dondurse
-            // bile, sirket uygulamasi ekranda ise yakalanir. Hicbir
-            // pencerede sirket yoksa ATLA (kendi ekranimiz/smartcapture/
-            // sistem UI yanlislikla toplanmasin).
-            var rootPkg = root.packageName?.toString()
-            if (rootPkg != TARGET_PACKAGE) {
-                var companyRoot: AccessibilityNodeInfo? = null
-                try {
-                    for (w in windows) {
-                        val wr = w?.root ?: continue
-                        if (wr.packageName?.toString() == TARGET_PACKAGE) {
-                            companyRoot = wr
-                            break
-                        }
-                        wr.recycle()
+            var root: AccessibilityNodeInfo? = null
+            try {
+                for (w in windows) {
+                    val wr = w?.root ?: continue
+                    if (wr.packageName?.toString() == TARGET_PACKAGE) {
+                        root = wr
+                        break
                     }
-                } catch (_: Exception) {}
+                    wr.recycle()
+                }
+            } catch (_: Exception) {}
 
-                if (companyRoot != null) {
-                    root.recycle()
-                    root = companyRoot
-                    rootPkg = TARGET_PACKAGE
+            if (root == null) {
+                // bestContentRoot yedegi (yine sadece sirket paketi kabul).
+                val br = bestContentRoot()
+                if (br != null && br.packageName?.toString() == TARGET_PACKAGE) {
+                    root = br
                 } else {
-                    root.recycle()
-                    lastCollectDebug = "ATLANDI (paket=$rootPkg, sirket ekranda degil)"
+                    br?.recycle()
+                    lastCollectDebug = "ATLANDI (sirket ekranda degil)"
                     return
                 }
             }
@@ -628,117 +647,92 @@ class PriceAccessibilityService : AccessibilityService() {
             val texts = ArrayList<String>()
             var rawNodeCount = 0
             try {
-                collectTexts(root, texts, 200)
-                rawNodeCount = countTextNodes(root, 0, 400)
+                collectTexts(root, texts, 300)
+                rawNodeCount = countTextNodes(root, 0, 600)
             } finally {
                 root.recycle()
             }
 
             lastEventTime = System.currentTimeMillis()
 
-            if (texts.size < 3) {
+            if (texts.size < 2) {
                 lastCollectDebug = "az metin (${texts.size})"
                 return
             }
 
-            val codes = ArrayList<String>()
-            var productName: String? = null
-            var bestNameScore = -1
+            // ── LISTE PARSE: ad -> sonraki barkod eslemesi ──
+            val pairs = ArrayList<Pair<String, String>>() // (ad, barkod)
+            var pendingName: String? = null
 
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
 
-                // 1) KOD CIKARMA: satirin icinden 6-14 haneli sayi dizileri.
-                //    (Fiyat 119,90 gibi ondalik kod sayilmaz; ama "400GR" /
-                //    "*12" gibi kisa rakamlar zaten 6 haneden kisa oldugu icin
-                //    elenir.) Erken BREAK YOK — yoksa urun adi koddan SONRA
-                //    geliyorsa hic taranmadan atlaniyordu (ad=YOK hatasinin
-                //    koku buydu).
-                if (!clean.matches(".*\\d[.,]\\d.*".toRegex())) {
-                    val matches = Regex("\\d{6,14}").findAll(clean.replace("-", ""))
-                    for (m in matches) {
-                        if (!codes.contains(m.value)) codes.add(m.value)
+                // Bu satir bir barkod mu? (12-14 hane saf sayi dizisi iceriyor)
+                val barcodeMatch =
+                    Regex("\\d{12,14}").find(clean.replace("[\\s-]".toRegex(), ""))
+                if (barcodeMatch != null) {
+                    val bc = barcodeMatch.value
+                    if (pendingName != null) {
+                        pairs.add(Pair(pendingName!!, bc))
+                        pendingName = null
                     }
+                    continue
                 }
 
-                // 2) URUN ADI: koddan BAGIMSIZ. En IYI adayi sec (ilk degil).
-                //    Gercek urun adi: uzun, harf agirlikli, ve genelde urun
-                //    isaretleri icerir (*, (, GR/ML/KG/LT gramaj, KVN/PLT kod).
-                //    "Hareket", "Sekme 1/5" gibi kisa sekme metinleri elenir.
-                if (clean.length >= 5 &&
-                    clean.any { it.isLetter() } &&
-                    !Regex("\\d{6,14}").containsMatchIn(clean.replace("-", "")) &&
-                    !isCollectNoiseLabel(clean)
-                ) {
-                    val score = nameScore(clean)
-                    if (score > bestNameScore) {
-                        bestNameScore = score
-                        productName = clean
-                    }
+                // Urun adi adayi mi?
+                if (isProductNameLine(clean)) {
+                    pendingName = clean
                 }
             }
 
-            // ── BARKOD / STOK KODU AYRIMI: UZUNLUGA gore (konum DEGIL) ──
-            // Okuma sirasi ekrana gore degisebildigi icin "ilk kod stok"
-            // varsayimi YANLISTI (barkod/stok ters dusuyordu). EAN-13/EAN-8
-            // barkodlar 12-13 (veya 8) hane; stok kodu daha kisadir (5-9).
-            //   - 12-14 hane -> BARKOD
-            //   - en kisa digeri -> STOK KODU
-            var barcode: String? = null
-            var stockCode: String? = null
-            for (c in codes) {
-                if (c.length in 12..14) {
-                    if (barcode == null) barcode = c
-                } else {
-                    // Daha kisa kod = stok kodu adayi (ilk bulunani al).
-                    if (stockCode == null) stockCode = c
-                }
-            }
-            // Barkod hala bulunamadiysa (ör. yabanci 8 haneli EAN-8 tek
-            // kod), en uzun kodu barkod kabul et.
-            if (barcode == null && codes.isNotEmpty()) {
-                barcode = codes.maxByOrNull { it.length }
-                if (barcode == stockCode) stockCode = null
-            }
-
-            // TANI: parse sonucu + collect'in GERCEKTE okudugu ilk satirlar.
-            // (tani paneli ayri bir okuma yapar; collect kendi okumasini
-            // burada gosterir ki ikisi karsilastirilabilsin.)
-            val rawDump = texts.take(8).joinToString(" ⏎ ")
             lastCollectDebug =
-                "ad=${productName ?: "YOK"} | kod=[${codes.joinToString(",")}] | " +
-                "bc=${barcode ?: "YOK"} | listener=${if (collectListener != null) "VAR" else "YOK"}\n" +
-                "RAW($rawNodeCount): $rawDump"
+                "LISTE: ${pairs.size} cift | listener=" +
+                "${if (collectListener != null) "VAR" else "YOK"} | nd=$rawNodeCount\n" +
+                "ilk=" + (pairs.firstOrNull()?.let { "${it.first.take(30)} / ${it.second}" } ?: "-")
 
-            if (barcode == null || productName == null) {
-                lastCollectDebug = "EKSIK: $lastCollectDebug"
-                return
-            }
+            if (pairs.isEmpty()) return
+            val l = collectListener ?: return
 
-            if (barcode == lastCollectedBarcode) {
-                lastCollectDebug = "TEKRAR (ayni barkod): $lastCollectDebug"
-                return
+            var sentNow = 0
+            for ((name, bc) in pairs) {
+                if (sentBarcodes.contains(bc)) continue
+                sentBarcodes.add(bc)
+                sentNow++
+                val fName = name
+                val fBc = bc
+                mainHandler.post {
+                    l.onProductCollected(fBc, fName, null)
+                }
             }
-            lastCollectedBarcode = barcode
-
-            val l = collectListener
-            if (l == null) {
-                lastCollectDebug = "LISTENER YOK: $lastCollectDebug"
-                return
-            }
-
-            lastCollectDebug = "GONDERILDI: $lastCollectDebug"
-            val finalBarcode = barcode
-            val finalName = productName
-            val finalStock = stockCode
-            mainHandler.post {
-                l.onProductCollected(finalBarcode, finalName, finalStock)
-            }
+            lastCollectDebug = "GONDERILDI: $sentNow yeni | toplam cift=${pairs.size}"
         } catch (e: Exception) {
             lastCollectDebug = "HATA: ${e.message}"
             Log.e(TAG, "collectProductDetail hata: ${e.message}")
         }
+    }
+
+    /**
+     * Bir satirin "urun adi" olup olmadigini belirler.
+     * Urun adlari: HEP BUYUK HARF, uzun (>=8 krk), sekme/baslik/etiket DEGIL,
+     * icinde 12-14 haneli barkod YOK.
+     */
+    private fun isProductNameLine(line: String): Boolean {
+        val clean = line.trim()
+        if (clean.length < 8) return false
+        if (!clean.any { it.isLetter() }) return false
+        // Icinde uzun barkod varsa bu bir barkod satiri, ad degil.
+        if (Regex("\\d{12,14}").containsMatchIn(clean.replace("[\\s-]".toRegex(), ""))) {
+            return false
+        }
+        // BUYUK HARF orani >= %80 olmali (urun adlari hep buyuk harf).
+        val letters = clean.filter { it.isLetter() }
+        if (letters.isEmpty()) return false
+        val upperRatio = letters.count { it.isUpperCase() }.toDouble() / letters.length
+        if (upperRatio < 0.8) return false
+        // Sekme/baslik/etiket gurultusu degil.
+        if (isCollectNoiseLabel(clean)) return false
+        return true
     }
 
     /**
