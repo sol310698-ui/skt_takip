@@ -54,8 +54,19 @@ android {
         release {
             // Keystore varsa sabit imza, yoksa debug (gelistirme)
             signingConfig = hasKeystore ? signingConfigs.release : signingConfigs.debug
-            minifyEnabled = false
-            shrinkResources = false
+            // ── TERSINE MUHENDISLIK KORUMASI ──
+            // R8 ile kod kucultme + obfuscation (sinif/metod/alan adlari
+            // anlamsiz kisa isimlere donusturulur) + kullanilmayan kod/
+            // kaynak temizligi. Kullaniciyi ETKILEMEZ (calisma zamani
+            // davranisi degismez); sadece APK'yi decompile edenin
+            // okuyacagi kodu anlamsizlastirir. Hangi siniflarin
+            // KORUNACAGI (Flutter/plugin koprusu vb.) proguard-rules.pro
+            // dosyasinda tanimlidir — o dosya olmadan minify acmak
+            // uygulamayi CRASH ettirir.
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
         }
     }
 }

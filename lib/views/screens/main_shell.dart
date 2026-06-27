@@ -7,6 +7,8 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import 'barcode_list_screen.dart';
+import 'control_list_screen.dart';
+import 'data_collect_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
 import 'price_change_screen.dart';
@@ -123,6 +125,22 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
               onTap: () => _push(const PriceCheckScreen()),
+            ),
+            _sheetOption(
+              icon: Icons.cloud_download_rounded,
+              color: AppTheme.primary,
+              title: 'Veri Toplama',
+              subtitle:
+                  'Şirket uygulamasında ürünlerde gezinirken barkod, ürün adı ve stok kodunu otomatik topla ve dizine kaydet',
+              onTap: () => _push(const DataCollectScreen()),
+            ),
+            _sheetOption(
+              icon: Icons.fact_check_rounded,
+              color: AppTheme.accent,
+              title: 'Kontrol Listesi',
+              subtitle:
+                  'Yöneticinin attığı Excel veya fotoğrafı yükle, ürünleri tek tek internette kontrol et',
+              onTap: () => _push(const ControlListScreen()),
             ),
           ],
         ),

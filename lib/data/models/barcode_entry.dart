@@ -1,12 +1,17 @@
 /// Barkod dizini kayit kaynagi. Veri onceligini belirler:
-/// Excel > manual > scan > off (internet). Excel her zaman en guvenilir
-/// kabul edilir ve digerlerinin uzerine yazar; internet (off) verisi mevcut
-/// Excel kaydinin ad/stok kodunu EZEMEZ.
-enum BarcodeSource { excel, manual, scan, off, unknown }
+/// screen > Excel > manual > scan > off (internet).
+///
+/// 'screen' = sirket uygulamasinin URUN DETAY ekranindan, erisilebilirlik
+/// servisiyle DOGRUDAN okunan veri. Bu, sirketin kendi sistemindeki guncel
+/// gercegi yansittigi icin EN GUVENILIR kaynak kabul edilir ve Excel dahil
+/// her seyin uzerine yazar (kullanici bu yonde karar verdi).
+enum BarcodeSource { screen, excel, manual, scan, off, unknown }
 
 extension BarcodeSourceX on BarcodeSource {
   String get dbValue {
     switch (this) {
+      case BarcodeSource.screen:
+        return 'screen';
       case BarcodeSource.excel:
         return 'excel';
       case BarcodeSource.manual:
@@ -21,9 +26,11 @@ extension BarcodeSourceX on BarcodeSource {
   }
 
   /// Onceligi sayisal olarak dondurur (buyuk = daha guvenilir).
-  /// Excel en yuksek; off (internet) en dusuk.
+  /// screen (sirket ekrani) en yuksek; off (internet) en dusuk.
   int get priority {
     switch (this) {
+      case BarcodeSource.screen:
+        return 5;
       case BarcodeSource.excel:
         return 4;
       case BarcodeSource.manual:
@@ -39,6 +46,8 @@ extension BarcodeSourceX on BarcodeSource {
 
   static BarcodeSource fromDb(String? v) {
     switch (v) {
+      case 'screen':
+        return BarcodeSource.screen;
       case 'excel':
         return BarcodeSource.excel;
       case 'manual':

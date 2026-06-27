@@ -63,6 +63,7 @@ class DatabaseService {
     await _createLabelHistoryTable(db);
     await _createLabelPendingQueueTable(db);
     await _createLabelActiveListsTable(db);
+    await _createControlListTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -167,6 +168,10 @@ class DatabaseService {
       // Etiket Basim aktif listeleri: ekrandan cikip girince kaybolmasin.
       await _createLabelActiveListsTable(db);
     }
+    if (oldVersion < 22) {
+      // Yonetici kontrol listesi: Excel/foto ile yuklenen urun listesi.
+      await _createControlListTable(db);
+    }
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {
@@ -210,6 +215,30 @@ class DatabaseService {
         items_json TEXT NOT NULL
       )
     ''');
+  }
+
+  /// Yonetici KONTROL LISTESI: Excel veya fotograf (Gemini) ile yuklenen
+  /// urun listesi. Kullanici bu listeyi gozden gecirir, her urunun barkodu
+  /// otomatik internette aranir.
+  Future<void> _createControlListTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.controlListTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sector TEXT,
+        category TEXT,
+        stock_code TEXT,
+        barcode TEXT,
+        product_name TEXT,
+        stock INTEGER,
+        rbg_days INTEGER,
+        last_entry TEXT,
+        last_sale TEXT,
+        checked INTEGER NOT NULL DEFAULT 0,
+        imported_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_control_barcode ON ${AppConstants.controlListTable}(barcode)');
   }
 
   Future<void> _createChecklistTables(Database db) async {

@@ -25,6 +25,32 @@ import 'package:flutter/services.dart';
 class PriceCheckChannel {
   static const _ch = MethodChannel('skt_takip/price_check');
   static const _eventCh = EventChannel('skt_takip/price_check_events');
+  static const _collectEventCh = EventChannel('skt_takip/collect_events');
+
+  // ── VERI TOPLAMA MODU ──
+  /// Sirket uygulamasinin urun detay ekranlarindan otomatik toplanan
+  /// urunler (barkod + ad + stok kodu). "Veri Toplama" ekrani bu stream'i
+  /// dinler ve gelen her urunu barcode_directory'ye yazar.
+  static final Stream<CollectedProduct> collectedProductStream =
+      _collectEventCh
+          .receiveBroadcastStream()
+          .map((event) => CollectedProduct._fromMap(event as Map))
+          .asBroadcastStream();
+
+  /// Veri toplama modunu baslatir (native taraf urun detaylarini taramaya
+  /// baslar).
+  static Future<void> startCollectMode() async {
+    try {
+      await _ch.invokeMethod('startCollectMode');
+    } catch (_) {}
+  }
+
+  /// Veri toplama modunu durdurur.
+  static Future<void> stopCollectMode() async {
+    try {
+      await _ch.invokeMethod('stopCollectMode');
+    } catch (_) {}
+  }
 
   /// Native'den anlik (push) sistem fiyati/urun guncellemeleri.
   ///
@@ -155,4 +181,28 @@ class SystemPriceSnapshot {
   }
 
   bool get hasData => price != null || productName != null;
+}
+
+/// Veri toplama modunda, sirket uygulamasinin urun detay ekranindan
+/// otomatik toplanan tek bir urun.
+class CollectedProduct {
+  final String barcode;
+  final String productName;
+  final String? stockCode;
+
+  const CollectedProduct({
+    required this.barcode,
+    required this.productName,
+    this.stockCode,
+  });
+
+  factory CollectedProduct._fromMap(Map<dynamic, dynamic> r) {
+    return CollectedProduct(
+      barcode: (r['barcode'] as String?)?.trim() ?? '',
+      productName: (r['productName'] as String?)?.trim() ?? '',
+      stockCode: (r['stockCode'] as String?)?.trim(),
+    );
+  }
+
+  bool get isValid => barcode.isNotEmpty && productName.isNotEmpty;
 }

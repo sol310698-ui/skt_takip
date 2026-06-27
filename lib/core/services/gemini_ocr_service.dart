@@ -326,6 +326,93 @@ Kurallar:
     return name;
   }
 
+  /// KONTROL LISTESI TABLOSU OKUMA (yonetici fotografi).
+  /// Yoneticinin attigi urun listesi fotografini Gemini'ye gonderir,
+  /// satirlari (sektor, kategori, stok kodu, barkod, stok adi, stok, rbg,
+  /// son giris, son satis) yapilandirilmis JSON olarak dondurur.
+  /// Hata durumunda GeminiOcrException firlatir.
+  ///
+  /// Donen ham Map listesi (cagiran ControlListItem'a cevirir):
+  ///   sector, category, stockCode, barcode, productName, stock, rbgDays,
+  ///   lastEntry, lastSale
+  Future<List<Map<String, dynamic>>> extractStockTable(File image) async {
+    final key = await getApiKey();
+    if (key == null || key.isEmpty) {
+      throw const GeminiOcrException('API anahtarı yok');
+    }
+
+    final bytes = await image.readAsBytes();
+    final b64 = base64Encode(bytes);
+
+    const prompt = '''
+Bu görüntü bir market stok/kontrol tablosudur. Sütunlar şunlar olabilir: Sektör, Kategori, Stok Kodu, Barkod, Stok Adı, Stok, RBG (Gün), Son Giriş, Son Satış.
+Tablodaki HER satırı oku ve SADECE şu formatta bir JSON dizisi döndür (başka hiçbir metin/açıklama yazma):
+[{"sector":"ANPA - ATISTIRMALIK","category":"CIPS","stockCode":"34010253","barcode":"8690624203110","productName":"FRI.DORITOS 109 GR MEXICANO ACI SUPER","stock":24,"rbgDays":1,"lastEntry":"11.05.2026","lastSale":"26.06.2026"}]
+Kurallar:
+- barcode: 12-13 haneli uzun sayı (Stok Kodu DEĞİL). Stok Kodu daha kısadır (6-9 hane).
+- stock: "Stok" sütunundaki adet (tam sayı).
+- rbgDays: "RBG" sütunundaki gün sayısı (tam sayı).
+- lastEntry = "Son Giriş", lastSale = "Son Satış" sütunları; tarihi gördüğün gibi metin olarak bırak (örn. "11.05.2026").
+- productName: yıldız (*) karakterlerini ve parantez içi kod eklerini KORU, gördüğün gibi yaz.
+- Okunamayan alanı null yap, ama satırı ATLAMA (barkod veya stok adı varsa satırı dahil et).
+''';
+
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {'text': prompt},
+            {
+              'inline_data': {'mime_type': 'image/jpeg', 'data': b64}
+            },
+          ]
+        }
+      ],
+      'generationConfig': {
+        'temperature': 0.0,
+        'responseMimeType': 'application/json',
+      },
+    });
+
+    final text = await _generate(key, body);
+
+    final cleaned = text
+        .replaceAll(RegExp(r'^```json', multiLine: true), '')
+        .replaceAll(RegExp(r'^```', multiLine: true), '')
+        .trim();
+
+    final List<dynamic> rows;
+    try {
+      rows = jsonDecode(cleaned) as List<dynamic>;
+    } catch (_) {
+      throw const GeminiOcrException('Gemini yanıtı çözümlenemedi');
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final barcode = _str(row['barcode']);
+      final name = _str(row['productName']);
+      // Barkod VEYA urun adi yoksa anlamsiz satir, atla.
+      if (barcode == null && name == null) continue;
+      result.add({
+        'sector': _str(row['sector']),
+        'category': _str(row['category']),
+        'stockCode': _str(row['stockCode']),
+        'barcode': barcode,
+        'productName': name,
+        'stock': _int(row['stock']),
+        'rbgDays': _int(row['rbgDays']),
+        'lastEntry': _str(row['lastEntry']),
+        'lastSale': _str(row['lastSale']),
+      });
+    }
+    if (result.isEmpty) {
+      throw const GeminiOcrException('Tabloda satır bulunamadı');
+    }
+    return result;
+  }
+
   static int _lastDayOfMonth(int year, int month) {
     final firstNext = (month == 12)
         ? DateTime(year + 1, 1, 1)

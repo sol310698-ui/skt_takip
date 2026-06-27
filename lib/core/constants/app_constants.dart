@@ -6,7 +6,7 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 21; // v21: etiket basim aktif listeleri kalici saklama
+  static const int dbVersion = 22; // v22: kontrol listesi (yonetici veri kontrol)
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';
@@ -25,6 +25,7 @@ class AppConstants {
   static const String labelHistoryTable = 'label_history'; // etiket basim gecmisi
   static const String labelPendingQueueTable = 'label_pending_queue'; // baska ekrandan gelen bekleyen etiketler
   static const String labelActiveListsTable = 'label_active_lists'; // etiket basim aktif listeleri (kalici)
+  static const String controlListTable = 'control_list'; // yonetici kontrol listesi (Excel/foto ile yuklenir)
 
   static const List<int> defaultNotifyThresholds = [30, 15, 7, 3, 1];
   static const int warningDays = 7;

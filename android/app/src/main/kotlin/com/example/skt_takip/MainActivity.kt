@@ -41,6 +41,12 @@ class MainActivity : FlutterFragmentActivity() {
     private val priceEventChannel = "skt_takip/price_check_events"
     private var priceEventSink: EventChannel.EventSink? = null
 
+    // VERI TOPLAMA: sirket uygulamasinin urun detay ekranlarindan otomatik
+    // toplanan urunler (barkod + ad + stok kodu) bu EventChannel ile
+    // Flutter'a push edilir. Fiyat kontrol kanalindan bagimsizdir.
+    private val collectEventChannel = "skt_takip/collect_events"
+    private var collectEventSink: EventChannel.EventSink? = null
+
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -172,6 +178,14 @@ class MainActivity : FlutterFragmentActivity() {
                         vibrate(mismatch)
                         result.success(true)
                     }
+                    "startCollectMode" -> {
+                        PriceAccessibilityService.setCollectMode(true)
+                        result.success(true)
+                    }
+                    "stopCollectMode" -> {
+                        PriceAccessibilityService.setCollectMode(false)
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -203,6 +217,39 @@ class MainActivity : FlutterFragmentActivity() {
                 override fun onCancel(args: Any?) {
                     PriceAccessibilityService.setListener(null)
                     priceEventSink = null
+                }
+            })
+
+        // ── VERI TOPLAMA — CANLI URUN AKISI (EventChannel) ──────────────
+        // "Veri Toplama" ekrani bu stream'i dinler. Native taraf, sirket
+        // uygulamasinin urun detay ekraninda YENI bir urun gordukce
+        // (barkod + ad + stok kodu) buraya push eder. Flutter tarafi gelen
+        // her urunu barcode_directory tablosuna yazar.
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, collectEventChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(args: Any?, sink: EventChannel.EventSink?) {
+                    collectEventSink = sink
+                    PriceAccessibilityService.setCollectListener(object :
+                        PriceAccessibilityService.ProductCollectedListener {
+                        override fun onProductCollected(
+                            barcode: String,
+                            productName: String,
+                            stockCode: String?
+                        ) {
+                            collectEventSink?.success(
+                                mapOf(
+                                    "barcode" to barcode,
+                                    "productName" to productName,
+                                    "stockCode" to stockCode,
+                                )
+                            )
+                        }
+                    })
+                }
+
+                override fun onCancel(args: Any?) {
+                    PriceAccessibilityService.setCollectListener(null)
+                    collectEventSink = null
                 }
             })
     }
@@ -269,6 +316,9 @@ class MainActivity : FlutterFragmentActivity() {
         tts = null
         PriceAccessibilityService.setListener(null)
         priceEventSink = null
+        PriceAccessibilityService.setCollectListener(null)
+        PriceAccessibilityService.setCollectMode(false)
+        collectEventSink = null
         super.onDestroy()
     }
 
