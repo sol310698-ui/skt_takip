@@ -505,64 +505,77 @@ class PriceAccessibilityService : AccessibilityService() {
             }
 
             lastEventTime = System.currentTimeMillis()
-            lastScreenSample = texts.take(10).joinToString(" | ")
+            lastScreenSample = texts.take(12).joinToString(" | ")
 
-            // ── BU BIR URUN DETAY EKRANI MI? ──
-            // Detay ekraninda HEM uzun (barkod) HEM kisa (stok kodu) sayisal
-            // kod bulunmali; ayrica detay ekranina ozgu sabit metinlerden en
-            // az biri (Lojistik Stok / Koli Ici / Reyon vb.) gorunmeli.
-            // Boylece liste/arama gibi baska ekranlardan yanlis veri
-            // toplanmasi engellenir.
-            val looksLikeDetail = texts.any { t ->
-                val u = t.uppercase()
-                u.contains("LOJISTIK STOK") || u.contains("KOLI") ||
-                    u.contains("SEVIYE") || u.contains("REYON") ||
-                    u.contains("SATINALMA") || u.contains("ADET")
-            }
-            if (!looksLikeDetail) return
+            // ════════════════════════════════════════════════════════════
+            //  KONUMSAL TARAMA (ekran yapisina gore — uzunluk tahmini DEGIL)
+            // ────────────────────────────────────────────────────────────
+            //  Gercek ekran (kullanicinin paylastigi):
+            //     [magaza]      BJK FULYA AVM            <- atla (AVM/sube)
+            //     [personel]    SAMET DEMIRAL            <- atla (kisi adi)
+            //     [URUN ADI]    BURCU RANCH SOS 290GR... <- ILK gercek ad
+            //     [STOK KODU]   44008471   (QR ikonu, USTTE)
+            //     [BARKOD]      8691573072970 (barkod ikonu, ALTTA)
+            //     [fiyat]       36.95
+            //     ... Bildirim / Yorumlar / Lojistik Stok / Analiz tablosu
+            //
+            //  KURALLAR:
+            //   • Urun adi = yukaridan asagi ILK anlamli urun-adi satiri
+            //     (magaza/kisi/sekme/etiket DEGIL). "En uzun" mantigi
+            //     KULLANILMAZ — Analiz tablosundaki uzun gurultu satirlari
+            //     (SAKARYA ADA AVM, MUSTERISAYISI...) onu ezemesin diye.
+            //   • Sayisal kodlar SIRAYLA: 1. kod = STOK, 2. kod = BARKOD
+            //     (kullanicinin ekraninda stok ustte, barkod altta).
+            //   • Sadece 6-14 haneli TAM sayisal degerler kod sayilir;
+            //     boylece tablodaki 2360/840/22 gibi sayilar ve tek haneli
+            //     hucreler elenir.
+            //   • Ilk iki kod bulununca DUR — Analiz tablosuna inme.
+            // ════════════════════════════════════════════════════════════
 
-            var barcode: String? = null
-            var stockCode: String? = null
+            val codes = ArrayList<String>()   // sirayla: [0]=stok, [1]=barkod
             var productName: String? = null
-            var longestNameLen = 0
 
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
 
-                // Ondalikli sayi (fiyat: 36.95) — kod degildir, atla.
+                // Ondalikli sayi (fiyat: 36,95 / 36.95) — kod degildir.
                 if (clean.matches(".*\\d[.,]\\d.*".toRegex())) continue
 
                 val digits = clean.replace("[\\s-]".toRegex(), "")
-                if (digits.matches("\\d+".toRegex())) {
-                    // Tamamen sayisal: barkod mu, stok kodu mu?
-                    when (digits.length) {
-                        in 12..13 -> if (barcode == null) barcode = digits
-                        in 6..9 -> if (stockCode == null) stockCode = digits
-                        // Diger uzunluklar (orn. lojistik stok adetleri:
-                        // 2360, 840...) goz ardi edilir.
-                    }
+                if (digits.matches("\\d{6,14}".toRegex())) {
+                    if (!codes.contains(digits)) codes.add(digits)
+                    // Iki kod yeterli (stok + barkod). Gerisini tarama.
+                    if (codes.size >= 2) break
                     continue
                 }
 
-                // Urun adi adayi: harf icerir, >=5 karakter, sabit/magaza/
-                // sekme metni degil. En uzun aday secilir (urun adlari
-                // genelde en uzun metindir).
-                if (clean.length >= 5 &&
+                // Urun adi: HENUZ secilmemisse, anlamli ilk satiri al.
+                if (productName == null &&
+                    clean.length >= 5 &&
                     clean.any { it.isLetter() } &&
-                    !isCollectNoiseLabel(clean) &&
-                    clean.length > longestNameLen
+                    !isCollectNoiseLabel(clean)
                 ) {
-                    longestNameLen = clean.length
                     productName = clean
                 }
             }
 
-            // Barkod ve urun adi ZORUNLU; stok kodu opsiyonel olabilir.
+            // ── KOD ATAMA (konumsal) ──
+            // Stok ustte, barkod altta. Eger TEK kod bulunduysa onu barkod
+            // kabul et (barkod zorunlu, stok opsiyonel).
+            val stockCode: String?
+            val barcode: String?
+            when (codes.size) {
+                0 -> { stockCode = null; barcode = null }
+                1 -> { stockCode = null; barcode = codes[0] }
+                else -> { stockCode = codes[0]; barcode = codes[1] }
+            }
+
+            // Barkod ve urun adi ZORUNLU; stok kodu opsiyonel.
             if (barcode == null || productName == null) return
 
             // Ayni urunu pespese tekrar gondermeyi engelle (ekran her
-            // kaydirildiginda event tetiklenir).
+            // kaydirildiginda/yeniden cizildiginde event tetiklenir).
             if (barcode == lastCollectedBarcode) return
             lastCollectedBarcode = barcode
 
@@ -584,20 +597,29 @@ class PriceAccessibilityService : AccessibilityService() {
      */
     private fun isCollectNoiseLabel(line: String): Boolean {
         val u = line.uppercase().trim()
-        val noise = listOf(
+        // Sekme/etiket/bolum basliklari: bunlar TEK BASINA bir satirdir
+        // (urun adi degil). TAM ESITLIK ile elenir — boylece urun adinin
+        // icinde gecen bir kelime (orn. "... STOK ...") yanlislikla urunu
+        // elemez.
+        val exactNoise = setOf(
             "LOJISTIK STOK", "MAX. SEVIYE", "MAX SEVIYE", "KOLI ICI", "KOLI İÇİ",
             "SATINALMA", "ACIK SIP", "AÇIK SIP", "HAREKET", "ANALIZ", "SATIS",
             "SATIŞ", "STOK", "OKUTMA", "BILDIRIM", "BİLDİRİM", "YORUMLAR",
-            "MARKA", "REYON", "GORSEL HAZIRLANMAKTADIR", "GÖRSEL HAZIRLANMAKTADIR",
-            "MUSTERI", "MÜŞTERİ", "AVM", "MAGAZA", "MAĞAZA", "SUBE", "ŞUBE"
+            "MARKA", "REYON", "ADET", "GORSEL HAZIRLANMAKTADIR",
+            "GÖRSEL HAZIRLANMAKTADIR", "MUSTERISAYISI", "MÜŞTERİSAYISI"
         )
-        // Tam esitlik veya icerme: magaza adlari (BJK FULYA AVM) ve sekmeler
-        // genelde tam bu kelimelerden olusur ya da bunlari icerir.
-        if (noise.any { u == it || u.contains(it) }) return true
-        // Kisi adi gibi gorunenler (SAMET DEMIRAL): genelde 2-3 kelime, hepsi
-        // harf, kisa. Urun adlari rakam/sembol (GR, *, parantez) icerir.
-        // Urun adinda neredeyse her zaman rakam veya * vardir; hic rakam/
-        // sembol icermeyen kisa metinler urun adi DEGILDIR.
+        if (u in exactNoise) return true
+
+        // Magaza / sube / AVM adlari: bu anahtar kelimeleri ICEREN kisa
+        // satirlar (BJK FULYA AVM, SAKARYA ADA AVM). Urun adlari bu
+        // kelimeleri normalde icermez.
+        val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "PLAZA")
+        if (storeKeywords.any { u.contains(it) }) return true
+
+        // Kisi adi (SAMET DEMIRAL): genelde 2-3 kelime, tamami harf, hic
+        // rakam/sembol yok. Urun adlarinda neredeyse her zaman rakam veya
+        // '*' / '(' bulunur (gramaj, koli, PLT kodu). Rakam/sembol icermeyen
+        // kisa metinler urun adi DEGILDIR.
         val hasDigitOrSymbol = line.any { it.isDigit() || it == '*' || it == '(' }
         if (!hasDigitOrSymbol && line.split("\\s+".toRegex()).size <= 3) {
             return true
