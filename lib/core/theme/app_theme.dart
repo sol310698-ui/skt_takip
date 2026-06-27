@@ -40,6 +40,7 @@ class AppTheme {
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
   static const Color statusSafe = Color(0xFF34D399);
   static const Color statusWarning = Color(0xFFFBBF24);
+  static const Color statusSuccess = Color(0xFF16A34A);
   static const Color statusCritical = Color(0xFFFB923C);
   static const Color statusExpired = Color(0xFFF43F5E);
 

@@ -2,6 +2,7 @@ package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -59,15 +60,13 @@ class PriceAccessibilityService : AccessibilityService() {
         fun onPriceUpdate()
     }
 
-    /**
-     * VERI TOPLAMA MODU dinleyicisi. Sirket uygulamasinin URUN DETAY
-     * ekraninda YENI bir urun goruldugunde (barkod + ad + stok kodu) bu
-     * tetiklenir. Fiyat kontrol akisindan TAMAMEN BAGIMSIZDIR; sadece
-     * "Veri Toplama" ekrani acikken aktiftir.
-     */
+    /** Kategori taramada toplanan her urun icin tetiklenir. */
     interface ProductCollectedListener {
         fun onProductCollected(barcode: String, productName: String, stockCode: String?)
+        fun onScanFinished(total: Int)
     }
+
+
 
     companion object {
         private const val TAG = "PriceA11yService"
@@ -75,10 +74,6 @@ class PriceAccessibilityService : AccessibilityService() {
         // Kendi uygulamamizin paketi — bunu OKUMAYIZ (kendi ekranindaki
         // "Sistem fiyati 9,95" gibi test metinleri yanlis veri yaratmasin).
         private const val OWN_PACKAGE = "com.example.skt_takip"
-        // Sirket uygulamasinin paketi. Veri toplama SADECE bu paketten
-        // okur; boylece kendi ekranimiz, ekran-goruntusu araci
-        // (smartcapture), sistem UI vb. yanlislikla toplanmaz.
-        private const val TARGET_PACKAGE = "com.anpagross.work"
 
         // "Sistem Fiyati" etiketinin aranacagi metin.
         private const val PRICE_LABEL = "Sistem Fiyatı"
@@ -134,7 +129,6 @@ class PriceAccessibilityService : AccessibilityService() {
         // gercekte ekranda nasil yaziyor gormek icin cok faydali).
         @Volatile
         var lastScreenSample: String? = null
-        var lastCollectDebug: String? = null
             private set
 
         // Bu deger her clearLastPrice() cagrisinda 1 artar. Halen suren bir
@@ -166,38 +160,47 @@ class PriceAccessibilityService : AccessibilityService() {
         }
 
         // ════════════════════════════════════════════════════════════════
-        //  VERI TOPLAMA MODU (fiyat kontrolunden bagimsiz)
+        //  KATEGORI TARAMA (LISTE MODU + OTOMATIK KAYDIRMA)
         // ────────────────────────────────────────────────────────────────
-        //  collectMode = true iken, sirket uygulamasinin URUN DETAY
-        //  ekranlari taranir ve her YENI urun (barkod + ad + stok kodu)
-        //  collectListener'a iletilir. Flutter "Veri Toplama" ekrani bu
-        //  modu acar/kapatir ve gelen urunleri barcode_directory'ye yazar.
+        //  Sirket uygulamasinin "Denetim Urunler" liste ekraninda, gorunen
+        //  urunleri (BUYUK HARF ad + barkod) okur, otomatik asagi kaydirir,
+        //  liste bitene kadar tekrarlar. Toplanan urunler collectListener'a
+        //  iletilir. Fiyat kontrolunden TAMAMEN bagimsizdir.
         // ════════════════════════════════════════════════════════════════
+
+        // Sirket uygulamasinin paketi — SADECE bunu okuruz (kendi ekranimiz,
+        // launcher, smartcapture, status bar yanlislikla okunmasin).
+        const val TARGET_PACKAGE = "com.anpagross.work"
+
         @Volatile
-        var collectMode: Boolean = false
+        var scanning: Boolean = false
             private set
 
+        // Toplanan urun dinleyicisi (MainActivity -> Flutter'a aktarir).
         @Volatile
         private var collectListener: ProductCollectedListener? = null
 
-        // Ayni urunu pespese (ekran her kaydirildiginda) tekrar tekrar
-        // gondermemek icin son toplanan barkodu hatirlar.
-        @Volatile
-        private var lastCollectedBarcode: String? = null
-        // Liste modunda gonderilen barkodlar — ayni urun kaydirmada tekrar
-        // gorununce iki kez eklenmesin diye. setCollectMode ile sifirlanir.
-        private val sentBarcodes = HashSet<String>()
-
-        fun setCollectMode(on: Boolean) {
-            collectMode = on
-            if (!on) {
-                lastCollectedBarcode = null
-                sentBarcodes.clear()
-            }
-        }
-
         fun setCollectListener(l: ProductCollectedListener?) {
             collectListener = l
+        }
+
+        // Tarama boyunca gonderilen barkodlar (ayni urun kaydirmada tekrar
+        // gorununce iki kez gonderilmesin).
+        private val sentBarcodes = HashSet<String>()
+
+        // Tarama durumu (tani panelinde gosterilir).
+        @Volatile
+        var lastScanInfo: String? = null
+            private set
+
+        /** Flutter'dan tarama baslatma istegi. */
+        fun requestStartScan() {
+            instance?.startCategoryScan()
+        }
+
+        /** Flutter'dan tarama durdurma istegi. */
+        fun requestStopScan() {
+            instance?.stopCategoryScan()
         }
 
         /**
@@ -259,7 +262,6 @@ class PriceAccessibilityService : AccessibilityService() {
             "lastPackage" to lastPackage,
             "labelFound" to lastLabelFound,
             "screenSample" to lastScreenSample,
-            "collectDebug" to lastCollectDebug,
         )
     }
 
@@ -310,9 +312,221 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         serviceRunning = false
+        stopCategoryScan()
         instance = null
-        setCollectMode(false)
-        setCollectListener(null)
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  KATEGORI TARAMA MOTORU
+    // ════════════════════════════════════════════════════════════════════
+
+    // Tarama dongusu durumu.
+    private var scanRound = 0
+    private var noNewCount = 0
+    private val scanHandler = Handler(Looper.getMainLooper())
+    private var scanRunnable: Runnable? = null
+
+    /**
+     * Taramayi baslatir. Sirket uygulamasinin liste ekrani ON PLANDA
+     * olmalidir (kullanici once "Denetim Urunler"i acar, sonra tetikler).
+     */
+    fun startCategoryScan() {
+        if (scanning) return
+        scanning = true
+        scanRound = 0
+        noNewCount = 0
+        sentBarcodes.clear()
+        lastScanInfo = "Tarama basladi..."
+
+        // Ilk okumayi hemen yap, sonra dongu (oku -> kaydir -> bekle -> oku).
+        scanRunnable = object : Runnable {
+            override fun run() {
+                if (!scanning) return
+
+                val before = sentBarcodes.size
+                readVisibleProducts()
+                val after = sentBarcodes.size
+                val newCount = after - before
+                scanRound++
+
+                lastScanInfo = "Tur $scanRound | toplam ${sentBarcodes.size} urun " +
+                    "(+$newCount yeni)"
+
+                // Durma kosulu: 2 tur ust uste YENI urun gelmediyse liste
+                // bitmistir.
+                if (newCount == 0) {
+                    noNewCount++
+                    if (noNewCount >= 2) {
+                        finishScan()
+                        return
+                    }
+                } else {
+                    noNewCount = 0
+                }
+
+                // Guvenlik: cok uzun tarama olmasin (maks 60 tur ~ cok uzun
+                // liste bile biter).
+                if (scanRound >= 60) {
+                    finishScan()
+                    return
+                }
+
+                // Bir ekran asagi kaydir, sonra tekrar oku.
+                scrollDownOnce()
+                scanHandler.postDelayed(this, 900)
+            }
+        }
+        // Ilk turu kisa gecikmeyle baslat (kullanici ekrana donsun).
+        scanHandler.postDelayed(scanRunnable!!, 300)
+    }
+
+    fun stopCategoryScan() {
+        scanning = false
+        scanRunnable?.let { scanHandler.removeCallbacks(it) }
+        scanRunnable = null
+    }
+
+    private fun finishScan() {
+        val total = sentBarcodes.size
+        stopCategoryScan()
+        lastScanInfo = "Tarama bitti — toplam $total urun"
+        val l = collectListener
+        mainHandler.post { l?.onScanFinished(total) }
+    }
+
+    /**
+     * SADECE sirket uygulamasinin liste ekranindan, o an gorunen urunleri
+     * okur ve YENI olanlari collectListener'a gonderir.
+     *
+     * Liste karti yapisi (kanitlanmis gercek ekran):
+     *   FORA Y.ZEYTIN KOKTEYL 400GR *12 KVN (PLT-90)   <- ad (BUYUK HARF)
+     *   24   8695608230014                             <- adet rozeti + barkod
+     *
+     * Algoritma: yukaridan asagi tara; BUYUK-HARF urun adi bul; ondan
+     * SONRA gelen ilk 12-14 haneli sayi o urunun barkodu. (ad, barkod)
+     * ciftini, daha once gonderilmediyse, yolla.
+     */
+    private fun readVisibleProducts() {
+        try {
+            // Sirket penceresini bul (pakete kilitli).
+            var root: AccessibilityNodeInfo? = null
+            try {
+                for (w in windows) {
+                    val wr = w?.root ?: continue
+                    if (wr.packageName?.toString() == TARGET_PACKAGE) {
+                        root = wr
+                        break
+                    }
+                    wr.recycle()
+                }
+            } catch (_: Exception) {}
+
+            if (root == null) {
+                lastScanInfo = "Sirket ekrani on planda degil (paket: $TARGET_PACKAGE)"
+                return
+            }
+
+            val texts = ArrayList<String>()
+            try {
+                collectTexts(root, texts, 400)
+            } finally {
+                root.recycle()
+            }
+
+            val l = collectListener ?: return
+            var pendingName: String? = null
+            for (raw in texts) {
+                val clean = raw.trim()
+                if (clean.isEmpty()) continue
+
+                // Barkod satiri mi? (12-14 hane saf sayi)
+                val bcMatch = Regex("\\d{12,14}")
+                    .find(clean.replace("[\\s-]".toRegex(), ""))
+                if (bcMatch != null) {
+                    val bc = bcMatch.value
+                    val name = pendingName
+                    pendingName = null
+                    if (name != null && !sentBarcodes.contains(bc)) {
+                        sentBarcodes.add(bc)
+                        mainHandler.post {
+                            l.onProductCollected(bc, name, null)
+                        }
+                    }
+                    continue
+                }
+
+                // Urun adi adayi mi?
+                if (isProductNameLine(clean)) {
+                    pendingName = clean
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "readVisibleProducts hata: ${e.message}")
+        }
+    }
+
+    /**
+     * Urun adi satiri mi? Urun adlari: HEP BUYUK HARF, uzun (>=8), sekme/
+     * baslik/etiket DEGIL, icinde 12-14 haneli barkod YOK.
+     */
+    private fun isProductNameLine(line: String): Boolean {
+        val clean = line.trim()
+        if (clean.length < 8) return false
+        if (!clean.any { it.isLetter() }) return false
+        if (Regex("\\d{12,14}").containsMatchIn(clean.replace("[\\s-]".toRegex(), ""))) {
+            return false
+        }
+        val letters = clean.filter { it.isLetter() }
+        if (letters.isEmpty()) return false
+        val upperRatio = letters.count { it.isUpperCase() }.toDouble() / letters.length
+        if (upperRatio < 0.8) return false
+        if (isScanNoise(clean)) return false
+        return true
+    }
+
+    /** Sekme / baslik / etiket gurultusu mu? */
+    private fun isScanNoise(line: String): Boolean {
+        val u = line.uppercase().trim()
+        val containsNoise = listOf(
+            "LOJISTIK", "SEVIYE", "KOLI", "SATINALMA", "ACIK SIP", "AÇIK SIP",
+            "STOK:", "MÜŞTERI", "MUSTERI", "GÖRSEL HAZIRLAN", "GORSEL HAZIRLAN",
+            "SEKME", "SEKTÖR", "SEKTOR", "OKUTULMAYAN", "OKUTULAN", "ARA...",
+            "DENETIM", "DENETİM"
+        )
+        if (containsNoise.any { u.contains(it) }) return true
+        val exactNoise = setOf(
+            "HAREKET", "ANALIZ", "SATIS", "SATIŞ", "STOK", "OKUTMA", "BILDIRIM",
+            "BİLDİRİM", "YORUMLAR", "MARKA", "REYON", "ADET", "BACK"
+        )
+        if (u in exactNoise) return true
+        val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "PLAZA")
+        if (storeKeywords.any { u.contains(it) }) return true
+        return false
+    }
+
+    /**
+     * Ekrani bir sayfa asagi kaydirir (dispatchGesture ile).
+     * Ekranin ortasindan yukari dogru hizli bir swipe = liste asagi kayar.
+     */
+    private fun scrollDownOnce() {
+        try {
+            val dm = resources.displayMetrics
+            val w = dm.widthPixels
+            val h = dm.heightPixels
+            val x = w / 2f
+            val startY = h * 0.72f   // alt-orta
+            val endY = h * 0.28f     // ust-orta (yukari swipe -> liste asagi)
+
+            val path = android.graphics.Path().apply {
+                moveTo(x, startY)
+                lineTo(x, endY)
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0, 300)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "scrollDownOnce hata: ${e.message}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -320,51 +534,8 @@ class PriceAccessibilityService : AccessibilityService() {
         lastEventTime = System.currentTimeMillis()
         lastPackage = pkg
         // Kendi uygulamamizi OKUMA — kendi ekranindaki metinler yanlis
-        // veri uretmesin. Sadece debug paketi gosterilir, veri alinmaz.
+        // veri uretmesin.
         if (pkg == OWN_PACKAGE) return
-
-        // ── TANI: HER event'te (collectMode'dan BAGIMSIZ) ekrandan ham bir
-        // ornek yakala. Ayrica TUM PENCERELERI paket + node sayisi ile
-        // dok — boylece sirket uygulamasinin penceresinin listede olup
-        // olmadigi ve node sayisi KESIN gorunur. "Sadece status bar
-        // okunuyor" sorununun koku: ya sirket penceresi listede yok, ya
-        // node sayisi 0 (icerik accessibility'ye kapali / FLAG_SECURE).
-        try {
-            val winInfo = StringBuilder()
-            try {
-                for (w in windows) {
-                    val wr = w?.root ?: continue
-                    val wp = wr.packageName?.toString() ?: "?"
-                    val wc = countTextNodes(wr, 0, 200)
-                    val wt = when (w.type) {
-                        AccessibilityWindowInfo.TYPE_APPLICATION -> "APP"
-                        AccessibilityWindowInfo.TYPE_SYSTEM -> "SYS"
-                        AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "IME"
-                        AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "OVL"
-                        else -> "?${w.type}"
-                    }
-                    winInfo.append("$wt:$wp($wc) ")
-                    wr.recycle()
-                }
-            } catch (e: Exception) {
-                winInfo.append("[win hata: ${e.message}]")
-            }
-
-            val r = bestContentRoot() ?: rootInActiveWindow
-            if (r != null) {
-                val t = ArrayList<String>()
-                val n = countTextNodes(r, 0, 400)
-                collectTexts(r, t, 200)
-                r.recycle()
-                lastScreenSample = "WIN{ $winInfo}\nSEC[$pkg|$n nd] " +
-                    t.take(14).joinToString(" | ")
-            } else {
-                lastScreenSample = "WIN{ $winInfo}\nKOK YOK [$pkg]"
-            }
-        } catch (e: Exception) {
-            lastScreenSample = "[tani hata: ${e.message}]"
-        }
-
         scanNow()
     }
 
@@ -385,17 +556,6 @@ class PriceAccessibilityService : AccessibilityService() {
      * tetiklenme ZAMANLAMASI farklidir.
      */
     private fun scanNow() {
-        // ── VERI TOPLAMA MODU ──
-        // Bu mod aktifse (kullanici "Veri Toplama" ekranini acmissa), sirket
-        // uygulamasinin URUN DETAY ekranindan barkod + ad + stok kodu cikarip
-        // Flutter'a gonderir. Fiyat kontrol mantigindan TAMAMEN bagimsizdir;
-        // mod aciksa fiyat tarama mantigi CALISMAZ (ikisi ayni anda gerekli
-        // degil, ekranlar farkli).
-        if (collectMode) {
-            collectProductDetail()
-            return
-        }
-
         // Bu taramanin basladigi andaki nesli sabitle. Tarama (kok secimi +
         // metin toplama + fiyat arama) bir kac milisaniye surebilir; bu sure
         // icinde Flutter "yeni tarama" isteyip clearLastPrice() cagirmis
@@ -570,247 +730,6 @@ class PriceAccessibilityService : AccessibilityService() {
         return null
     }
 
-    /**
-     * VERI TOPLAMA MODU — sirket uygulamasinin URUN DETAY ekranindan
-     * barkod + urun adi + stok kodu cikarir ve YENI bir urunse
-     * collectListener'a iletir.
-     *
-     * Ekran yapisi (kullanicinin paylastigi ornek):
-     *   - Baslikta magaza/personel (atlanir)
-     *   - URUN ADI: buyuk baslik, orn. "BURCU RANCH SOS 290GR*10 (PLT-160)"
-     *   - STOK KODU: kisa sayisal (orn. 44008471) — QR ikonu yaninda
-     *   - BARKOD: uzun sayisal (orn. 8691573072970, 13 hane) — barkod ikonu
-     *   - Fiyat, lojistik stok bilgileri, sekmeler (Hareket/Analiz/...)
-     *
-     * AYRIM KURALI (uzunluk tabanli — burada konumsal degil, cunku detay
-     * ekraninda barkod ve stok kodu yan yana/ayri kartlarda olabilir ve
-     * okuma sirasi degisebilir):
-     *   - 12-13 haneli sayisal  -> BARKOD (EAN-13/EAN-8 standardi)
-     *   - 6-9   haneli sayisal  -> STOK KODU
-     * Boylece okuma sirasindan bagimsiz, dogru ayrim yapilir.
-     *
-     * URUN ADI: ekrandaki, sayisal olmayan, yeterince uzun (>=5 harf iceren)
-     * ve magaza/sekme/sabit-etiket OLMAYAN ilk anlamli metin satiri.
-     */
-    /**
-     * VERI TOPLAMA — LISTE MODU.
-     *
-     * Sirket uygulamasinin "Denetim Urunler" LISTE ekranindan, gorunen TUM
-     * urun kartlarini (urun adi + barkod) cikarir ve her YENI urunu
-     * collectListener'a iletir. (Detay ekrani DEGIL — liste ekrani; her
-     * kaydirmada birden cok urun gorunur.)
-     *
-     * Liste karti yapisi (kullanicinin paylastigi gercek ekran):
-     *   FORA Y.ZEYTIN KOKTEYL 400GR *12 KVN (PLT-90)   <- urun adi (BUYUK HARF)
-     *   24   8695608230014                             <- adet rozeti + barkod
-     *
-     * ALGORITMA:
-     *   - Ekrandan tum metinleri yukaridan asagi sirayla oku.
-     *   - "Urun adi adayi" = BUYUK HARF agirlikli, >=8 karakter, sekme/baslik/
-     *     etiket OLMAYAN, icinde 12-14 haneli barkod OLMAYAN satir.
-     *   - Bir urun adi bulununca, ONDAN SONRA gelen ILK 12-14 haneli sayiyi
-     *     o urunun barkodu kabul et. (ad -> hemen altinda barkod sirasi.)
-     *   - (ad, barkod) ciftini, daha once gonderilmediyse, listener'a yolla.
-     *   - Stok kodu liste ekraninda YOK -> null gonderilir.
-     *
-     * Tekrar engelleme: gonderilen barkodlar 'sentBarcodes' kumesinde
-     * tutulur; ayni barkod ikinci kez gonderilmez (kaydirma sirasinda ayni
-     * urun tekrar gorunur).
-     */
-    private fun collectProductDetail() {
-        try {
-            // ── SADECE SIRKET UYGULAMASINI OKU ──
-            var root: AccessibilityNodeInfo? = null
-            try {
-                for (w in windows) {
-                    val wr = w?.root ?: continue
-                    if (wr.packageName?.toString() == TARGET_PACKAGE) {
-                        root = wr
-                        break
-                    }
-                    wr.recycle()
-                }
-            } catch (_: Exception) {}
-
-            if (root == null) {
-                // bestContentRoot yedegi (yine sadece sirket paketi kabul).
-                val br = bestContentRoot()
-                if (br != null && br.packageName?.toString() == TARGET_PACKAGE) {
-                    root = br
-                } else {
-                    br?.recycle()
-                    lastCollectDebug = "ATLANDI (sirket ekranda degil)"
-                    return
-                }
-            }
-
-            val texts = ArrayList<String>()
-            var rawNodeCount = 0
-            try {
-                collectTexts(root, texts, 300)
-                rawNodeCount = countTextNodes(root, 0, 600)
-            } finally {
-                root.recycle()
-            }
-
-            lastEventTime = System.currentTimeMillis()
-
-            if (texts.size < 2) {
-                lastCollectDebug = "az metin (${texts.size})"
-                return
-            }
-
-            // ── LISTE PARSE: ad -> sonraki barkod eslemesi ──
-            val pairs = ArrayList<Pair<String, String>>() // (ad, barkod)
-            var pendingName: String? = null
-
-            for (raw in texts) {
-                val clean = raw.trim()
-                if (clean.isEmpty()) continue
-
-                // Bu satir bir barkod mu? (12-14 hane saf sayi dizisi iceriyor)
-                val barcodeMatch =
-                    Regex("\\d{12,14}").find(clean.replace("[\\s-]".toRegex(), ""))
-                if (barcodeMatch != null) {
-                    val bc = barcodeMatch.value
-                    if (pendingName != null) {
-                        pairs.add(Pair(pendingName!!, bc))
-                        pendingName = null
-                    }
-                    continue
-                }
-
-                // Urun adi adayi mi?
-                if (isProductNameLine(clean)) {
-                    pendingName = clean
-                }
-            }
-
-            lastCollectDebug =
-                "LISTE: ${pairs.size} cift | listener=" +
-                "${if (collectListener != null) "VAR" else "YOK"} | nd=$rawNodeCount\n" +
-                "ilk=" + (pairs.firstOrNull()?.let { "${it.first.take(30)} / ${it.second}" } ?: "-")
-
-            if (pairs.isEmpty()) return
-            val l = collectListener ?: return
-
-            var sentNow = 0
-            for ((name, bc) in pairs) {
-                if (sentBarcodes.contains(bc)) continue
-                sentBarcodes.add(bc)
-                sentNow++
-                val fName = name
-                val fBc = bc
-                mainHandler.post {
-                    l.onProductCollected(fBc, fName, null)
-                }
-            }
-            lastCollectDebug = "GONDERILDI: $sentNow yeni | toplam cift=${pairs.size}"
-        } catch (e: Exception) {
-            lastCollectDebug = "HATA: ${e.message}"
-            Log.e(TAG, "collectProductDetail hata: ${e.message}")
-        }
-    }
-
-    /**
-     * Bir satirin "urun adi" olup olmadigini belirler.
-     * Urun adlari: HEP BUYUK HARF, uzun (>=8 krk), sekme/baslik/etiket DEGIL,
-     * icinde 12-14 haneli barkod YOK.
-     */
-    private fun isProductNameLine(line: String): Boolean {
-        val clean = line.trim()
-        if (clean.length < 8) return false
-        if (!clean.any { it.isLetter() }) return false
-        // Icinde uzun barkod varsa bu bir barkod satiri, ad degil.
-        if (Regex("\\d{12,14}").containsMatchIn(clean.replace("[\\s-]".toRegex(), ""))) {
-            return false
-        }
-        // BUYUK HARF orani >= %80 olmali (urun adlari hep buyuk harf).
-        val letters = clean.filter { it.isLetter() }
-        if (letters.isEmpty()) return false
-        val upperRatio = letters.count { it.isUpperCase() }.toDouble() / letters.length
-        if (upperRatio < 0.8) return false
-        // Sekme/baslik/etiket gurultusu degil.
-        if (isCollectNoiseLabel(clean)) return false
-        return true
-    }
-
-    /**
-     * Veri toplama modunda urun adi olarak SECILMEMESI gereken sabit/gurultu
-     * metinleri (magaza adi, sekme baslıklari, sabit alan etiketleri).
-     */
-    /**
-     * Bir metnin "urun adi olma" puani. Yuksek = daha guclu aday.
-     * Gercek urun adlari uzundur ve urun isaretleri (*, (, gramaj birimi,
-     * koli/palet kodu) icerir. Sekme/baslik metinleri kisa ve isaretsizdir.
-     */
-    private fun nameScore(line: String): Int {
-        val u = line.uppercase()
-        var s = line.length  // uzunluk temel puan
-
-        // ── BUYUK HARF SINYALI (en guclu ayrac) ──
-        // Urun adlari HEP BUYUK HARF'tir (ITH.GLORA KARAMELIZE...). "Hareket",
-        // "Sekme", "Bildirim" gibi normal yazimli metinler urun adi degildir.
-        // Harflerin buyuk-harf oranina gore puan ver/cez ver.
-        val letters = line.filter { it.isLetter() }
-        if (letters.isNotEmpty()) {
-            val upperCount = letters.count { it.isUpperCase() }
-            val ratio = upperCount.toDouble() / letters.length
-            when {
-                ratio >= 0.9 -> s += 40   // neredeyse tamami BUYUK -> guclu aday
-                ratio >= 0.7 -> s += 10
-                ratio < 0.5 -> s -= 50    // cogunlukla kucuk harf -> urun DEGIL
-            }
-        }
-
-        if (line.contains("*")) s += 15
-        if (line.contains("(")) s += 10
-        for (unit in listOf("GR", "ML", "KG", "LT", "CL")) {
-            if (u.contains(unit)) { s += 8; break }
-        }
-        if (u.contains("PLT") || u.contains("KVN") || u.contains("KOLI")) s += 5
-        return s
-    }
-
-    private fun isCollectNoiseLabel(line: String): Boolean {
-        val u = line.uppercase().trim()
-
-        // ── ICERIK-BAZLI ELEME (etiket satirlari) ──
-        // Bu kelimeleri ICEREN satirlar urun adi DEGILDIR — degerle birlikte
-        // gelse bile (orn. "İstanbul Lojistik Stok: 36", "MAX. Seviye: 30",
-        // "Koli İçi: 12"). Onceki TAM-ESITLIK kontrolu bunlari kaciriyordu
-        // ("Lojistik Stok" != "İstanbul Lojistik Stok: 36"); o yuzden parse
-        // yanlislikla "İstanbul Lojistik Stok: 36"yi urun adi seciyordu.
-        val containsNoise = listOf(
-            "LOJISTIK STOK", "LOJISTIK", "SEVIYE", "KOLI", "SATINALMA",
-            "ACIK SIP", "AÇIK SIP", "AVM STOK", "STOK:", "MÜŞTERI", "MUSTERI",
-            "MÜŞTERİSAYISI", "MUSTERISAYISI", "GÖRSEL HAZIRLAN",
-            "GORSEL HAZIRLAN", "SEKME", "SEKTÖR", "SEKTOR", "OKUTULMAYAN",
-            "OKUTULAN", "ARA...", "DENETIM", "DENETİM"
-        )
-        if (containsNoise.any { u.contains(it) }) return true
-
-        // ── TAM-ESITLIK ELEME (sekme/bolum basliklari, tek kelime) ──
-        val exactNoise = setOf(
-            "HAREKET", "ANALIZ", "SATIS", "SATIŞ", "STOK", "OKUTMA",
-            "BILDIRIM", "BİLDİRİM", "YORUMLAR", "MARKA", "REYON", "ADET",
-            "BACK", "VERI TOPLAMA"
-        )
-        if (u in exactNoise) return true
-
-        // ── MAGAZA / SUBE / AVM adlari ──
-        val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "PLAZA")
-        if (storeKeywords.any { u.contains(it) }) return true
-
-        // ── KISI ADI (SAMET DEMIRAL): rakam/sembol icermeyen, 2-3 kelimelik
-        // metinler urun adi degildir. Urun adlarinda neredeyse her zaman
-        // rakam veya '*' / '(' bulunur (gramaj, koli, PLT kodu).
-        val hasDigitOrSymbol = line.any { it.isDigit() || it == '*' || it == '(' }
-        if (!hasDigitOrSymbol && line.split("\\s+".toRegex()).size <= 3) {
-            return true
-        }
-        return false
-    }
 
     /**
      * Denetim Formu ekranindaki metinlerden barkod, stok kodu ve urun

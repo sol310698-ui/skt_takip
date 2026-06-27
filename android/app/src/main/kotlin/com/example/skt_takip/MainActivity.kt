@@ -39,13 +39,13 @@ class MainActivity : FlutterFragmentActivity() {
     // uzerinden Flutter'a haber veriyor — gecikme native event-loop
     // gecikmesinden ibaret (genelde <100ms), polling araligindan degil.
     private val priceEventChannel = "skt_takip/price_check_events"
+    private val scanEventChannel = "skt_takip/scan_events"
+    private var scanEventSink: EventChannel.EventSink? = null
     private var priceEventSink: EventChannel.EventSink? = null
 
     // VERI TOPLAMA: sirket uygulamasinin urun detay ekranlarindan otomatik
     // toplanan urunler (barkod + ad + stok kodu) bu EventChannel ile
     // Flutter'a push edilir. Fiyat kontrol kanalindan bagimsizdir.
-    private val collectEventChannel = "skt_takip/collect_events"
-    private var collectEventSink: EventChannel.EventSink? = null
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -178,12 +178,12 @@ class MainActivity : FlutterFragmentActivity() {
                         vibrate(mismatch)
                         result.success(true)
                     }
-                    "startCollectMode" -> {
-                        PriceAccessibilityService.setCollectMode(true)
+                    "startCategoryScan" -> {
+                        PriceAccessibilityService.requestStartScan()
                         result.success(true)
                     }
-                    "stopCollectMode" -> {
-                        PriceAccessibilityService.setCollectMode(false)
+                    "stopCategoryScan" -> {
+                        PriceAccessibilityService.requestStopScan()
                         result.success(true)
                     }
                     else -> result.notImplemented()
@@ -220,15 +220,13 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             })
 
-        // ── VERI TOPLAMA — CANLI URUN AKISI (EventChannel) ──────────────
-        // "Veri Toplama" ekrani bu stream'i dinler. Native taraf, sirket
-        // uygulamasinin urun detay ekraninda YENI bir urun gordukce
-        // (barkod + ad + stok kodu) buraya push eder. Flutter tarafi gelen
-        // her urunu barcode_directory tablosuna yazar.
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, collectEventChannel)
+        // ── KATEGORI TARAMA — TOPLANAN URUN AKISI (EventChannel) ────────
+        // Tarama sirasinda toplanan her urun (ad + barkod) ve tarama bitince
+        // ozet, bu stream uzerinden Flutter'a iletilir.
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, scanEventChannel)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(args: Any?, sink: EventChannel.EventSink?) {
-                    collectEventSink = sink
+                    scanEventSink = sink
                     PriceAccessibilityService.setCollectListener(object :
                         PriceAccessibilityService.ProductCollectedListener {
                         override fun onProductCollected(
@@ -236,12 +234,19 @@ class MainActivity : FlutterFragmentActivity() {
                             productName: String,
                             stockCode: String?
                         ) {
-                            collectEventSink?.success(
+                            scanEventSink?.success(
                                 mapOf(
+                                    "type" to "product",
                                     "barcode" to barcode,
                                     "productName" to productName,
-                                    "stockCode" to stockCode,
+                                    "stockCode" to stockCode
                                 )
+                            )
+                        }
+
+                        override fun onScanFinished(total: Int) {
+                            scanEventSink?.success(
+                                mapOf("type" to "finished", "total" to total)
                             )
                         }
                     })
@@ -249,7 +254,7 @@ class MainActivity : FlutterFragmentActivity() {
 
                 override fun onCancel(args: Any?) {
                     PriceAccessibilityService.setCollectListener(null)
-                    collectEventSink = null
+                    scanEventSink = null
                 }
             })
     }
@@ -316,9 +321,6 @@ class MainActivity : FlutterFragmentActivity() {
         tts = null
         PriceAccessibilityService.setListener(null)
         priceEventSink = null
-        PriceAccessibilityService.setCollectListener(null)
-        PriceAccessibilityService.setCollectMode(false)
-        collectEventSink = null
         super.onDestroy()
     }
 
