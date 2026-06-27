@@ -244,10 +244,13 @@ class _DataCollectScreenState extends ConsumerState<DataCollectScreen>
             const SizedBox(height: 4),
             Text(
               _debugSample,
-              maxLines: 5,
+              maxLines: 8,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  fontSize: 11, color: Colors.black54, height: 1.3),
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: Colors.black54,
+                  height: 1.3),
             ),
           ],
         ],

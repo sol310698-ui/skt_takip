@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import java.util.regex.Pattern
 
 /**
@@ -311,21 +312,42 @@ class PriceAccessibilityService : AccessibilityService() {
         if (pkg == OWN_PACKAGE) return
 
         // ── TANI: HER event'te (collectMode'dan BAGIMSIZ) ekrandan ham bir
-        // ornek yakala. Boylece Veri Toplama paneli, collect modu acik
-        // olmasa BILE servisin gercekte ne gordugunu gosterir. Panel hala
-        // bos kaliyorsa sorun "event hic gelmiyor / node agaci bos"tur;
-        // doluyorsa sorun parse mantigindadir. Bu ayrimi kesinlestirir.
+        // ornek yakala. Ayrica TUM PENCERELERI paket + node sayisi ile
+        // dok — boylece sirket uygulamasinin penceresinin listede olup
+        // olmadigi ve node sayisi KESIN gorunur. "Sadece status bar
+        // okunuyor" sorununun koku: ya sirket penceresi listede yok, ya
+        // node sayisi 0 (icerik accessibility'ye kapali / FLAG_SECURE).
         try {
+            val winInfo = StringBuilder()
+            try {
+                for (w in windows) {
+                    val wr = w?.root ?: continue
+                    val wp = wr.packageName?.toString() ?: "?"
+                    val wc = countTextNodes(wr, 0, 200)
+                    val wt = when (w.type) {
+                        AccessibilityWindowInfo.TYPE_APPLICATION -> "APP"
+                        AccessibilityWindowInfo.TYPE_SYSTEM -> "SYS"
+                        AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "IME"
+                        AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "OVL"
+                        else -> "?${w.type}"
+                    }
+                    winInfo.append("$wt:$wp($wc) ")
+                    wr.recycle()
+                }
+            } catch (e: Exception) {
+                winInfo.append("[win hata: ${e.message}]")
+            }
+
             val r = bestContentRoot() ?: rootInActiveWindow
             if (r != null) {
                 val t = ArrayList<String>()
                 val n = countTextNodes(r, 0, 400)
                 collectTexts(r, t, 200)
                 r.recycle()
-                lastScreenSample = "[$pkg | $n nd] " +
-                    t.take(16).joinToString(" | ")
+                lastScreenSample = "WIN{ $winInfo}\nSEC[$pkg|$n nd] " +
+                    t.take(14).joinToString(" | ")
             } else {
-                lastScreenSample = "[$pkg | KOK YOK]"
+                lastScreenSample = "WIN{ $winInfo}\nKOK YOK [$pkg]"
             }
         } catch (e: Exception) {
             lastScreenSample = "[tani hata: ${e.message}]"
