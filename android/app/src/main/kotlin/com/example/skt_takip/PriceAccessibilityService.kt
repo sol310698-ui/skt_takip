@@ -193,6 +193,24 @@ class PriceAccessibilityService : AccessibilityService() {
         var lastScanInfo: String? = null
             private set
 
+        // Tarama sirasindaki HER turun tanisi (kullanici sirket ekranindayken
+        // ne gorundu — sonradan SKT'ye donunce incelemek icin). Tavuk-yumurta
+        // sorununu cozer: tarama sirasinda ekrani goremiyoruz, bu yuzden
+        // gecmisi biriktirip bitince gosteririz.
+        @Volatile
+        var scanHistory: String = ""
+            private set
+
+        fun appendScanHistory(line: String) {
+            // Son 15 turu tut (cok uzamasin).
+            val lines = (scanHistory + "\n" + line).trim().split("\n")
+            scanHistory = lines.takeLast(15).joinToString("\n")
+        }
+
+        fun clearScanHistory() {
+            scanHistory = ""
+        }
+
         /** Flutter'dan tarama baslatma istegi. */
         fun requestStartScan() {
             instance?.startCategoryScan()
@@ -263,6 +281,7 @@ class PriceAccessibilityService : AccessibilityService() {
             "labelFound" to lastLabelFound,
             "screenSample" to lastScreenSample,
             "scanInfo" to lastScanInfo,
+            "scanHistory" to scanHistory,
         )
     }
 
@@ -337,6 +356,7 @@ class PriceAccessibilityService : AccessibilityService() {
         scanRound = 0
         noNewCount = 0
         sentBarcodes.clear()
+        clearScanHistory()
         lastScanInfo = "Tarama basladi..."
 
         // Ilk okumayi hemen yap, sonra dongu (oku -> kaydir -> bekle -> oku).
@@ -428,6 +448,7 @@ class PriceAccessibilityService : AccessibilityService() {
             if (root == null) {
                 lastScanInfo = "SIRKET PENCERESI YOK. Pencereler: $winDump\n" +
                     "(Beklenen: $TARGET_PACKAGE)"
+                appendScanHistory("T$scanRound: PENCERE YOK [$winDump]")
                 return
             }
 
@@ -483,6 +504,9 @@ class PriceAccessibilityService : AccessibilityService() {
             lastScanInfo = "okundu=${texts.size} | ad adayi=$nameCount | " +
                 "barkod=$bcCount | bu turda eklenen=$addedNow | " +
                 "toplam=${sentBarcodes.size}\n$sample"
+            appendScanHistory(
+                "T$scanRound: okundu=${texts.size} ad=$nameCount bc=$bcCount " +
+                "yeni=$addedNow | ${sample.take(60)}")
         } catch (e: Exception) {
             lastScanInfo = "HATA: ${e.message}"
             Log.e(TAG, "readVisibleProducts hata: ${e.message}")

@@ -90,8 +90,10 @@ class _CategoryScanScreenState extends ConsumerState<CategoryScanScreen> {
     _debugTimer?.cancel();
     _debugTimer = Timer.periodic(const Duration(milliseconds: 700), (_) async {
       final info = await PriceCheckChannel.getDebugInfo();
+      final hist = (info['scanHistory'] as String?) ?? '';
       final si = (info['scanInfo'] as String?) ?? '';
-      if (mounted && si != _scanInfo) setState(() => _scanInfo = si);
+      final combined = hist.isNotEmpty ? hist : si;
+      if (mounted && combined != _scanInfo) setState(() => _scanInfo = combined);
     });
   }
 
@@ -157,10 +159,10 @@ class _CategoryScanScreenState extends ConsumerState<CategoryScanScreen> {
               color: cs.onSurface.withOpacity(0.06),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Text(
-                'Tanı: $_scanInfo',
-                maxLines: 6,
+                'Tanı:\n$_scanInfo',
+                maxLines: 16,
                 style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     fontFamily: 'monospace',
                     color: cs.onSurface.withOpacity(0.8)),
               ),
