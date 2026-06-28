@@ -64,6 +64,7 @@ class DatabaseService {
     await _createLabelPendingQueueTable(db);
     await _createLabelActiveListsTable(db);
     await _createControlListTable(db);
+    await _createCountTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -172,20 +173,24 @@ class DatabaseService {
       // Yonetici kontrol listesi: Excel/foto ile yuklenen urun listesi.
       await _createControlListTable(db);
     }
-    if (oldVersion < 23) {
-      // Kontrol listesi SAYIM alanlari (el terminali tarzi sayim).
-      // Mevcut tabloya iki kolon ekle; eski kayitlar etkilenmez.
-      try {
-        await db.execute(
-          'ALTER TABLE ${AppConstants.controlListTable} ADD COLUMN counted_qty INTEGER',
-        );
-      } catch (_) {}
-      try {
-        await db.execute(
-          'ALTER TABLE ${AppConstants.controlListTable} ADD COLUMN counted_at INTEGER',
-        );
-      } catch (_) {}
+    if (oldVersion < 24) {
+      // Bagimsiz sayim tablosu (barkod okut + adet gir).
+      await _createCountTable(db);
     }
+  }
+
+  Future<void> _createCountTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.countTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        qty INTEGER NOT NULL,
+        counted_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_count_barcode ON ${AppConstants.countTable}(barcode)');
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {

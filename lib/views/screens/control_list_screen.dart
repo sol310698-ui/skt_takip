@@ -10,9 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
@@ -20,7 +18,6 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/models/control_list_item.dart';
 import '../../viewmodels/providers.dart';
-import 'count_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  KONTROL LISTESI EKRANI
@@ -566,184 +563,6 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════
-  //  SAYIM PDF RAPORU
-  // ────────────────────────────────────────────────────────────────────
-  //  Sadece SAYILAN urunler: ad, barkod, sayilan adet. Ozet: kac kalem,
-  //  toplam adet. Duzgun, yazdirilabilir tablo.
-  // ════════════════════════════════════════════════════════════════════
-  Future<void> _generateCountReport() async {
-    final counted = _items.where((e) => e.isCounted).toList();
-    if (counted.isEmpty) {
-      setState(() => _status = 'Henüz sayım yapılmamış.');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _status = 'Sayım raporu hazırlanıyor...';
-    });
-    try {
-      final now = DateTime.now();
-      final dateStr = DateFormat('dd.MM.yyyy HH:mm').format(now);
-      final totalQty = counted.fold<int>(0, (s, e) => s + (e.countedQty ?? 0));
-
-      final doc = pw.Document();
-      doc.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(28),
-          build: (ctx) => [
-            pw.Header(
-              level: 0,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('Sayım Raporu',
-                      style: pw.TextStyle(
-                          fontSize: 20, fontWeight: pw.FontWeight.bold)),
-                  pw.SizedBox(height: 4),
-                  pw.Text('Tarih: $dateStr',
-                      style: const pw.TextStyle(fontSize: 11)),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 12),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                _pdfStat('Sayılan Kalem', '${counted.length}',
-                    PdfColors.blue800),
-                _pdfStat('Toplam Adet', '$totalQty', PdfColors.green800),
-              ],
-            ),
-            pw.SizedBox(height: 18),
-            pw.TableHelper.fromTextArray(
-              headers: ['#', 'Ürün Adı', 'Barkod', 'Sayılan Adet'],
-              headerStyle: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 10,
-                  color: PdfColors.white),
-              headerDecoration:
-                  const pw.BoxDecoration(color: PdfColors.blueGrey700),
-              cellStyle: const pw.TextStyle(fontSize: 10),
-              cellAlignments: {
-                0: pw.Alignment.center,
-                3: pw.Alignment.centerRight,
-              },
-              columnWidths: {
-                0: const pw.FixedColumnWidth(28),
-                1: const pw.FlexColumnWidth(3.5),
-                2: const pw.FlexColumnWidth(2),
-                3: const pw.FixedColumnWidth(70),
-              },
-              data: List.generate(counted.length, (i) {
-                final e = counted[i];
-                return [
-                  '${i + 1}',
-                  e.productName ?? '(isimsiz)',
-                  e.barcode ?? '',
-                  '${e.countedQty ?? 0}',
-                ];
-              }),
-            ),
-          ],
-        ),
-      );
-      final bytes = await doc.save();
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _status = 'Sayım raporu hazır';
-      });
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: 'sayim_raporu_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _status = 'Sayım raporu hatası: $e';
-      });
-    }
-  }
-
-  // ════════════════════════════════════════════════════════════════════
-  //  SAYIM EXCEL RAPORU
-  // ════════════════════════════════════════════════════════════════════
-  Future<void> _generateCountExcel() async {
-    final counted = _items.where((e) => e.isCounted).toList();
-    if (counted.isEmpty) {
-      setState(() => _status = 'Henüz sayım yapılmamış.');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _status = 'Excel hazırlanıyor...';
-    });
-    try {
-      final now = DateTime.now();
-      final excel = Excel.createExcel();
-      final sheet = excel['Sayım'];
-      excel.delete('Sheet1');
-
-      // Baslik satiri.
-      sheet.appendRow([
-        TextCellValue('#'),
-        TextCellValue('Ürün Adı'),
-        TextCellValue('Barkod'),
-        TextCellValue('Stok Kodu'),
-        TextCellValue('Sayılan Adet'),
-        TextCellValue('Sayım Zamanı'),
-      ]);
-      for (var i = 0; i < counted.length; i++) {
-        final e = counted[i];
-        sheet.appendRow([
-          IntCellValue(i + 1),
-          TextCellValue(e.productName ?? ''),
-          TextCellValue(e.barcode ?? ''),
-          TextCellValue(e.stockCode ?? ''),
-          IntCellValue(e.countedQty ?? 0),
-          TextCellValue(e.countedAt != null
-              ? DateFormat('dd.MM.yyyy HH:mm').format(e.countedAt!)
-              : ''),
-        ]);
-      }
-      // Toplam satiri.
-      final totalQty = counted.fold<int>(0, (s, e) => s + (e.countedQty ?? 0));
-      sheet.appendRow([
-        TextCellValue(''),
-        TextCellValue('TOPLAM'),
-        TextCellValue(''),
-        TextCellValue(''),
-        IntCellValue(totalQty),
-        TextCellValue(''),
-      ]);
-
-      final bytes = excel.encode();
-      if (bytes == null) throw 'Excel oluşturulamadı';
-
-      final dir = await getTemporaryDirectory();
-      final fileName =
-          'sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.xlsx';
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(bytes);
-
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _status = 'Excel hazır';
-      });
-      await Share.shareXFiles([XFile(file.path)], text: 'Sayım raporu');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _status = 'Excel hatası: $e';
-      });
-    }
-  }
-
   // ── Urune dokununca: alttaki tarayicida barkodu arat ──
   void _openInBrowser(ControlListItem item) {
     final query = (item.barcode?.isNotEmpty == true)
@@ -793,41 +612,16 @@ class _ControlListScreenState extends ConsumerState<ControlListScreen> {
         backgroundColor: AppTheme.primary,
         foregroundColor: Colors.white,
         actions: [
-          if (_items.isNotEmpty)
-            IconButton(
-              tooltip: 'Sayım yap',
-              onPressed: _loading
-                  ? null
-                  : () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const CountScreen()),
-                      );
-                      _loadFromDb();
-                    },
-              icon: const Icon(Icons.inventory_2_rounded),
-            ),
           IconButton(
             tooltip: 'Barkod okut (kontrol)',
             onPressed: _loading ? null : _scanToMatch,
             icon: const Icon(Icons.qr_code_scanner_rounded),
           ),
           if (_items.isNotEmpty)
-            PopupMenuButton<String>(
-              tooltip: 'Rapor',
-              icon: const Icon(Icons.summarize_rounded),
-              onSelected: (v) {
-                if (v == 'pdf') _generateReport();
-                if (v == 'count_pdf') _generateCountReport();
-                if (v == 'count_xlsx') _generateCountExcel();
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'pdf', child: Text('Kontrol PDF raporu')),
-                PopupMenuItem(
-                    value: 'count_pdf', child: Text('Sayım PDF raporu')),
-                PopupMenuItem(
-                    value: 'count_xlsx', child: Text('Sayım Excel raporu')),
-              ],
+            IconButton(
+              tooltip: 'PDF rapor',
+              onPressed: _loading ? null : _generateReport,
+              icon: const Icon(Icons.picture_as_pdf_rounded),
             ),
           if (_items.isNotEmpty)
             IconButton(

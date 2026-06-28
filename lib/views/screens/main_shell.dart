@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import 'barcode_list_screen.dart';
 import 'control_list_screen.dart';
+import 'count_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
 import 'price_change_screen.dart';
@@ -134,6 +135,15 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
               onTap: () => _push(const PriceCheckScreen()),
+            ),
+            _sheetOption(
+              icon: Icons.inventory_2_rounded,
+              color: AppTheme.primary,
+              title: 'Sayım',
+              subtitle:
+                  'Barkod okut, adet gir. Ürün adı dizinden bulunur; '
+                  'PDF/Excel rapor alınır',
+              onTap: () => _push(const CountScreen()),
             ),
             _sheetOption(
               icon: Icons.fact_check_rounded,

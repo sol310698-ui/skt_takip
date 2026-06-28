@@ -1,27 +1,28 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../data/models/control_list_item.dart';
+import '../../data/models/count_item.dart';
 import '../../viewmodels/providers.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  SAYIM (EL TERMINALI TARZI)
+///  SAYIM (BAGIMSIZ)
 /// ────────────────────────────────────────────────────────────────────
-///  Akis (kesintisiz, tek elle):
-///    1. Kamera surekli acik, barkod bekler.
-///    2. Barkod okutulur -> kontrol listesinde aranir.
-///       - Bulunursa: urun adi + adet kutusu acilir (otomatik odak).
-///       - Bulunamazsa: kisa uyari, kamera devam eder.
-///    3. Adet girilir (orn. 50), "Kaydet" (veya klavye Enter) -> kaydedilir.
-///    4. Kamera tekrar hazir; siradaki urun.
-///
-///  Ayni urun tekrar okutulursa: SON girilen adet gecerlidir (uzerine yazar).
-///  Bu, el terminallerinin standart davranisidir.
+///  Basit sayim: barkod okut -> adet gir -> kaydet. Urun adi (varsa)
+///  barkod dizininden bulunur. Okunan tum kayitlar altta listelenir;
+///  duzeltilip silinebilir. PDF/Excel rapor alinabilir.
 /// ════════════════════════════════════════════════════════════════════
 class CountScreen extends ConsumerStatefulWidget {
   const CountScreen({super.key});
@@ -38,16 +39,17 @@ class _CountScreenState extends ConsumerState<CountScreen> {
   final TextEditingController _qtyController = TextEditingController();
   final FocusNode _qtyFocus = FocusNode();
 
-  List<ControlListItem> _items = [];
+  List<CountItem> _items = [];
   bool _loading = true;
 
-  // O an okutulan, adedi beklenen urun.
-  ControlListItem? _active;
+  // O an okutulan barkod (adet bekleniyor).
+  String? _activeBarcode;
+  String? _activeName;
+  CountItem? _activeExisting; // bu barkod daha once sayildiysa
   bool _scanPaused = false;
 
-  // Son kaydedilen (geri bildirim icin).
-  String? _lastSavedName;
-  int? _lastSavedQty;
+  String? _lastMsg;
+  bool _lastMsgError = false;
 
   @override
   void initState() {
@@ -64,7 +66,7 @@ class _CountScreenState extends ConsumerState<CountScreen> {
   }
 
   Future<void> _load() async {
-    final items = await ref.read(controlListRepositoryProvider).getAll();
+    final items = await ref.read(countRepositoryProvider).getAll();
     if (mounted) {
       setState(() {
         _items = items;
@@ -73,12 +75,10 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     }
   }
 
-  int get _countedCount => _items.where((e) => e.isCounted).length;
-  int get _totalQty =>
-      _items.fold(0, (sum, e) => sum + (e.countedQty ?? 0));
+  int get _totalQty => _items.fold(0, (s, e) => s + e.qty);
 
   void _onDetect(BarcodeCapture capture) {
-    if (_scanPaused || _active != null) return;
+    if (_scanPaused || _activeBarcode != null) return;
     for (final b in capture.barcodes) {
       final raw = b.rawValue?.trim();
       if (raw == null || raw.isEmpty) continue;
@@ -87,32 +87,24 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     }
   }
 
-  void _handleBarcode(String code) {
-    // Kontrol listesinde bu barkodu ara.
-    final idx = _items.indexWhere((e) {
-      final bc = e.barcode?.trim();
-      return bc != null && bc == code;
-    });
-
-    if (idx == -1) {
-      // Listede yok — kisa uyari, kamera devam.
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _lastSavedName = '✗ Listede yok: $code';
-        _lastSavedQty = null;
-      });
-      return;
-    }
-
-    // Bulundu — adet girisi icin duraklat, kutu ac.
+  Future<void> _handleBarcode(String code) async {
     HapticFeedback.mediumImpact();
+    setState(() => _scanPaused = true);
+
+    // Bu barkod daha once sayildi mi?
+    final existing = await ref.read(countRepositoryProvider).findByBarcode(code);
+    // Urun adini dizinden bul.
+    final name = await ref
+        .read(barcodeDirectoryRepositoryProvider)
+        .findProductName(code);
+
+    if (!mounted) return;
     setState(() {
-      _active = _items[idx];
-      _scanPaused = true;
-      // Onceki sayim varsa kutuya getir (uzerine yazma kolayligi).
-      _qtyController.text = _items[idx].countedQty?.toString() ?? '';
+      _activeBarcode = code;
+      _activeName = name ?? existing?.productName;
+      _activeExisting = existing;
+      _qtyController.text = existing?.qty.toString() ?? '';
     });
-    // Klavyeyi ac + secili yap.
     Future.delayed(const Duration(milliseconds: 100), () {
       _qtyFocus.requestFocus();
       _qtyController.selection = TextSelection(
@@ -122,43 +114,246 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     });
   }
 
-  Future<void> _saveQty() async {
-    final active = _active;
-    if (active == null || active.id == null) return;
+  Future<void> _save() async {
+    final code = _activeBarcode;
+    if (code == null) return;
     final qty = int.tryParse(_qtyController.text.trim());
     if (qty == null || qty < 0) {
       HapticFeedback.heavyImpact();
       return;
     }
-
-    await ref.read(controlListRepositoryProvider).setCount(active.id!, qty);
-
-    // Yerel listeyi guncelle.
-    final idx = _items.indexWhere((e) => e.id == active.id);
-    if (idx != -1) {
-      _items[idx] = _items[idx].copyWith(
-        countedQty: qty,
+    final repo = ref.read(countRepositoryProvider);
+    final existing = _activeExisting;
+    if (existing != null && existing.id != null) {
+      await repo.updateQty(existing.id!, qty);
+    } else {
+      await repo.insert(CountItem(
+        barcode: code,
+        productName: _activeName,
+        qty: qty,
         countedAt: DateTime.now(),
-        checked: true,
-      );
+      ));
     }
 
     HapticFeedback.lightImpact();
+    final savedName = _activeName ?? code;
     setState(() {
-      _lastSavedName = active.productName ?? active.barcode ?? '';
-      _lastSavedQty = qty;
-      _active = null;
+      _activeBarcode = null;
+      _activeName = null;
+      _activeExisting = null;
+      _scanPaused = false;
+      _qtyController.clear();
+      _lastMsg = '$savedName → $qty adet';
+      _lastMsgError = false;
+    });
+    await _load();
+  }
+
+  void _cancel() {
+    setState(() {
+      _activeBarcode = null;
+      _activeName = null;
+      _activeExisting = null;
       _scanPaused = false;
       _qtyController.clear();
     });
   }
 
-  void _cancelEntry() {
-    setState(() {
-      _active = null;
-      _scanPaused = false;
-      _qtyController.clear();
-    });
+  Future<void> _editItem(CountItem item) async {
+    final controller = TextEditingController(text: item.qty.toString());
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(item.productName ?? item.barcode),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Adet'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          TextButton(
+              onPressed: () =>
+                  Navigator.pop(ctx, int.tryParse(controller.text.trim())),
+              child: const Text('Kaydet')),
+        ],
+      ),
+    );
+    if (result != null && result >= 0 && item.id != null) {
+      await ref.read(countRepositoryProvider).updateQty(item.id!, result);
+      await _load();
+    }
+  }
+
+  Future<void> _deleteItem(CountItem item) async {
+    if (item.id == null) return;
+    await ref.read(countRepositoryProvider).deleteById(item.id!);
+    await _load();
+  }
+
+  Future<void> _clearAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sayımı sıfırla'),
+        content: const Text('Tüm sayım kayıtları silinecek. Emin misiniz?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(countRepositoryProvider).clearAll();
+      await _load();
+    }
+  }
+
+  // ── PDF RAPOR ──
+  Future<void> _pdfReport() async {
+    if (_items.isEmpty) return;
+    final now = DateTime.now();
+    final doc = pw.Document();
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(28),
+        build: (ctx) => [
+          pw.Header(
+            level: 0,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Sayım Raporu',
+                    style: pw.TextStyle(
+                        fontSize: 20, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 4),
+                pw.Text(
+                    'Tarih: ${DateFormat('dd.MM.yyyy HH:mm').format(now)}',
+                    style: const pw.TextStyle(fontSize: 11)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              _pdfStat('Kalem', '${_items.length}', PdfColors.blue800),
+              _pdfStat('Toplam Adet', '$_totalQty', PdfColors.green800),
+            ],
+          ),
+          pw.SizedBox(height: 18),
+          pw.TableHelper.fromTextArray(
+            headers: ['#', 'Ürün Adı', 'Barkod', 'Adet'],
+            headerStyle: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 10,
+                color: PdfColors.white),
+            headerDecoration:
+                const pw.BoxDecoration(color: PdfColors.blueGrey700),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellAlignments: {
+              0: pw.Alignment.center,
+              3: pw.Alignment.centerRight,
+            },
+            columnWidths: {
+              0: const pw.FixedColumnWidth(28),
+              1: const pw.FlexColumnWidth(3.5),
+              2: const pw.FlexColumnWidth(2),
+              3: const pw.FixedColumnWidth(60),
+            },
+            data: List.generate(_items.length, (i) {
+              final e = _items[i];
+              return [
+                '${i + 1}',
+                e.productName ?? '(isimsiz)',
+                e.barcode,
+                '${e.qty}',
+              ];
+            }),
+          ),
+        ],
+      ),
+    );
+    final bytes = await doc.save();
+    await Printing.layoutPdf(
+      onLayout: (_) async => bytes,
+      name: 'sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
+    );
+  }
+
+  pw.Widget _pdfStat(String label, String value, PdfColor color) {
+    return pw.Expanded(
+      child: pw.Container(
+        margin: const pw.EdgeInsets.symmetric(horizontal: 4),
+        padding: const pw.EdgeInsets.symmetric(vertical: 12),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey100,
+          border: pw.Border.all(color: color, width: 1.5),
+          borderRadius: pw.BorderRadius.circular(8),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Text(value,
+                style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                    color: color)),
+            pw.SizedBox(height: 2),
+            pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── EXCEL RAPOR ──
+  Future<void> _excelReport() async {
+    if (_items.isEmpty) return;
+    final now = DateTime.now();
+    final excel = Excel.createExcel();
+    final sheet = excel['Sayım'];
+    excel.delete('Sheet1');
+    sheet.appendRow([
+      TextCellValue('#'),
+      TextCellValue('Ürün Adı'),
+      TextCellValue('Barkod'),
+      TextCellValue('Adet'),
+      TextCellValue('Zaman'),
+    ]);
+    for (var i = 0; i < _items.length; i++) {
+      final e = _items[i];
+      sheet.appendRow([
+        IntCellValue(i + 1),
+        TextCellValue(e.productName ?? ''),
+        TextCellValue(e.barcode),
+        IntCellValue(e.qty),
+        TextCellValue(DateFormat('dd.MM.yyyy HH:mm').format(e.countedAt)),
+      ]);
+    }
+    sheet.appendRow([
+      TextCellValue(''),
+      TextCellValue('TOPLAM'),
+      TextCellValue(''),
+      IntCellValue(_totalQty),
+      TextCellValue(''),
+    ]);
+    final bytes = excel.encode();
+    if (bytes == null) return;
+    final dir = await getTemporaryDirectory();
+    final file = File(
+        '${dir.path}/sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.xlsx');
+    await file.writeAsBytes(bytes);
+    await Share.shareXFiles([XFile(file.path)], text: 'Sayım raporu');
   }
 
   @override
@@ -175,40 +370,37 @@ class _CountScreenState extends ConsumerState<CountScreen> {
             icon: const Icon(Icons.flash_on_rounded),
             onPressed: () => _controller.toggleTorch(),
           ),
+          if (_items.isNotEmpty)
+            PopupMenuButton<String>(
+              tooltip: 'Rapor',
+              icon: const Icon(Icons.summarize_rounded),
+              onSelected: (v) {
+                if (v == 'pdf') _pdfReport();
+                if (v == 'xlsx') _excelReport();
+                if (v == 'clear') _clearAll();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'pdf', child: Text('PDF rapor')),
+                PopupMenuItem(value: 'xlsx', child: Text('Excel rapor')),
+                PopupMenuItem(value: 'clear', child: Text('Sayımı sıfırla')),
+              ],
+            ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _items.isEmpty
-              ? _emptyState(cs)
-              : Column(
-                  children: [
-                    _statsBar(),
-                    Expanded(child: _scannerArea(cs)),
-                    if (_active != null) _qtyEntry(cs) else _lastSavedBar(cs),
-                  ],
-                ),
-    );
-  }
-
-  Widget _emptyState(ColorScheme cs) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.inventory_2_outlined,
-                size: 56, color: cs.onSurface.withOpacity(0.3)),
-            const SizedBox(height: 16),
-            const Text(
-              'Sayım için kontrol listesi boş.\n'
-              'Önce Excel veya fotoğraf ile ürün listesi yükleyin.',
-              textAlign: TextAlign.center,
+          : Column(
+              children: [
+                _statsBar(),
+                SizedBox(height: 230, child: _scannerArea()),
+                if (_activeBarcode != null)
+                  _qtyEntry(cs)
+                else
+                  _lastMsgBar(cs),
+                const Divider(height: 1),
+                Expanded(child: _list(cs)),
+              ],
             ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -220,7 +412,7 @@ class _CountScreenState extends ConsumerState<CountScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _stat('Sayılan', '$_countedCount/${_items.length}'),
+          _stat('Kalem', '${_items.length}'),
           _stat('Toplam Adet', '$_totalQty'),
         ],
       ),
@@ -240,37 +432,21 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     );
   }
 
-  Widget _scannerArea(ColorScheme cs) {
+  Widget _scannerArea() {
     return Stack(
       alignment: Alignment.center,
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
-        // Hedef cercevesi.
         Container(
-          width: 250,
-          height: 150,
+          width: 220,
+          height: 120,
           decoration: BoxDecoration(
             border: Border.all(
-                color: _active != null ? Colors.orange : Colors.greenAccent,
+                color: _activeBarcode != null
+                    ? Colors.orange
+                    : Colors.greenAccent,
                 width: 3),
             borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        Positioned(
-          bottom: 24,
-          left: 24,
-          right: 24,
-          child: Text(
-            _active != null
-                ? 'Adet girin'
-                : 'Ürün barkodunu okutun',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-            ),
           ),
         ),
       ],
@@ -278,29 +454,25 @@ class _CountScreenState extends ConsumerState<CountScreen> {
   }
 
   Widget _qtyEntry(ColorScheme cs) {
-    final active = _active!;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(
-          16, 16, 16, MediaQuery.of(context).viewInsets.bottom + 16),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8),
-        ],
-      ),
+          16, 12, 16, MediaQuery.of(context).viewInsets.bottom + 12),
+      color: AppTheme.primary.withOpacity(0.06),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(active.productName ?? '(isimsiz ürün)',
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 2),
-          Text('Barkod: ${active.barcode ?? "-"}',
+          Text(_activeName ?? '(dizinde yok)',
+              style:
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          Text('Barkod: $_activeBarcode',
               style: TextStyle(
-                  fontSize: 13, color: cs.onSurface.withOpacity(0.6))),
-          const SizedBox(height: 12),
+                  fontSize: 12, color: cs.onSurface.withOpacity(0.6))),
+          if (_activeExisting != null)
+            Text('Önceki: ${_activeExisting!.qty} adet (üzerine yazılacak)',
+                style: TextStyle(fontSize: 11, color: AppTheme.statusWarning)),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -308,89 +480,114 @@ class _CountScreenState extends ConsumerState<CountScreen> {
                   controller: _qtyController,
                   focusNode: _qtyFocus,
                   keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   autofocus: true,
                   textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _saveQty(),
+                  onSubmitted: (_) => _save(),
                   style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.bold),
-                  decoration: InputDecoration(
+                      fontSize: 26, fontWeight: FontWeight.bold),
+                  decoration: const InputDecoration(
                     labelText: 'Adet',
-                    border: const OutlineInputBorder(),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    filled: true,
-                    fillColor: AppTheme.primary.withOpacity(0.05),
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               SizedBox(
-                height: 56,
+                height: 52,
                 child: ElevatedButton(
-                  onPressed: _saveQty,
+                  onPressed: _save,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.statusSuccess,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
                   ),
                   child: const Text('Kaydet',
                       style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
+                          fontSize: 15, fontWeight: FontWeight.bold)),
                 ),
               ),
+              IconButton(
+                onPressed: _cancel,
+                icon: const Icon(Icons.close),
+              ),
             ],
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: TextButton.icon(
-              onPressed: _cancelEntry,
-              icon: const Icon(Icons.close, size: 18),
-              label: const Text('İptal (okutmaya devam et)'),
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _lastSavedBar(ColorScheme cs) {
-    final isError = _lastSavedQty == null && _lastSavedName != null;
+  Widget _lastMsgBar(ColorScheme cs) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      color: _lastSavedName == null
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: _lastMsg == null
           ? cs.surface
-          : (isError
-              ? AppTheme.statusWarning.withOpacity(0.15)
-              : AppTheme.statusSuccess.withOpacity(0.12)),
-      child: _lastSavedName == null
-          ? Text('Okutmaya hazır — bir ürün barkodu okutun.',
+          : AppTheme.statusSuccess.withOpacity(0.12),
+      child: _lastMsg == null
+          ? Text('Barkod okutun',
               textAlign: TextAlign.center,
               style: TextStyle(color: cs.onSurface.withOpacity(0.6)))
           : Row(
               children: [
-                Icon(
-                  isError
-                      ? Icons.error_outline
-                      : Icons.check_circle_rounded,
-                  color: isError
-                      ? AppTheme.statusWarning
-                      : AppTheme.statusSuccess,
-                ),
-                const SizedBox(width: 10),
+                Icon(Icons.check_circle_rounded,
+                    color: AppTheme.statusSuccess, size: 20),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    isError
-                        ? _lastSavedName!
-                        : '$_lastSavedName → $_lastSavedQty adet kaydedildi',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
+                    child: Text('$_lastMsg kaydedildi',
+                        style: const TextStyle(fontWeight: FontWeight.w600))),
               ],
             ),
+    );
+  }
+
+  Widget _list(ColorScheme cs) {
+    if (_items.isEmpty) {
+      return Center(
+        child: Text('Henüz sayım yok',
+            style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
+      );
+    }
+    return ListView.separated(
+      itemCount: _items.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, i) {
+        final e = _items[i];
+        return Dismissible(
+          key: ValueKey(e.id),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          onDismissed: (_) => _deleteItem(e),
+          child: ListTile(
+            dense: true,
+            onTap: () => _editItem(e),
+            title: Text(e.productName ?? '(isimsiz)',
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
+            subtitle: Text(e.barcode, style: const TextStyle(fontSize: 12)),
+            trailing: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('${e.qty}',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primary)),
+            ),
+          ),
+        );
+      },
     );
   }
 }

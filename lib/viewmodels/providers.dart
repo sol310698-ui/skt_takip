@@ -5,12 +5,14 @@ import '../core/services/database_service.dart';
 import '../core/services/notification_service.dart';
 import '../data/datasources/barcode_directory_datasource.dart';
 import '../data/datasources/control_list_datasource.dart';
+import '../data/datasources/count_datasource.dart';
 import '../data/datasources/product_local_datasource.dart';
 import '../data/datasources/shift_local_datasource.dart';
 import '../data/models/product.dart';
 import '../data/models/shift_entry.dart';
 import '../data/repositories/barcode_directory_repository.dart';
 import '../data/repositories/control_list_repository.dart';
+import '../data/repositories/count_repository.dart';
 import '../data/repositories/product_repository.dart';
 import '../data/repositories/shift_repository.dart';
 
@@ -48,6 +50,14 @@ final controlListDataSourceProvider =
 final controlListRepositoryProvider =
     Provider<ControlListRepository>((ref) {
   return ControlListRepository(ref.watch(controlListDataSourceProvider));
+});
+
+final countDataSourceProvider = Provider<CountDataSource>((ref) {
+  return CountDataSource(ref.watch(databaseServiceProvider));
+});
+
+final countRepositoryProvider = Provider<CountRepository>((ref) {
+  return CountRepository(ref.watch(countDataSourceProvider));
 });
 
 final shiftLocalDataSourceProvider = Provider<ShiftLocalDataSource>((ref) {
