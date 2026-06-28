@@ -103,6 +103,33 @@ class ControlListDataSource {
     );
   }
 
+  /// SAYIM: Bir urunun sayilan adedini kaydet. qty null ise sayim silinir.
+  /// Sayim yapilinca otomatik 'checked' de isaretlenir (sayildi = kontrol
+  /// edildi).
+  Future<void> setCount(int id, int? qty) async {
+    final db = await _dbService.database;
+    await db.update(
+      AppConstants.controlListTable,
+      {
+        'counted_qty': qty,
+        'counted_at': qty == null ? null : DateTime.now().millisecondsSinceEpoch,
+        if (qty != null) 'checked': 1,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// SAYIM: Tum sayimlari sifirla (adetleri temizle). Urunler ve checked
+  /// durumu kalir; sadece counted_qty/counted_at temizlenir.
+  Future<void> clearAllCounts() async {
+    final db = await _dbService.database;
+    await db.update(
+      AppConstants.controlListTable,
+      {'counted_qty': null, 'counted_at': null},
+    );
+  }
+
   Future<void> deleteById(int id) async {
     final db = await _dbService.database;
     await db.delete(

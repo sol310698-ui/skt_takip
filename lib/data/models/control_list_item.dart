@@ -1,25 +1,23 @@
 /// Yonetici KONTROL LISTESI satiri.
 ///
 /// Excel veya fotograf (Gemini OCR) ile yuklenen urun listesindeki tek bir
-/// satir. Yoneticinin attigi veriyi kullanici hizlica gozden gecirir; her
-/// urunun barkodu otomatik internette aranir.
-///
-/// Sutunlar (kullanicinin paylastigi Excel basligina gore):
-///   Sektor, Kategori, Stok Kodu, Barkod, Stok Adi, Stok, RBG (Gun),
-///   Son Giris, Son Satis.
-///   RBG = Rafta Bekleyen Gun.
+/// satir. SAYIM alanlari (el terminali tarzi):
+///   countedQty — sayilan fiziksel adet (null = henuz sayilmadi)
+///   countedAt  — son sayim zamani
 class ControlListItem {
   final int? id;
-  final String? sector; // Sektor (orn. ANPA - ATISTIRMALIK)
-  final String? category; // Kategori (orn. CIPS, CIKOLATA)
-  final String? stockCode; // Stok Kodu (orn. 56003565)
-  final String? barcode; // Barkod (12-13 hane)
-  final String? productName; // Stok Adi
-  final int? stock; // Stok adedi
-  final int? rbgDays; // RBG (Gun) — rafta bekleyen gun
-  final String? lastEntry; // Son Giris (tarih metni; ham haliyle saklanir)
-  final String? lastSale; // Son Satis (tarih metni)
-  final bool checked; // kullanici bu satiri kontrol etti mi
+  final String? sector;
+  final String? category;
+  final String? stockCode;
+  final String? barcode;
+  final String? productName;
+  final int? stock;
+  final int? rbgDays;
+  final String? lastEntry;
+  final String? lastSale;
+  final bool checked;
+  final int? countedQty;
+  final DateTime? countedAt;
   final DateTime importedAt;
 
   const ControlListItem({
@@ -34,12 +32,19 @@ class ControlListItem {
     this.lastEntry,
     this.lastSale,
     this.checked = false,
+    this.countedQty,
+    this.countedAt,
     required this.importedAt,
   });
+
+  bool get isCounted => countedQty != null;
 
   ControlListItem copyWith({
     int? id,
     bool? checked,
+    int? countedQty,
+    DateTime? countedAt,
+    bool clearCount = false,
   }) =>
       ControlListItem(
         id: id ?? this.id,
@@ -53,6 +58,8 @@ class ControlListItem {
         lastEntry: lastEntry,
         lastSale: lastSale,
         checked: checked ?? this.checked,
+        countedQty: clearCount ? null : (countedQty ?? this.countedQty),
+        countedAt: clearCount ? null : (countedAt ?? this.countedAt),
         importedAt: importedAt,
       );
 
@@ -68,6 +75,8 @@ class ControlListItem {
         'last_entry': lastEntry,
         'last_sale': lastSale,
         'checked': checked ? 1 : 0,
+        'counted_qty': countedQty,
+        'counted_at': countedAt?.millisecondsSinceEpoch,
         'imported_at': importedAt.millisecondsSinceEpoch,
       };
 
@@ -83,6 +92,10 @@ class ControlListItem {
         lastEntry: map['last_entry'] as String?,
         lastSale: map['last_sale'] as String?,
         checked: (map['checked'] as int? ?? 0) == 1,
+        countedQty: map['counted_qty'] as int?,
+        countedAt: map['counted_at'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(map['counted_at'] as int)
+            : null,
         importedAt:
             DateTime.fromMillisecondsSinceEpoch(map['imported_at'] as int),
       );

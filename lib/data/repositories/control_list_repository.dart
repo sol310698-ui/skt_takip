@@ -13,6 +13,8 @@ class ControlListRepository {
   Future<int> count() => _local.count();
   Future<void> setChecked(int id, bool checked) =>
       _local.setChecked(id, checked);
+  Future<void> setCount(int id, int? qty) => _local.setCount(id, qty);
+  Future<void> clearAllCounts() => _local.clearAllCounts();
   Future<void> deleteById(int id) => _local.deleteById(id);
   Future<void> clearAll() => _local.clearAll();
 }

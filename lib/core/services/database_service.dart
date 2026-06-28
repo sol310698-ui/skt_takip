@@ -172,6 +172,20 @@ class DatabaseService {
       // Yonetici kontrol listesi: Excel/foto ile yuklenen urun listesi.
       await _createControlListTable(db);
     }
+    if (oldVersion < 23) {
+      // Kontrol listesi SAYIM alanlari (el terminali tarzi sayim).
+      // Mevcut tabloya iki kolon ekle; eski kayitlar etkilenmez.
+      try {
+        await db.execute(
+          'ALTER TABLE ${AppConstants.controlListTable} ADD COLUMN counted_qty INTEGER',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE ${AppConstants.controlListTable} ADD COLUMN counted_at INTEGER',
+        );
+      } catch (_) {}
+    }
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {
@@ -234,6 +248,8 @@ class DatabaseService {
         last_entry TEXT,
         last_sale TEXT,
         checked INTEGER NOT NULL DEFAULT 0,
+        counted_qty INTEGER,
+        counted_at INTEGER,
         imported_at INTEGER NOT NULL
       )
     ''');
