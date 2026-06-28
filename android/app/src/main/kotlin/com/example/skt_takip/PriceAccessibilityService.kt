@@ -429,38 +429,37 @@ class PriceAccessibilityService : AccessibilityService() {
      */
     private fun readVisibleProducts() {
         try {
-            // Sirket penceresini bul (pakete kilitli).
-            var root: AccessibilityNodeInfo? = null
+            // ── TUM SIRKET PENCERELERINDEN OKU ──
+            // Sirket uygulamasinin BIRDEN FAZLA penceresi olabilir (appbar
+            // ayri, liste ayri — Flutter/RN uygulamalarinda yaygin). Sadece
+            // ilk pencereyi okumak "sadece basligi gordu, listeyi gormedi"
+            // hatasina yol aciyordu. Bu yuzden TUM com.anpagross.work
+            // pencerelerinden metin toplariz.
+            val texts = ArrayList<String>()
             var winDump = StringBuilder()
+            var foundCompany = false
             try {
                 for (w in windows) {
                     val wr = w?.root ?: continue
                     val wp = wr.packageName?.toString() ?: "?"
-                    winDump.append("$wp ")
+                    val nc = countTextNodes(wr, 0, 200)
+                    winDump.append("$wp($nc) ")
                     if (wp == TARGET_PACKAGE) {
-                        root = wr
-                        break
+                        foundCompany = true
+                        collectTexts(wr, texts, 400)
                     }
                     wr.recycle()
                 }
             } catch (_: Exception) {}
 
-            if (root == null) {
-                lastScanInfo = "SIRKET PENCERESI YOK. Pencereler: $winDump\n" +
-                    "(Beklenen: $TARGET_PACKAGE)"
+            if (!foundCompany) {
+                lastScanInfo = "SIRKET PENCERESI YOK. Pencereler: $winDump"
                 appendScanHistory("T$scanRound: PENCERE YOK [$winDump]")
                 return
             }
 
-            val texts = ArrayList<String>()
-            try {
-                collectTexts(root, texts, 400)
-            } finally {
-                root.recycle()
-            }
-
             // TANI: okunan ilk satirlar + kac urun adi/barkod bulundu.
-            val sample = texts.take(12).joinToString(" | ")
+            val sample = texts.take(14).joinToString(" | ")
             var nameCount = 0
             var bcCount = 0
             for (t in texts) {
@@ -471,7 +470,8 @@ class PriceAccessibilityService : AccessibilityService() {
 
             val l = collectListener
             if (l == null) {
-                lastScanInfo = "LISTENER YOK | okunan=${texts.size} satir\n$sample"
+                lastScanInfo = "LISTENER YOK | okunan=${texts.size}\n$sample"
+                appendScanHistory("T$scanRound: LISTENER YOK okundu=${texts.size}")
                 return
             }
 
@@ -501,12 +501,11 @@ class PriceAccessibilityService : AccessibilityService() {
                     pendingName = clean
                 }
             }
-            lastScanInfo = "okundu=${texts.size} | ad adayi=$nameCount | " +
-                "barkod=$bcCount | bu turda eklenen=$addedNow | " +
-                "toplam=${sentBarcodes.size}\n$sample"
+            lastScanInfo = "okundu=${texts.size} | ad=$nameCount | bc=$bcCount | " +
+                "yeni=$addedNow | toplam=${sentBarcodes.size}\nWIN: $winDump\n$sample"
             appendScanHistory(
                 "T$scanRound: okundu=${texts.size} ad=$nameCount bc=$bcCount " +
-                "yeni=$addedNow | ${sample.take(60)}")
+                "yeni=$addedNow [WIN:$winDump]")
         } catch (e: Exception) {
             lastScanInfo = "HATA: ${e.message}"
             Log.e(TAG, "readVisibleProducts hata: ${e.message}")
