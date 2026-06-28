@@ -262,6 +262,7 @@ class PriceAccessibilityService : AccessibilityService() {
             "lastPackage" to lastPackage,
             "labelFound" to lastLabelFound,
             "screenSample" to lastScreenSample,
+            "scanInfo" to lastScanInfo,
         )
     }
 
@@ -410,10 +411,13 @@ class PriceAccessibilityService : AccessibilityService() {
         try {
             // Sirket penceresini bul (pakete kilitli).
             var root: AccessibilityNodeInfo? = null
+            var winDump = StringBuilder()
             try {
                 for (w in windows) {
                     val wr = w?.root ?: continue
-                    if (wr.packageName?.toString() == TARGET_PACKAGE) {
+                    val wp = wr.packageName?.toString() ?: "?"
+                    winDump.append("$wp ")
+                    if (wp == TARGET_PACKAGE) {
                         root = wr
                         break
                     }
@@ -422,7 +426,8 @@ class PriceAccessibilityService : AccessibilityService() {
             } catch (_: Exception) {}
 
             if (root == null) {
-                lastScanInfo = "Sirket ekrani on planda degil (paket: $TARGET_PACKAGE)"
+                lastScanInfo = "SIRKET PENCERESI YOK. Pencereler: $winDump\n" +
+                    "(Beklenen: $TARGET_PACKAGE)"
                 return
             }
 
@@ -433,13 +438,28 @@ class PriceAccessibilityService : AccessibilityService() {
                 root.recycle()
             }
 
-            val l = collectListener ?: return
+            // TANI: okunan ilk satirlar + kac urun adi/barkod bulundu.
+            val sample = texts.take(12).joinToString(" | ")
+            var nameCount = 0
+            var bcCount = 0
+            for (t in texts) {
+                val c = t.trim()
+                if (Regex("\\d{12,14}").containsMatchIn(c.replace("[\\s-]".toRegex(), ""))) bcCount++
+                else if (isProductNameLine(c)) nameCount++
+            }
+
+            val l = collectListener
+            if (l == null) {
+                lastScanInfo = "LISTENER YOK | okunan=${texts.size} satir\n$sample"
+                return
+            }
+
             var pendingName: String? = null
+            var addedNow = 0
             for (raw in texts) {
                 val clean = raw.trim()
                 if (clean.isEmpty()) continue
 
-                // Barkod satiri mi? (12-14 hane saf sayi)
                 val bcMatch = Regex("\\d{12,14}")
                     .find(clean.replace("[\\s-]".toRegex(), ""))
                 if (bcMatch != null) {
@@ -448,6 +468,7 @@ class PriceAccessibilityService : AccessibilityService() {
                     pendingName = null
                     if (name != null && !sentBarcodes.contains(bc)) {
                         sentBarcodes.add(bc)
+                        addedNow++
                         mainHandler.post {
                             l.onProductCollected(bc, name, null)
                         }
@@ -455,12 +476,15 @@ class PriceAccessibilityService : AccessibilityService() {
                     continue
                 }
 
-                // Urun adi adayi mi?
                 if (isProductNameLine(clean)) {
                     pendingName = clean
                 }
             }
+            lastScanInfo = "okundu=${texts.size} | ad adayi=$nameCount | " +
+                "barkod=$bcCount | bu turda eklenen=$addedNow | " +
+                "toplam=${sentBarcodes.size}\n$sample"
         } catch (e: Exception) {
+            lastScanInfo = "HATA: ${e.message}"
             Log.e(TAG, "readVisibleProducts hata: ${e.message}")
         }
     }

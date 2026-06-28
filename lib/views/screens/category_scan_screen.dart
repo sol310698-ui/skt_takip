@@ -34,13 +34,16 @@ class _CategoryScanScreenState extends ConsumerState<CategoryScanScreen> {
   bool _scanning = false;
   int _countdown = 0;
   Timer? _countdownTimer;
+  Timer? _debugTimer;
   bool _finished = false;
   bool _saving = false;
+  String _scanInfo = '';
 
   @override
   void dispose() {
     _sub?.cancel();
     _countdownTimer?.cancel();
+    _debugTimer?.cancel();
     PriceCheckChannel.stopCategoryScan();
     super.dispose();
   }
@@ -84,6 +87,12 @@ class _CategoryScanScreenState extends ConsumerState<CategoryScanScreen> {
       }
     });
     PriceCheckChannel.startCategoryScan();
+    _debugTimer?.cancel();
+    _debugTimer = Timer.periodic(const Duration(milliseconds: 700), (_) async {
+      final info = await PriceCheckChannel.getDebugInfo();
+      final si = (info['scanInfo'] as String?) ?? '';
+      if (mounted && si != _scanInfo) setState(() => _scanInfo = si);
+    });
   }
 
   void _stopScan() {
@@ -142,6 +151,20 @@ class _CategoryScanScreenState extends ConsumerState<CategoryScanScreen> {
       body: Column(
         children: [
           _header(cs),
+          if (_scanInfo.isNotEmpty)
+            Container(
+              width: double.infinity,
+              color: cs.onSurface.withOpacity(0.06),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                'Tanı: $_scanInfo',
+                maxLines: 6,
+                style: TextStyle(
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    color: cs.onSurface.withOpacity(0.8)),
+              ),
+            ),
           const Divider(height: 1),
           Expanded(child: _list(cs)),
           _bottomBar(),
