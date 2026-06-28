@@ -152,16 +152,10 @@ class PriceAccessibilityService : AccessibilityService() {
             listener = l
         }
 
-         * gecikmeli yollar. Bazi senaryolarda (ornegin uygulamalar arasi
-         * cok hizli gecis) bu pasif bekleme yetersiz kalabilir. Bu fonksiyon,
-         * dis bir tetikleyici (ornegin Flutter tarafindan "su anki ekrani
-         * hemen oku" istegi) geldiginde event'ten bagimsiz olarak ayni
-         * tarama mantigini calistirir.
-         *
-         * NOT: Yuzen baloncuk ozelligi (eskiden bu fonksiyonun tek
-         * cagiranıydı) kullanici talebiyle tamamen kaldirildi. Fonksiyon,
-         * ileride benzer bir "aninda yenile" ihtiyaci dogarsa diye
-         * altyapida tutulmaktadir; su an icin hicbir yerden cagrilmamaktadir.
+        /**
+         * Event beklemeden, dis bir tetikleyiciyle "su anki ekrani hemen oku"
+         * taramasini calistirir. Su an hicbir yerden cagrilmiyor; ileride
+         * "aninda yenile" ihtiyaci icin altyapida tutuluyor.
          */
         fun forceRescanNow() {
             instance?.scanNow()
