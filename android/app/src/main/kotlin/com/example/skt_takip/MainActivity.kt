@@ -39,8 +39,6 @@ class MainActivity : FlutterFragmentActivity() {
     // uzerinden Flutter'a haber veriyor — gecikme native event-loop
     // gecikmesinden ibaret (genelde <100ms), polling araligindan degil.
     private val priceEventChannel = "skt_takip/price_check_events"
-    private val scanEventChannel = "skt_takip/scan_events"
-    private var scanEventSink: EventChannel.EventSink? = null
     private var priceEventSink: EventChannel.EventSink? = null
 
     // VERI TOPLAMA: sirket uygulamasinin urun detay ekranlarindan otomatik
@@ -178,14 +176,6 @@ class MainActivity : FlutterFragmentActivity() {
                         vibrate(mismatch)
                         result.success(true)
                     }
-                    "startCategoryScan" -> {
-                        PriceAccessibilityService.requestStartScan()
-                        result.success(true)
-                    }
-                    "stopCategoryScan" -> {
-                        PriceAccessibilityService.requestStopScan()
-                        result.success(true)
-                    }
                     else -> result.notImplemented()
                 }
             }
@@ -217,44 +207,6 @@ class MainActivity : FlutterFragmentActivity() {
                 override fun onCancel(args: Any?) {
                     PriceAccessibilityService.setListener(null)
                     priceEventSink = null
-                }
-            })
-
-        // ── KATEGORI TARAMA — TOPLANAN URUN AKISI (EventChannel) ────────
-        // Tarama sirasinda toplanan her urun (ad + barkod) ve tarama bitince
-        // ozet, bu stream uzerinden Flutter'a iletilir.
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, scanEventChannel)
-            .setStreamHandler(object : EventChannel.StreamHandler {
-                override fun onListen(args: Any?, sink: EventChannel.EventSink?) {
-                    scanEventSink = sink
-                    PriceAccessibilityService.setCollectListener(object :
-                        PriceAccessibilityService.ProductCollectedListener {
-                        override fun onProductCollected(
-                            barcode: String,
-                            productName: String,
-                            stockCode: String?
-                        ) {
-                            scanEventSink?.success(
-                                mapOf(
-                                    "type" to "product",
-                                    "barcode" to barcode,
-                                    "productName" to productName,
-                                    "stockCode" to stockCode
-                                )
-                            )
-                        }
-
-                        override fun onScanFinished(total: Int) {
-                            scanEventSink?.success(
-                                mapOf("type" to "finished", "total" to total)
-                            )
-                        }
-                    })
-                }
-
-                override fun onCancel(args: Any?) {
-                    PriceAccessibilityService.setCollectListener(null)
-                    scanEventSink = null
                 }
             })
     }

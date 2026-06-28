@@ -7,7 +7,6 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import 'barcode_list_screen.dart';
-import 'category_scan_screen.dart';
 import 'control_list_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
@@ -135,15 +134,6 @@ class _MainShellState extends State<MainShell> {
               subtitle:
                   'Etiket QR\'ı ile sistem fiyatını karşılaştır, uyuşmazlıkta sesli + titreşimli uyarı (görme dostu)',
               onTap: () => _push(const PriceCheckScreen()),
-            ),
-            _sheetOption(
-              icon: Icons.radar_rounded,
-              color: AppTheme.primary,
-              title: 'Kategori Tara',
-              subtitle:
-                  'Şirket uygulamasının ürün listesini otomatik kaydırarak '
-                  'tara, ürün adı + barkodu dizine kaydet',
-              onTap: () => _push(const CategoryScanScreen()),
             ),
             _sheetOption(
               icon: Icons.fact_check_rounded,

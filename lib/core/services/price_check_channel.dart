@@ -25,26 +25,6 @@ import 'package:flutter/services.dart';
 class PriceCheckChannel {
   static const _ch = MethodChannel('skt_takip/price_check');
   static const _eventCh = EventChannel('skt_takip/price_check_events');
-  static const _scanEventCh = EventChannel('skt_takip/scan_events');
-
-  // ── KATEGORI TARAMA ──
-  /// Tarama sirasinda toplanan urunler ve bitis ozeti. Tara ekrani dinler.
-  static Stream<Map<dynamic, dynamic>> get scanEventStream =>
-      _scanEventCh.receiveBroadcastStream().map((e) => e as Map);
-
-  /// Kategori taramayi baslatir (sirket liste ekrani on planda olmali).
-  static Future<void> startCategoryScan() async {
-    try {
-      await _ch.invokeMethod('startCategoryScan');
-    } catch (_) {}
-  }
-
-  /// Kategori taramayi durdurur.
-  static Future<void> stopCategoryScan() async {
-    try {
-      await _ch.invokeMethod('stopCategoryScan');
-    } catch (_) {}
-  }
 
   /// Native'den anlik (push) sistem fiyati/urun guncellemeleri.
   ///

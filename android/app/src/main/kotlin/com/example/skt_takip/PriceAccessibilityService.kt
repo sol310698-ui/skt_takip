@@ -2,7 +2,6 @@ package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.accessibilityservice.GestureDescription
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -58,12 +57,6 @@ class PriceAccessibilityService : AccessibilityService() {
     /** Native'den Flutter'a (EventChannel araciligiyla) anlik veri itmek icin. */
     interface PriceUpdateListener {
         fun onPriceUpdate()
-    }
-
-    /** Kategori taramada toplanan her urun icin tetiklenir. */
-    interface ProductCollectedListener {
-        fun onProductCollected(barcode: String, productName: String, stockCode: String?)
-        fun onScanFinished(total: Int)
     }
 
 
@@ -159,74 +152,6 @@ class PriceAccessibilityService : AccessibilityService() {
             listener = l
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  KATEGORI TARAMA (LISTE MODU + OTOMATIK KAYDIRMA)
-        // ────────────────────────────────────────────────────────────────
-        //  Sirket uygulamasinin "Denetim Urunler" liste ekraninda, gorunen
-        //  urunleri (BUYUK HARF ad + barkod) okur, otomatik asagi kaydirir,
-        //  liste bitene kadar tekrarlar. Toplanan urunler collectListener'a
-        //  iletilir. Fiyat kontrolunden TAMAMEN bagimsizdir.
-        // ════════════════════════════════════════════════════════════════
-
-        // Sirket uygulamasinin paketi — SADECE bunu okuruz (kendi ekranimiz,
-        // launcher, smartcapture, status bar yanlislikla okunmasin).
-        const val TARGET_PACKAGE = "com.anpagross.work"
-
-        @Volatile
-        var scanning: Boolean = false
-            private set
-
-        // Toplanan urun dinleyicisi (MainActivity -> Flutter'a aktarir).
-        @Volatile
-        private var collectListener: ProductCollectedListener? = null
-
-        fun setCollectListener(l: ProductCollectedListener?) {
-            collectListener = l
-        }
-
-        // Tarama boyunca gonderilen barkodlar (ayni urun kaydirmada tekrar
-        // gorununce iki kez gonderilmesin).
-        private val sentBarcodes = HashSet<String>()
-
-        // Tarama durumu (tani panelinde gosterilir).
-        @Volatile
-        var lastScanInfo: String? = null
-            private set
-
-        // Tarama sirasindaki HER turun tanisi (kullanici sirket ekranindayken
-        // ne gorundu — sonradan SKT'ye donunce incelemek icin). Tavuk-yumurta
-        // sorununu cozer: tarama sirasinda ekrani goremiyoruz, bu yuzden
-        // gecmisi biriktirip bitince gosteririz.
-        @Volatile
-        var scanHistory: String = ""
-            private set
-
-        fun appendScanHistory(line: String) {
-            // Son 15 turu tut (cok uzamasin).
-            val lines = (scanHistory + "\n" + line).trim().split("\n")
-            scanHistory = lines.takeLast(15).joinToString("\n")
-        }
-
-        fun clearScanHistory() {
-            scanHistory = ""
-        }
-
-        /** Flutter'dan tarama baslatma istegi. */
-        fun requestStartScan() {
-            instance?.startCategoryScan()
-        }
-
-        /** Flutter'dan tarama durdurma istegi. */
-        fun requestStopScan() {
-            instance?.stopCategoryScan()
-        }
-
-        /**
-         * Event beklemeden, AKTIF olarak "su an ekranda ne var" taramasini
-         * hemen calistirir.
-         *
-         * NEDEN GEREKLI: onAccessibilityEvent SADECE bir DEGISIKLIK event'i
-         * geldiginde calisir; Android event'leri notificationTimeout kadar
          * gecikmeli yollar. Bazi senaryolarda (ornegin uygulamalar arasi
          * cok hizli gecis) bu pasif bekleme yetersiz kalabilir. Bu fonksiyon,
          * dis bir tetikleyici (ornegin Flutter tarafindan "su anki ekrani
@@ -280,8 +205,6 @@ class PriceAccessibilityService : AccessibilityService() {
             "lastPackage" to lastPackage,
             "labelFound" to lastLabelFound,
             "screenSample" to lastScreenSample,
-            "scanInfo" to lastScanInfo,
-            "scanHistory" to scanHistory,
         )
     }
 
@@ -332,249 +255,9 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         serviceRunning = false
-        stopCategoryScan()
         instance = null
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    //  KATEGORI TARAMA MOTORU
-    // ════════════════════════════════════════════════════════════════════
-
-    // Tarama dongusu durumu.
-    private var scanRound = 0
-    private var noNewCount = 0
-    private val scanHandler = Handler(Looper.getMainLooper())
-    private var scanRunnable: Runnable? = null
-
-    /**
-     * Taramayi baslatir. Sirket uygulamasinin liste ekrani ON PLANDA
-     * olmalidir (kullanici once "Denetim Urunler"i acar, sonra tetikler).
-     */
-    fun startCategoryScan() {
-        if (scanning) return
-        scanning = true
-        scanRound = 0
-        noNewCount = 0
-        sentBarcodes.clear()
-        clearScanHistory()
-        lastScanInfo = "Tarama basladi..."
-
-        // Ilk okumayi hemen yap, sonra dongu (oku -> kaydir -> bekle -> oku).
-        scanRunnable = object : Runnable {
-            override fun run() {
-                if (!scanning) return
-
-                val before = sentBarcodes.size
-                readVisibleProducts()
-                val after = sentBarcodes.size
-                val newCount = after - before
-                scanRound++
-
-                lastScanInfo = "Tur $scanRound | toplam ${sentBarcodes.size} urun " +
-                    "(+$newCount yeni)"
-
-                // Durma kosulu: 2 tur ust uste YENI urun gelmediyse liste
-                // bitmistir.
-                if (newCount == 0) {
-                    noNewCount++
-                    if (noNewCount >= 2) {
-                        finishScan()
-                        return
-                    }
-                } else {
-                    noNewCount = 0
-                }
-
-                // Guvenlik: cok uzun tarama olmasin (maks 60 tur ~ cok uzun
-                // liste bile biter).
-                if (scanRound >= 60) {
-                    finishScan()
-                    return
-                }
-
-                // Bir ekran asagi kaydir, sonra tekrar oku.
-                scrollDownOnce()
-                scanHandler.postDelayed(this, 900)
-            }
-        }
-        // Ilk turu kisa gecikmeyle baslat (kullanici ekrana donsun).
-        scanHandler.postDelayed(scanRunnable!!, 300)
-    }
-
-    fun stopCategoryScan() {
-        scanning = false
-        scanRunnable?.let { scanHandler.removeCallbacks(it) }
-        scanRunnable = null
-    }
-
-    private fun finishScan() {
-        val total = sentBarcodes.size
-        stopCategoryScan()
-        lastScanInfo = "Tarama bitti — toplam $total urun"
-        val l = collectListener
-        mainHandler.post { l?.onScanFinished(total) }
-    }
-
-    /**
-     * SADECE sirket uygulamasinin liste ekranindan, o an gorunen urunleri
-     * okur ve YENI olanlari collectListener'a gonderir.
-     *
-     * Liste karti yapisi (kanitlanmis gercek ekran):
-     *   FORA Y.ZEYTIN KOKTEYL 400GR *12 KVN (PLT-90)   <- ad (BUYUK HARF)
-     *   24   8695608230014                             <- adet rozeti + barkod
-     *
-     * Algoritma: yukaridan asagi tara; BUYUK-HARF urun adi bul; ondan
-     * SONRA gelen ilk 12-14 haneli sayi o urunun barkodu. (ad, barkod)
-     * ciftini, daha once gonderilmediyse, yolla.
-     */
-    private fun readVisibleProducts() {
-        try {
-            // ── TUM SIRKET PENCERELERINDEN OKU ──
-            // Sirket uygulamasinin BIRDEN FAZLA penceresi olabilir (appbar
-            // ayri, liste ayri — Flutter/RN uygulamalarinda yaygin). Sadece
-            // ilk pencereyi okumak "sadece basligi gordu, listeyi gormedi"
-            // hatasina yol aciyordu. Bu yuzden TUM com.anpagross.work
-            // pencerelerinden metin toplariz.
-            val texts = ArrayList<String>()
-            var winDump = StringBuilder()
-            var foundCompany = false
-            try {
-                for (w in windows) {
-                    val wr = w?.root ?: continue
-                    val wp = wr.packageName?.toString() ?: "?"
-                    val nc = countTextNodes(wr, 0, 200)
-                    winDump.append("$wp($nc) ")
-                    if (wp == TARGET_PACKAGE) {
-                        foundCompany = true
-                        collectTexts(wr, texts, 400)
-                    }
-                    wr.recycle()
-                }
-            } catch (_: Exception) {}
-
-            if (!foundCompany) {
-                lastScanInfo = "SIRKET PENCERESI YOK. Pencereler: $winDump"
-                appendScanHistory("T$scanRound: PENCERE YOK [$winDump]")
-                return
-            }
-
-            // TANI: okunan ilk satirlar + kac urun adi/barkod bulundu.
-            val sample = texts.take(14).joinToString(" | ")
-            var nameCount = 0
-            var bcCount = 0
-            for (t in texts) {
-                val c = t.trim()
-                if (Regex("\\d{12,14}").containsMatchIn(c.replace("[\\s-]".toRegex(), ""))) bcCount++
-                else if (isProductNameLine(c)) nameCount++
-            }
-
-            val l = collectListener
-            if (l == null) {
-                lastScanInfo = "LISTENER YOK | okunan=${texts.size}\n$sample"
-                appendScanHistory("T$scanRound: LISTENER YOK okundu=${texts.size}")
-                return
-            }
-
-            var pendingName: String? = null
-            var addedNow = 0
-            for (raw in texts) {
-                val clean = raw.trim()
-                if (clean.isEmpty()) continue
-
-                val bcMatch = Regex("\\d{12,14}")
-                    .find(clean.replace("[\\s-]".toRegex(), ""))
-                if (bcMatch != null) {
-                    val bc = bcMatch.value
-                    val name = pendingName
-                    pendingName = null
-                    if (name != null && !sentBarcodes.contains(bc)) {
-                        sentBarcodes.add(bc)
-                        addedNow++
-                        mainHandler.post {
-                            l.onProductCollected(bc, name, null)
-                        }
-                    }
-                    continue
-                }
-
-                if (isProductNameLine(clean)) {
-                    pendingName = clean
-                }
-            }
-            lastScanInfo = "okundu=${texts.size} | ad=$nameCount | bc=$bcCount | " +
-                "yeni=$addedNow | toplam=${sentBarcodes.size}\nWIN: $winDump\n$sample"
-            appendScanHistory(
-                "T$scanRound: okundu=${texts.size} ad=$nameCount bc=$bcCount " +
-                "yeni=$addedNow [WIN:$winDump]")
-        } catch (e: Exception) {
-            lastScanInfo = "HATA: ${e.message}"
-            Log.e(TAG, "readVisibleProducts hata: ${e.message}")
-        }
-    }
-
-    /**
-     * Urun adi satiri mi? Urun adlari: HEP BUYUK HARF, uzun (>=8), sekme/
-     * baslik/etiket DEGIL, icinde 12-14 haneli barkod YOK.
-     */
-    private fun isProductNameLine(line: String): Boolean {
-        val clean = line.trim()
-        if (clean.length < 8) return false
-        if (!clean.any { it.isLetter() }) return false
-        if (Regex("\\d{12,14}").containsMatchIn(clean.replace("[\\s-]".toRegex(), ""))) {
-            return false
-        }
-        val letters = clean.filter { it.isLetter() }
-        if (letters.isEmpty()) return false
-        val upperRatio = letters.count { it.isUpperCase() }.toDouble() / letters.length
-        if (upperRatio < 0.8) return false
-        if (isScanNoise(clean)) return false
-        return true
-    }
-
-    /** Sekme / baslik / etiket gurultusu mu? */
-    private fun isScanNoise(line: String): Boolean {
-        val u = line.uppercase().trim()
-        val containsNoise = listOf(
-            "LOJISTIK", "SEVIYE", "KOLI", "SATINALMA", "ACIK SIP", "AÇIK SIP",
-            "STOK:", "MÜŞTERI", "MUSTERI", "GÖRSEL HAZIRLAN", "GORSEL HAZIRLAN",
-            "SEKME", "SEKTÖR", "SEKTOR", "OKUTULMAYAN", "OKUTULAN", "ARA...",
-            "DENETIM", "DENETİM"
-        )
-        if (containsNoise.any { u.contains(it) }) return true
-        val exactNoise = setOf(
-            "HAREKET", "ANALIZ", "SATIS", "SATIŞ", "STOK", "OKUTMA", "BILDIRIM",
-            "BİLDİRİM", "YORUMLAR", "MARKA", "REYON", "ADET", "BACK"
-        )
-        if (u in exactNoise) return true
-        val storeKeywords = listOf("AVM", "MAĞAZA", "MAGAZA", "ŞUBE", "SUBE", "STORE", "PLAZA")
-        if (storeKeywords.any { u.contains(it) }) return true
-        return false
-    }
-
-    /**
-     * Ekrani bir sayfa asagi kaydirir (dispatchGesture ile).
-     * Ekranin ortasindan yukari dogru hizli bir swipe = liste asagi kayar.
-     */
-    private fun scrollDownOnce() {
-        try {
-            val dm = resources.displayMetrics
-            val w = dm.widthPixels
-            val h = dm.heightPixels
-            val x = w / 2f
-            val startY = h * 0.72f   // alt-orta
-            val endY = h * 0.28f     // ust-orta (yukari swipe -> liste asagi)
-
-            val path = android.graphics.Path().apply {
-                moveTo(x, startY)
-                lineTo(x, endY)
-            }
-            val stroke = GestureDescription.StrokeDescription(path, 0, 300)
-            val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            dispatchGesture(gesture, null, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "scrollDownOnce hata: ${e.message}")
-        }
-    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString()
