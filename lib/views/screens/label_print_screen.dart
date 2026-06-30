@@ -164,6 +164,42 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     super.dispose();
   }
 
+  // ── Aktif sekmedeki TUM etiketleri sil ──────────────────────────────
+  Future<void> _clearActiveList() async {
+    final group = _active;
+    final count = _lists[group]!.length;
+    if (count == 0) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tüm etiketleri sil'),
+        content: Text(
+            '"${group.title}" sekmesindeki $count etiketin tümü silinecek. '
+            'Emin misiniz?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Tümünü Sil',
+                  style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _lists[group]!.clear());
+    await _persist(group);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${group.title}: $count etiket silindi'),
+          backgroundColor: AppTheme.statusSafe,
+        ),
+      );
+    }
+  }
+
   // ── Aktif sekmeye urun ekleme: barkod tara ─────────────────────────────
   // Surekli tarama ekranini acar; ekran kapanana kadar her okutulan barkod
   // anlik olarak _addByBarcode ile aktif sekmeye eklenir (ekran kapanmaz).
@@ -383,6 +419,12 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
             icon: const Icon(Icons.history_rounded),
             onPressed: _openHistory,
           ),
+          if (_items.isNotEmpty)
+            IconButton(
+              tooltip: 'Bu sekmedeki tüm etiketleri sil',
+              icon: const Icon(Icons.delete_sweep_rounded),
+              onPressed: _clearActiveList,
+            ),
           IconButton(
             tooltip: 'Akışı Başlat',
             icon: const Icon(Icons.play_circle_fill_rounded),
