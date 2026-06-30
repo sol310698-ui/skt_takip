@@ -5,12 +5,50 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Artifact silme icin yazma izni gerekir.
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Repoyu çek
         uses: actions/checkout@v4
+
+      # ── ESKI ARTIFACT'LARI TEMIZLE (build'den ONCE) ──────────────────
+      # Her calismada once bu repodaki TUM eski artifact'lari siler; boylece
+      # depolama kotasi DOLMAZ ve elle silmeye gerek kalmaz. GitHub'in kendi
+      # GITHUB_TOKEN'ini kullanir (ekstra secret gerekmez). Yeni APK bu
+      # adimdan SONRA uretildigi icin guncel APK her zaman olusur.
+      - name: Eski artifact'ları sil
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Eski artifact'lar siliniyor..."
+          # Bu repodaki tum artifact id'lerini al ve tek tek sil.
+          page=1
+          deleted=0
+          while : ; do
+            ids=$(gh api -X GET "repos/$REPO/actions/artifacts?per_page=100&page=$page" \
+              --jq '.artifacts[].id' 2>/dev/null || echo "")
+            if [ -z "$ids" ]; then
+              break
+            fi
+            for id in $ids; do
+              if gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null 2>&1; then
+                deleted=$((deleted+1))
+              fi
+            done
+            page=$((page+1))
+            # Guvenlik: en fazla 20 sayfa (2000 artifact) gez.
+            if [ "$page" -gt 20 ]; then break; fi
+          done
+          echo "Silinen artifact sayisi: $deleted"
+          # Bu adim asla build'i durdurmasin (silme basarisiz olsa bile devam).
+        continue-on-error: true
 
       - name: Java kur
         uses: actions/setup-java@v4
@@ -28,7 +66,6 @@ jobs:
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
-
       - name: Bağımlılıkları indir
         run: flutter pub get
 
@@ -51,7 +88,6 @@ jobs:
           else
             echo "İmza anahtarı yok, debug imzası kullanılacak."
           fi
-
       - name: APK derle (release - sadece arm64-v8a)
         # Telefon mimarisi arm64-v8a oldugu icin APK yalnizca bu mimariye
         # derlenir. Diger mimariler (armeabi-v7a, x86_64) dahil edilmez;
@@ -64,7 +100,6 @@ jobs:
         run: |
           set -o pipefail
           flutter build apk --release --target-platform android-arm64 2>&1 | tee build.log
-
       - name: Hata özeti (yalnızca build başarısızsa)
         # Bu adim SADECE onceki adim coktugunde calisir (if: failure()).
         # build.log icinden hata satirlarini ayiklayip GitHub Actions
@@ -90,19 +125,22 @@ jobs:
             fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Build log dosyasını yükle (yalnızca başarısızsa)
-        # build.log'u indirilebilir artifact olarak yukler. Telefondan
-        # GitHub uygulamasi/sitesi uzerinden indirip tam logu inceleyebilir
-        # veya paylasabilirsin.
+        # build.log'u indirilebilir artifact olarak yukler. retention-days: 3
+        # -> 3 gun sonra otomatik silinir (zaten her build basinda da
+        # temizleniyor; bu ikinci bir guvenlik).
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: build.log
+          retention-days: 3
 
       - name: APK'yı yükle
+        # retention-days: 3 -> ek guvenlik. Asil koruma yukaridaki "Eski
+        # artifact'lari sil" adimi; bu sayede kota asla dolmaz.
         uses: actions/upload-artifact@v4
         with:
           name: skt-takip-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 3
