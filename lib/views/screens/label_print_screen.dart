@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/label_active_lists_service.dart';
+import '../../core/utils/scan_parser.dart';
 import '../../core/services/label_history_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -1306,6 +1307,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     formats: const [
+      BarcodeFormat.qrCode,
       BarcodeFormat.ean13,
       BarcodeFormat.ean8,
       BarcodeFormat.code128,
@@ -1341,15 +1343,29 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
     final barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
     final raw = barcodes.first;
-    final value = raw.rawValue?.trim();
-    if (value == null || value.isEmpty) return;
+    final rawText = raw.rawValue?.trim();
+    if (rawText == null || rawText.isEmpty) return;
 
-    // EAN-13 filtresi acikken: format EAN-13 degilse veya 13 haneli
-    // sayisal degilse, bu okuma tamamen yoksayilir (listeye eklenmez).
+    // ── MAGAZA ETIKETI QR'I veya DUZ BARKOD ──
+    // QR ise icinden urun barkodunu cikar (format: *barkod*fiyat*SKT*tarih).
+    // Duz barkod ise oldugu gibi kullanilir. ScanParser ikisini de cozer.
+    final parsed = ScanParser.parse(rawText);
+    final String value;
+    if (parsed.hasUsableBarcode && parsed.barcode != null) {
+      // QR icinden cikan barkod (veya duz barkod).
+      value = parsed.barcode!;
+    } else if (ScanResult.looksLikeBarcode(rawText)) {
+      // Yapilandirilmamis ama barkod gorunumlu ham deger.
+      value = rawText;
+    } else {
+      // Barkod cikarilamadi (serbest metin/taninmayan QR) — yoksay.
+      return;
+    }
+
+    // EAN-13 filtresi acikken: cikan barkod 13 haneli sayisal degilse yoksay.
     if (_ean13Only) {
-      final isEan13Format = raw.format == BarcodeFormat.ean13;
       final isEan13Shape = RegExp(r'^\d{13}$').hasMatch(value);
-      if (!isEan13Format || !isEan13Shape) return;
+      if (!isEan13Shape) return;
     }
 
     final now = DateTime.now();
