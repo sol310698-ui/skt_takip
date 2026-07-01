@@ -2,6 +2,7 @@ package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -57,6 +58,12 @@ class PriceAccessibilityService : AccessibilityService() {
     /** Native'den Flutter'a (EventChannel araciligiyla) anlik veri itmek icin. */
     interface PriceUpdateListener {
         fun onPriceUpdate()
+    }
+
+    /** Otomatik barkod girisi ilerlemesi icin dinleyici. */
+    interface AutoEntryListener {
+        fun onProgress(done: Int, total: Int, lastBarcode: String, ok: Boolean)
+        fun onFinished(done: Int, total: Int)
     }
 
 
@@ -150,6 +157,41 @@ class PriceAccessibilityService : AccessibilityService() {
 
         fun setListener(l: PriceUpdateListener?) {
             listener = l
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  OTOMATIK BARKOD GIRISI (sirket uygulamasina)
+        // ────────────────────────────────────────────────────────────────
+        //  Kullanicinin ELLE yaptigi tekrarli isi hizlandirir: verilen barkod
+        //  listesini sirasiyla sirket uygulamasinin giris kutusuna yazip
+        //  onay (Ekle) butonuna basar. Fiyat kontrolunden bagimsizdir.
+        // ════════════════════════════════════════════════════════════════
+        const val TARGET_PACKAGE = "com.anpagross.work"
+
+        @Volatile
+        var autoRunning: Boolean = false
+            private set
+
+        @Volatile
+        private var autoListener: AutoEntryListener? = null
+
+        fun setAutoListener(l: AutoEntryListener?) {
+            autoListener = l
+        }
+
+        // Girilecek barkodlar ve ilerleme durumu.
+        private val autoQueue = ArrayList<String>()
+
+        @Volatile
+        var autoInfo: String = ""
+            private set
+
+        fun requestStartAuto(barcodes: List<String>, delayMs: Long) {
+            instance?.startAutoEntry(barcodes, delayMs)
+        }
+
+        fun requestStopAuto() {
+            instance?.stopAutoEntry()
         }
 
         /**
@@ -249,7 +291,235 @@ class PriceAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         serviceRunning = false
+        stopAutoEntry()
         instance = null
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  OTOMATIK BARKOD GIRISI MOTORU
+    // ────────────────────────────────────────────────────────────────────
+    //  Her barkod icin SIRA: (1) giris kutusunu bul, (2) kutuya barkodu YAZ
+    //  (ACTION_SET_TEXT), (3) kisa bekle, (4) onay/Ekle butonunu bul,
+    //  (5) butona TIKLA (ACTION_CLICK), (6) ~1sn bekle, sonraki barkoda gec.
+    //  ONCE METIN, SONRA TIKLAMA — bos kutuyla onaya basmamak icin sart.
+    // ════════════════════════════════════════════════════════════════════
+
+    private var autoDelayMs: Long = 1000
+    private var autoIndex = 0
+    private val autoHandler = Handler(Looper.getMainLooper())
+    private var autoRunnable: Runnable? = null
+
+    fun startAutoEntry(barcodes: List<String>, delayMs: Long) {
+        if (autoRunning) return
+        if (barcodes.isEmpty()) return
+        autoQueue.clear()
+        autoQueue.addAll(barcodes)
+        autoDelayMs = delayMs.coerceAtLeast(300)
+        autoIndex = 0
+        autoRunning = true
+        autoInfo = "Otomatik giris basladi (${autoQueue.size} barkod)"
+
+        autoRunnable = object : Runnable {
+            override fun run() {
+                if (!autoRunning) return
+                if (autoIndex >= autoQueue.size) {
+                    finishAuto()
+                    return
+                }
+                val barcode = autoQueue[autoIndex]
+                val ok = enterOneBarcode(barcode)
+                autoIndex++
+
+                autoInfo = "Giris ${autoIndex}/${autoQueue.size}: $barcode " +
+                    if (ok) "✓" else "✗ (kutu/buton bulunamadi)"
+                val l = autoListener
+                mainHandler.post {
+                    l?.onProgress(autoIndex, autoQueue.size, barcode, ok)
+                }
+
+                if (autoIndex >= autoQueue.size) {
+                    finishAuto()
+                } else {
+                    autoHandler.postDelayed(this, autoDelayMs)
+                }
+            }
+        }
+        // Ilk girisi kisa gecikmeyle baslat (kullanici sirket ekranina donsun).
+        autoHandler.postDelayed(autoRunnable!!, 500)
+    }
+
+    fun stopAutoEntry() {
+        autoRunning = false
+        autoRunnable?.let { autoHandler.removeCallbacks(it) }
+        autoRunnable = null
+    }
+
+    private fun finishAuto() {
+        val done = autoIndex
+        val total = autoQueue.size
+        stopAutoEntry()
+        autoInfo = "Otomatik giris bitti: $done/$total"
+        val l = autoListener
+        mainHandler.post { l?.onFinished(done, total) }
+    }
+
+    /**
+     * Tek bir barkodu girer: ONCE kutuya yazar, SONRA onay butonuna tiklar.
+     * Basari (kutu bulundu + yazildi + buton tiklandi) durumunda true doner.
+     */
+    private fun enterOneBarcode(barcode: String): Boolean {
+        try {
+            // Sirket penceresinin kokunu al.
+            val root = companyRoot() ?: run {
+                autoInfo = "SIRKET EKRANI YOK"
+                return false
+            }
+
+            // ── 1) GIRIS KUTUSUNU BUL ──
+            val editNode = findEditableNode(root)
+            if (editNode == null) {
+                root.recycle()
+                autoInfo = "Giris kutusu bulunamadi"
+                return false
+            }
+
+            // ── 2) KUTUYA BARKODU YAZ (ACTION_SET_TEXT) ──
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                barcode
+            )
+            val wrote = editNode.performAction(
+                AccessibilityNodeInfo.ACTION_SET_TEXT, args
+            )
+            editNode.recycle()
+
+            if (!wrote) {
+                root.recycle()
+                autoInfo = "Kutuya yazilamadi"
+                return false
+            }
+
+            // ── 3) KISA BEKLE (yazinin oturmasi icin) ──
+            Thread.sleep(250)
+
+            // ── 4) ONAY/EKLE BUTONUNU BUL ──
+            // Kokten yeniden al (yazma sonrasi agac degismis olabilir).
+            val root2 = companyRoot() ?: root
+            val addBtn = findAddButton(root2)
+            if (addBtn == null) {
+                root2.recycle()
+                if (root2 !== root) root.recycle()
+                autoInfo = "Ekle butonu bulunamadi"
+                return false
+            }
+
+            // ── 5) BUTONA TIKLA (ACTION_CLICK) ──
+            var clicked = addBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            // Buton kendisi tiklanabilir degilse, tiklanabilir atasini bul.
+            if (!clicked) {
+                val clickable = firstClickableAncestor(addBtn)
+                if (clickable != null) {
+                    clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    clickable.recycle()
+                }
+            }
+            addBtn.recycle()
+            root2.recycle()
+            if (root2 !== root) root.recycle()
+
+            return clicked
+        } catch (e: Exception) {
+            autoInfo = "HATA: ${e.message}"
+            Log.e(TAG, "enterOneBarcode hata: ${e.message}")
+            return false
+        }
+    }
+
+    /** Sirket uygulamasinin pencere kokunu dondurur (pakete kilitli). */
+    private fun companyRoot(): AccessibilityNodeInfo? {
+        try {
+            for (w in windows) {
+                val wr = w?.root ?: continue
+                if (wr.packageName?.toString() == TARGET_PACKAGE) {
+                    return wr
+                }
+                wr.recycle()
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    /** Agacta DUZENLENEBILIR (EditText benzeri) ilk dugumu bulur. */
+    private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isEditable) return AccessibilityNodeInfo.obtain(node)
+        // className ile de dene (bazi alanlar isEditable vermez).
+        val cls = node.className?.toString() ?: ""
+        if (cls.contains("EditText", ignoreCase = true) && node.isVisibleToUser) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+        for (i in 0 until node.childCount) {
+            val found = findEditableNode(node.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
+    /**
+     * Onay/Ekle butonunu bulur. Once metnine gore ("Ekle", "Kaydet", "Onayla",
+     * "Ekle" ikonu), yoksa giris kutusunun yanindaki tiklanabilir dugumu
+     * arar.
+     */
+    private fun findAddButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        val text = (node.text?.toString() ?: "").trim()
+        val desc = (node.contentDescription?.toString() ?: "").trim()
+        val combined = "$text $desc".uppercase()
+        val isAddLabel = combined.contains("EKLE") ||
+            combined.contains("KAYDET") ||
+            combined.contains("ONAYLA") ||
+            combined.contains("ONAY") ||
+            combined.contains("TAMAM") ||
+            combined.contains("GIRIS") ||
+            combined.contains("EKLE ")
+        if (isAddLabel && (node.isClickable || firstClickableAncestorExists(node))) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+        for (i in 0 until node.childCount) {
+            val found = findAddButton(node.getChild(i))
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun firstClickableAncestorExists(node: AccessibilityNodeInfo): Boolean {
+        var p = node.parent
+        var depth = 0
+        while (p != null && depth < 6) {
+            if (p.isClickable) {
+                p.recycle()
+                return true
+            }
+            val next = p.parent
+            p.recycle()
+            p = next
+            depth++
+        }
+        return false
+    }
+
+    private fun firstClickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var p = node.parent
+        var depth = 0
+        while (p != null && depth < 6) {
+            if (p.isClickable) return p
+            val next = p.parent
+            p.recycle()
+            p = next
+            depth++
+        }
+        return null
     }
 
 

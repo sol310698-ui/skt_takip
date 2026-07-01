@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/label_active_lists_service.dart';
+import '../../core/services/price_check_channel.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../core/services/label_history_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
@@ -166,6 +167,29 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
   }
 
   // ── Aktif sekmedeki TUM etiketleri sil ──────────────────────────────
+  // ── OTOMATIK KAYIT: aktif sekmedeki barkodlari sirket uygulamasina gir ──
+  Future<void> _openAutoEntry() async {
+    final barcodes = _items
+        .map((e) => e.barcode.trim())
+        .where((b) => b.isNotEmpty)
+        .toList();
+    if (barcodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu sekmede barkod yok')),
+      );
+      return;
+    }
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _AutoEntrySheet(barcodes: barcodes),
+    );
+  }
+
   Future<void> _clearActiveList() async {
     final group = _active;
     final count = _lists[group]!.length;
@@ -425,6 +449,12 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
               tooltip: 'Bu sekmedeki tüm etiketleri sil',
               icon: const Icon(Icons.delete_sweep_rounded),
               onPressed: _clearActiveList,
+            ),
+          if (_items.isNotEmpty)
+            IconButton(
+              tooltip: 'Otomatik Kayıt (şirket uygulamasına gir)',
+              icon: const Icon(Icons.settings_suggest_rounded),
+              onPressed: _openAutoEntry,
             ),
           IconButton(
             tooltip: 'Akışı Başlat',
@@ -1537,3 +1567,205 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   }
 }
 
+
+/// ══════════════════════════════════════════════════════════════════════
+///  OTOMATIK KAYIT alt sayfasi.
+///  Aktif sekmedeki barkodlari sirket uygulamasinin giris kutusuna otomatik
+///  yazar + Ekle butonuna basar. Kullanici baslat'a basip sirket ekranina
+///  gecer; uygulama sirayla girer. Sen izlersin.
+/// ══════════════════════════════════════════════════════════════════════
+class _AutoEntrySheet extends StatefulWidget {
+  final List<String> barcodes;
+  const _AutoEntrySheet({required this.barcodes});
+
+  @override
+  State<_AutoEntrySheet> createState() => _AutoEntrySheetState();
+}
+
+class _AutoEntrySheetState extends State<_AutoEntrySheet> {
+  StreamSubscription<Map<dynamic, dynamic>>? _sub;
+  bool _running = false;
+  bool _finished = false;
+  int _done = 0;
+  int _total = 0;
+  int _countdown = 0;
+  Timer? _countdownTimer;
+  final List<String> _log = [];
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _countdownTimer?.cancel();
+    PriceCheckChannel.stopAutoEntry();
+    super.dispose();
+  }
+
+  void _start() {
+    setState(() {
+      _log.clear();
+      _finished = false;
+      _done = 0;
+      _total = widget.barcodes.length;
+      _countdown = 5;
+    });
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (_countdown <= 1) {
+        t.cancel();
+        _begin();
+      } else {
+        setState(() => _countdown--);
+      }
+    });
+  }
+
+  void _begin() {
+    setState(() {
+      _countdown = 0;
+      _running = true;
+    });
+    _sub?.cancel();
+    _sub = PriceCheckChannel.autoEntryStream.listen((event) {
+      final type = event['type'] as String?;
+      if (type == 'progress') {
+        final done = (event['done'] as int?) ?? 0;
+        final total = (event['total'] as int?) ?? 0;
+        final bc = (event['barcode'] as String?) ?? '';
+        final ok = (event['ok'] as bool?) ?? false;
+        setState(() {
+          _done = done;
+          _total = total;
+          _log.insert(0, '${ok ? "✓" : "✗"} $bc');
+          if (_log.length > 30) _log.removeLast();
+        });
+      } else if (type == 'finished') {
+        setState(() {
+          _running = false;
+          _finished = true;
+          _done = (event['done'] as int?) ?? _done;
+        });
+      }
+    });
+    PriceCheckChannel.startAutoEntry(widget.barcodes, 1000);
+  }
+
+  void _stop() {
+    PriceCheckChannel.stopAutoEntry();
+    setState(() {
+      _running = false;
+      _finished = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          16, 16, 16, MediaQuery.of(context).viewInsets.bottom + 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.settings_suggest_rounded, color: AppTheme.accent),
+              const SizedBox(width: 8),
+              const Text('Otomatik Kayıt',
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              Text('${widget.barcodes.length} barkod',
+                  style: TextStyle(color: cs.onSurface.withOpacity(0.6))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_countdown > 0) ...[
+            Center(
+              child: Column(
+                children: [
+                  Text('$_countdown',
+                      style: TextStyle(
+                          fontSize: 44,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.accent)),
+                  const Text('Şirket uygulamasının barkod giriş ekranına geçin!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ] else if (_running) ...[
+            LinearProgressIndicator(
+              value: _total > 0 ? _done / _total : null,
+            ),
+            const SizedBox(height: 8),
+            Text('Giriliyor: $_done / $_total',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Text('Şirket uygulamasında kalın, dokunmayın.',
+                style: TextStyle(fontSize: 12)),
+          ] else if (_finished) ...[
+            Text('Bitti: $_done / $_total girildi',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold)),
+          ] else ...[
+            const Text(
+              'Aktif sekmedeki barkodlar şirket uygulamasının giriş '
+              'kutusuna sırayla yazılıp Ekle butonuna basılacak. '
+              '"Başlat"a bastıktan sonra 5 saniye içinde şirket '
+              'uygulamasının barkod giriş ekranına geçin.\n\n'
+              'Önce metin yazılır, sonra butona tıklanır. Her barkod '
+              'arası ~1 saniye.',
+              style: TextStyle(fontSize: 13, height: 1.4),
+            ),
+          ],
+          if (_log.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              height: 120,
+              width: double.infinity,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: cs.onSurface.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListView(
+                children: _log
+                    .map((l) => Text(l,
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 12)))
+                    .toList(),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              if (_running)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _stop,
+                    icon: const Icon(Icons.stop_rounded),
+                    label: const Text('Durdur'),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _countdown > 0 ? null : _start,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: Text(_finished ? 'Tekrar Başlat' : 'Başlat'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}

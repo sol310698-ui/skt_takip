@@ -411,7 +411,9 @@ class _PriceChangeSessionScreenState
 
     final labelGroup = _sendToLabelGroup;
     setState(() => _busy = true);
-    await PriceChangeService.instance.markChanged(item.id!, photo.path);
+    // Fotoyu KALICI dizine kopyala (onbellek temizlense de kaybolmasin).
+    final persistentPath = await CameraHelper.persistPhoto(photo.path);
+    await PriceChangeService.instance.markChanged(item.id!, persistentPath);
     if (labelGroup != null) {
       // Etiket Basim ekrani acildiginda bu kuyruktan okunup eklenecek.
       await LabelPendingQueueService.instance.push(

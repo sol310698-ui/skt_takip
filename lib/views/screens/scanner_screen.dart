@@ -543,8 +543,9 @@ class _AiScanSheetState extends State<_AiScanSheet> {
         if (widget.fastFlow && mounted) Navigator.of(context).pop();
         return;
       }
+      final persistent = await CameraHelper.persistPhoto(photo.path);
       setState(() {
-        _photoPath = photo.path;
+        _photoPath = persistent;
         _state = _AiState.captured;
       });
       // Hizli akis: foto cekilir cekilmez otomatik gonder.

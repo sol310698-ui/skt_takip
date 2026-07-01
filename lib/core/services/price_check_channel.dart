@@ -25,6 +25,31 @@ import 'package:flutter/services.dart';
 class PriceCheckChannel {
   static const _ch = MethodChannel('skt_takip/price_check');
   static const _eventCh = EventChannel('skt_takip/price_check_events');
+  static const _autoEntryCh = EventChannel('skt_takip/auto_entry_events');
+
+  // ── OTOMATIK BARKOD GIRISI ──
+  /// Otomatik giris ilerlemesi (progress/finished).
+  static Stream<Map<dynamic, dynamic>> get autoEntryStream =>
+      _autoEntryCh.receiveBroadcastStream().map((e) => e as Map);
+
+  /// Otomatik barkod girisini baslatir. Sirket uygulamasinin giris ekrani
+  /// on planda olmali.
+  static Future<void> startAutoEntry(
+      List<String> barcodes, int delayMs) async {
+    try {
+      await _ch.invokeMethod('startAutoEntry', {
+        'barcodes': barcodes,
+        'delayMs': delayMs,
+      });
+    } catch (_) {}
+  }
+
+  /// Otomatik girisi durdurur.
+  static Future<void> stopAutoEntry() async {
+    try {
+      await _ch.invokeMethod('stopAutoEntry');
+    } catch (_) {}
+  }
 
   /// Native'den anlik (push) sistem fiyati/urun guncellemeleri.
   ///

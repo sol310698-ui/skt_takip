@@ -15,7 +15,7 @@ class AppLogger {
   static final AppLogger instance = AppLogger._();
 
   static const String _fileName = 'skt_logs.txt';
-  static const int _maxBytes = 256 * 1024; // 256 KB
+  static const int _maxBytes = 1024 * 1024; // 1 MB (tum uygulama loglari)
 
   File? _cachedFile;
   bool _initializing = false;

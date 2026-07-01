@@ -39,6 +39,8 @@ class MainActivity : FlutterFragmentActivity() {
     // uzerinden Flutter'a haber veriyor — gecikme native event-loop
     // gecikmesinden ibaret (genelde <100ms), polling araligindan degil.
     private val priceEventChannel = "skt_takip/price_check_events"
+    private val autoEntryChannel = "skt_takip/auto_entry_events"
+    private var autoEntrySink: EventChannel.EventSink? = null
     private var priceEventSink: EventChannel.EventSink? = null
 
     // VERI TOPLAMA: sirket uygulamasinin urun detay ekranlarindan otomatik
@@ -176,6 +178,17 @@ class MainActivity : FlutterFragmentActivity() {
                         vibrate(mismatch)
                         result.success(true)
                     }
+                    "startAutoEntry" -> {
+                        val barcodes = call.argument<List<String>>("barcodes")
+                            ?: emptyList()
+                        val delayMs = (call.argument<Int>("delayMs") ?: 1000).toLong()
+                        PriceAccessibilityService.requestStartAuto(barcodes, delayMs)
+                        result.success(true)
+                    }
+                    "stopAutoEntry" -> {
+                        PriceAccessibilityService.requestStopAuto()
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -207,6 +220,41 @@ class MainActivity : FlutterFragmentActivity() {
                 override fun onCancel(args: Any?) {
                     PriceAccessibilityService.setListener(null)
                     priceEventSink = null
+                }
+            })
+
+        // ── OTOMATIK BARKOD GIRISI — ILERLEME AKISI (EventChannel) ──────
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, autoEntryChannel)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(args: Any?, sink: EventChannel.EventSink?) {
+                    autoEntrySink = sink
+                    PriceAccessibilityService.setAutoListener(object :
+                        PriceAccessibilityService.AutoEntryListener {
+                        override fun onProgress(
+                            done: Int, total: Int, lastBarcode: String, ok: Boolean
+                        ) {
+                            autoEntrySink?.success(
+                                mapOf(
+                                    "type" to "progress",
+                                    "done" to done,
+                                    "total" to total,
+                                    "barcode" to lastBarcode,
+                                    "ok" to ok
+                                )
+                            )
+                        }
+
+                        override fun onFinished(done: Int, total: Int) {
+                            autoEntrySink?.success(
+                                mapOf("type" to "finished", "done" to done, "total" to total)
+                            )
+                        }
+                    })
+                }
+
+                override fun onCancel(args: Any?) {
+                    PriceAccessibilityService.setAutoListener(null)
+                    autoEntrySink = null
                 }
             })
     }

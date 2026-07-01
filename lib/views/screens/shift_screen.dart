@@ -63,11 +63,12 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   Future<String?> _takePhoto() async {
     // Merkezi CameraHelper kullanir: kamera donusunde kilit tetiklenmez,
     // mesai giris/cikis akisi kesintisiz tamamlanir.
-    final x = await CameraHelper.pickImage(
+    // KALICI kaydet: pickImagePersistent, fotografi <app_documents>/photos/
+    // altina kopyalar; boylece "onbellegi temizle" mesai fotografini SILMEZ.
+    return CameraHelper.pickImagePersistent(
       source: ImageSource.camera,
       imageQuality: 70,
     );
-    return x?.path;
   }
 
   /// Giris yap - foto sor, konum al, kaydet.

@@ -19,6 +19,19 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
   String _content = 'Yükleniyor...';
   bool _loading = true;
   final ScrollController _scrollCtrl = ScrollController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _filter = '';
+
+  /// Arama filtresine gore gorunen log satirlari. Bos filtrede tum icerik.
+  String get _visibleContent {
+    if (_filter.isEmpty) return _content;
+    final lower = _filter.toLowerCase();
+    final lines = _content
+        .split('\n')
+        .where((l) => l.toLowerCase().contains(lower))
+        .toList();
+    return lines.isEmpty ? '(Eşleşen kayıt yok: "$_filter")' : lines.join('\n');
+  }
 
   @override
   void initState() {
@@ -29,6 +42,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
   @override
   void dispose() {
     _scrollCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -93,7 +107,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: const Text('Alarm Kayıtları (Log)'),
+        title: const Text('Uygulama Kayıtları (Log)'),
         actions: [
           IconButton(
             tooltip: 'Yenile',
@@ -118,10 +132,34 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
                       padding: const EdgeInsets.all(12),
                       color: AppTheme.primary.withOpacity(0.1),
                       child: const Text(
-                        'Alarm sorununu çözmek için: alarmı test edip çaldıktan '
-                        '(veya çalması gerekip çalmadıktan) sonra bu ekranı açıp '
-                        'sağ üstten "Paylaş" ile kayıtları gönderin.',
+                        'Uygulamanın tüm kayıtları (olaylar, hatalar, alarm). '
+                        'Bir sorunu bildirmek için sağ üstten "Paylaş" ile '
+                        'gönderin. Aşağıdaki kutuyla arama yapabilirsiniz.',
                         style: TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        onChanged: (v) => setState(() => _filter = v.trim()),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Ara (ör. HATA, ALARM, barkod...)',
+                          prefixIcon: const Icon(Icons.search, size: 20),
+                          suffixIcon: _filter.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  onPressed: () {
+                                    _searchCtrl.clear();
+                                    setState(() => _filter = '');
+                                  },
+                                ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
                       ),
                     ),
                     Expanded(
@@ -129,7 +167,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.all(12),
                         child: SelectableText(
-                          _content,
+                          _visibleContent,
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 11.5,

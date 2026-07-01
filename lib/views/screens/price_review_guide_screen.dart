@@ -94,8 +94,10 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
 
     final labelGroup = _sendToLabelGroup;
     setState(() => _busy = true);
-    // Fotoyu kalici sakla + degistirildi isaretle.
-    await PriceChangeService.instance.markChanged(item.id!, shot.path);
+    // Fotoyu KALICI dizine kopyala (onbellek temizlense de kaybolmasin),
+    // sonra kalici yolu isaretlemeye ver.
+    final persistentPath = await CameraHelper.persistPhoto(shot.path);
+    await PriceChangeService.instance.markChanged(item.id!, persistentPath);
     if (labelGroup != null) {
       await LabelPendingQueueService.instance.push(
         barcode: item.barcode,

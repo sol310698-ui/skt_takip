@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +25,37 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── GLOBAL LOG YAKALAMA ──────────────────────────────────────────────
+  // Amac: uygulamanin HER yerindeki debugPrint/print ciktilari ve TUM
+  // yakalanmamis hatalar (exception + stack) otomatik olarak AppLogger'a
+  // (kalici dosyaya) dussun. Boylece log ekrani "tum uygulama loglarini"
+  // gosterir — her yere elle log koymaya gerek kalmaz.
+
+  // 1) debugPrint'i sar: hem konsola yaz hem log dosyasina ekle.
+  final originalDebugPrint = debugPrint;
+  debugPrint = (String? message, {int? wrapWidth}) {
+    if (message != null && message.isNotEmpty) {
+      AppLogger.instance.log('PRINT', message);
+    }
+    originalDebugPrint(message, wrapWidth: wrapWidth);
+  };
+
+  // 2) Flutter framework hatalari (widget build hatalari vb.).
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    AppLogger.instance.log(
+      'FLUTTER_HATA',
+      '${details.exceptionAsString()}\n${details.stack ?? ""}',
+    );
+  };
+
+  // 3) Framework disi (async) yakalanmamis hatalar.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    AppLogger.instance.log('HATA', '$error\n$stack');
+    return true; // hata isle, uygulamayi coketme.
+  };
+
   await initializeDateFormatting('tr', null);
   await AppLogger.instance
       .log('APP', 'main() basladi (uygulama/izolat ayaga kalkti).');
