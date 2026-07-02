@@ -384,45 +384,20 @@ class PriceAccessibilityService : AccessibilityService() {
                 return false
             }
 
-            // ── 2) KUTUYA BARKODU YAZ + DOGRULA (gerekirse tekrar dene) ──
-            // ACTION_SET_TEXT bazen metni tam oturtamaz. Yazdiktan sonra
-            // kutuyu tekrar okuyup barkodun gercekten girildigini DOGRULARIZ;
-            // olmadiysa 3 kez tekrar deneriz. Bu, "metin oturmadan butona
-            // basma" sorununu (elle eklemeden calismama) onler.
-            var writeOk = false
-            for (attempt in 0 until 3) {
-                val args = Bundle()
-                args.putCharSequence(
-                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                    barcode
-                )
-                editNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                Thread.sleep(200)
-
-                // Kutuyu YENIDEN oku, icindeki metni dogrula.
-                val checkRoot = companyRoot()
-                val checkNode = if (checkRoot != null) findEditableNode(checkRoot) else null
-                val currentText = checkNode?.text?.toString() ?: ""
-                checkNode?.recycle()
-                checkRoot?.recycle()
-
-                if (currentText.contains(barcode)) {
-                    writeOk = true
-                    break
-                }
-                // Oturmadi — kisa bekle, tekrar dene.
-                Thread.sleep(150)
-            }
+            // ── 2) KUTUYA BARKODU YAZ (ACTION_SET_TEXT) — basit, dogrulamasiz ──
+            // Eski calisan surumdeki gibi: yaz, kisa bekle, devam et. (Metin
+            // dogrulama dongusu bazi durumlarda metni bulamayip akisi kesiyordu;
+            // kaldirildi.)
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                barcode
+            )
+            editNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             editNode.recycle()
 
-            if (!writeOk) {
-                root.recycle()
-                autoInfo = "Kutuya yazilamadi (dogrulanamadi): $barcode"
-                return false
-            }
-
-            // ── 3) BEKLE (butonun aktiflesmesi/UI'in oturmasi icin) ──
-            Thread.sleep(300)
+            // ── 3) BEKLE (yazinin oturmasi + butonun aktiflesmesi icin) ──
+            Thread.sleep(350)
 
             // ── 4) ONAY/EKLE BUTONUNU BUL ──
             // Kokten yeniden al (yazma sonrasi agac degismis olabilir).
@@ -436,9 +411,6 @@ class PriceAccessibilityService : AccessibilityService() {
             }
 
             // ── 5) BUTONA TIKLA — once ACTION_CLICK, olmazsa GERCEK DOKUNMA ──
-            // Bazi custom butonlar ACTION_CLICK'e yanit vermiyor. O durumda
-            // butonun ekran koordinatina gercek parmak dokunusu (dispatchGesture)
-            // gonderiyoruz. Boylece hangi yontem calisiyorsa o kullanilir.
             var clicked = addBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (!clicked) {
                 val clickable = firstClickableAncestor(addBtn)
