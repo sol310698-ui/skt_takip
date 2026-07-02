@@ -6,8 +6,9 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 24; // v24: bagimsiz sayim tablosu
+  static const int dbVersion = 25; // v25: silinen etiketler (parti geri al)
   static const String countTable = 'count_items'; // bagimsiz sayim oturumu
+  static const String labelDeletedTable = 'label_deleted'; // silinen etiketler
   static const String productTable = 'products';
   static const String barcodeTable = 'barcode_directory';
   static const String shiftTable = 'shifts';

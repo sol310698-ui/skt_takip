@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/label_active_lists_service.dart';
+import '../../core/services/label_deleted_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../core/services/label_history_service.dart';
@@ -167,12 +168,50 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
   }
 
   // ── Aktif sekmedeki TUM etiketleri sil ──────────────────────────────
+  // ── SILINENLER sayfasi: parti halinde geri al ──────────────────────────
+  Future<void> _openDeleted() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _DeletedLabelsPage(
+          onRestore: (batch) async {
+            // Partiyi, silindigi gruba geri yukle. Ayni barkod varsa adetleri
+            // birlestir.
+            final group = LabelGroup.values.firstWhere(
+              (g) => g.name == batch.groupKey,
+              orElse: () => _active,
+            );
+            final list = _lists[group]!;
+            for (final item in batch.items) {
+              final idx = list.indexWhere((e) => e.barcode == item.barcode);
+              if (idx >= 0) {
+                list[idx].quantity += item.quantity;
+              } else {
+                list.add(item);
+              }
+            }
+            await _persist(group);
+            if (mounted) setState(() {});
+          },
+        ),
+      ),
+    );
+    // Geri donunce ekran guncel kalsin.
+    if (mounted) setState(() {});
+  }
+
   // ── OTOMATIK KAYIT: aktif sekmedeki barkodlari sirket uygulamasina gir ──
   Future<void> _openAutoEntry() async {
-    final barcodes = _items
-        .map((e) => e.barcode.trim())
-        .where((b) => b.isNotEmpty)
-        .toList();
+    // Her etiketin ADEDI kadar barkodu tekrarla: adet 5 ise barkod 5 kez
+    // girilir (sirket uygulamasina o kadar kayit dusmesi icin).
+    final barcodes = <String>[];
+    for (final item in _items) {
+      final bc = item.barcode.trim();
+      if (bc.isEmpty) continue;
+      final qty = item.quantity < 1 ? 1 : item.quantity;
+      for (var i = 0; i < qty; i++) {
+        barcodes.add(bc);
+      }
+    }
     if (barcodes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bu sekmede barkod yok')),
@@ -213,6 +252,9 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
       ),
     );
     if (ok != true) return;
+    // Silinecek tum etiketleri parti olarak "silinenler"e kaydet.
+    final removedItems = List<LabelItem>.from(_lists[group]!);
+    await LabelDeletedService.instance.recordBatch(group.name, removedItems);
     setState(() => _lists[group]!.clear());
     await _persist(group);
     if (mounted) {
@@ -351,8 +393,12 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
   }
 
   void _removeAt(int i) {
+    final removed = _items[i];
     setState(() => _items.removeAt(i));
     _persist(_active);
+    // Silinen etiketi "silinenler"e kaydet (parti halinde geri alinabilsin).
+    unawaited(
+        LabelDeletedService.instance.recordBatch(_active.name, [removed]));
   }
 
   void _changeQty(int i, int delta) {
@@ -443,6 +489,11 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
             tooltip: 'Geçmiş',
             icon: const Icon(Icons.history_rounded),
             onPressed: _openHistory,
+          ),
+          IconButton(
+            tooltip: 'Silinenler (geri al)',
+            icon: const Icon(Icons.restore_from_trash_rounded),
+            onPressed: _openDeleted,
           ),
           if (_items.isNotEmpty)
             IconButton(
@@ -1766,6 +1817,207 @@ class _AutoEntrySheetState extends State<_AutoEntrySheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// ══════════════════════════════════════════════════════════════════════
+///  SILINENLER sayfasi.
+///  Silinen etiket partilerini (batch) listeler; her parti tek tusla geri
+///  alinabilir veya kalici silinebilir. Parti = ayni anda silinen etiketler.
+/// ══════════════════════════════════════════════════════════════════════
+class _DeletedLabelsPage extends StatefulWidget {
+  final Future<void> Function(DeletedBatch batch) onRestore;
+  const _DeletedLabelsPage({required this.onRestore});
+
+  @override
+  State<_DeletedLabelsPage> createState() => _DeletedLabelsPageState();
+}
+
+class _DeletedLabelsPageState extends State<_DeletedLabelsPage> {
+  List<DeletedBatch> _batches = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final b = await LabelDeletedService.instance.loadBatches();
+    if (mounted) {
+      setState(() {
+        _batches = b;
+        _loading = false;
+      });
+    }
+  }
+
+  String _groupTitle(String key) {
+    for (final g in LabelGroup.values) {
+      if (g.name == key) return g.title;
+    }
+    return key;
+  }
+
+  String _fmtTime(DateTime t) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(t.day)}.${two(t.month)}.${t.year} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  Future<void> _restore(DeletedBatch batch) async {
+    await LabelDeletedService.instance.restoreBatch(batch.batchId);
+    await widget.onRestore(batch);
+    await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${batch.items.length} etiket geri alındı'),
+          backgroundColor: AppTheme.statusSafe,
+        ),
+      );
+    }
+  }
+
+  Future<void> _delete(DeletedBatch batch) async {
+    await LabelDeletedService.instance.deleteBatch(batch.batchId);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Silinen Etiketler'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        actions: [
+          if (_batches.isNotEmpty)
+            IconButton(
+              tooltip: 'Tümünü kalıcı sil',
+              icon: const Icon(Icons.delete_forever_rounded),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Silinenleri temizle'),
+                    content: const Text(
+                        'Tüm silinen etiket geçmişi kalıcı olarak silinecek. '
+                        'Bu işlem geri alınamaz.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Vazgeç')),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Temizle',
+                              style: TextStyle(color: Colors.red))),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  await LabelDeletedService.instance.clearAll();
+                  await _load();
+                }
+              },
+            ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _batches.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.restore_from_trash_rounded,
+                          size: 56, color: cs.onSurface.withOpacity(0.3)),
+                      const SizedBox(height: 12),
+                      Text('Silinen etiket yok',
+                          style:
+                              TextStyle(color: cs.onSurface.withOpacity(0.5))),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _batches.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) {
+                    final b = _batches[i];
+                    final totalQty =
+                        b.items.fold<int>(0, (s, e) => s + e.quantity);
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.label_off_rounded,
+                                    size: 18, color: AppTheme.primary),
+                                const SizedBox(width: 6),
+                                Text(_groupTitle(b.groupKey),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold)),
+                                const Spacer(),
+                                Text(_fmtTime(b.deletedAt),
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        color: cs.onSurface.withOpacity(0.5))),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${b.items.length} çeşit • $totalQty adet',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: cs.onSurface.withOpacity(0.7)),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              b.items
+                                  .take(3)
+                                  .map((e) => e.productName)
+                                  .join(', ') +
+                                  (b.items.length > 3 ? '...' : ''),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _restore(b),
+                                    icon: const Icon(Icons.undo_rounded,
+                                        size: 18),
+                                    label: const Text('Geri Al'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppTheme.statusSafe,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  tooltip: 'Kalıcı sil',
+                                  onPressed: () => _delete(b),
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }

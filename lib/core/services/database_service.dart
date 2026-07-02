@@ -65,6 +65,7 @@ class DatabaseService {
     await _createLabelActiveListsTable(db);
     await _createControlListTable(db);
     await _createCountTable(db);
+    await _createLabelDeletedTable(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -177,6 +178,27 @@ class DatabaseService {
       // Bagimsiz sayim tablosu (barkod okut + adet gir).
       await _createCountTable(db);
     }
+    if (oldVersion < 25) {
+      // Silinen etiketler (parti halinde geri alma icin).
+      await _createLabelDeletedTable(db);
+    }
+  }
+
+  Future<void> _createLabelDeletedTable(Database db) async {
+    // batch_id: ayni anda silinenleri gruplar (parti). group_key: hangi
+    // sekmeden silindigi. item_json: LabelItem'in tam kopyasi (geri
+    // yuklemek icin). deleted_at: silme zamani.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.labelDeletedTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id TEXT NOT NULL,
+        group_key TEXT NOT NULL,
+        item_json TEXT NOT NULL,
+        deleted_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_deleted_batch ON ${AppConstants.labelDeletedTable}(batch_id)');
   }
 
   Future<void> _createCountTable(Database db) async {
