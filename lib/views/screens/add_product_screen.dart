@@ -1034,7 +1034,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide:
-                    const BorderSide(color: AppTheme.primary, width: 1.5),
+                    BorderSide(color: AppTheme.primary, width: 1.5),
               ),
             ),
           ),

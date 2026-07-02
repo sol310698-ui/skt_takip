@@ -81,7 +81,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
             ),
             ListTile(
               leading:
-                  const Icon(Icons.qr_code_scanner_rounded, color: AppTheme.primary),
+                  Icon(Icons.qr_code_scanner_rounded, color: AppTheme.primary),
               title: const Text('Barkod Okut'),
               onTap: () => Navigator.pop(context, 'scan'),
             ),

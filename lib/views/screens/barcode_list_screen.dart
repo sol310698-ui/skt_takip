@@ -254,7 +254,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
             borderRadius: BorderRadius.circular(10),
           ),
           child:
-              const Icon(Icons.qr_code, color: AppTheme.primary, size: 22),
+              Icon(Icons.qr_code, color: AppTheme.primary, size: 22),
         ),
         title: Text(e.productName,
             maxLines: 1, overflow: TextOverflow.ellipsis,

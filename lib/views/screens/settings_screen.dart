@@ -28,6 +28,23 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
+
+  // Kullanicinin secebilecegi ANA RENK paleti — canli, modern tonlar.
+  static const List<Color> _palette = [
+    Color(0xFF2563EB), // mavi (varsayilan)
+    Color(0xFF7C3AED), // mor
+    Color(0xFFDB2777), // pembe/magenta
+    Color(0xFFDC2626), // kirmizi
+    Color(0xFFEA580C), // turuncu
+    Color(0xFFD97706), // amber
+    Color(0xFF16A34A), // yesil
+    Color(0xFF059669), // zumrut
+    Color(0xFF0891B2), // camgobegi
+    Color(0xFF4F46E5), // indigo
+    Color(0xFF0D9488), // teal
+    Color(0xFF475569), // kurumsal gri
+  ];
+
   List<PendingNotificationRequest> _notifications = [];
   bool _loadingNotifs = true;
   bool _exporting = false;
@@ -272,7 +289,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     fontWeight:
                         selected ? FontWeight.w700 : FontWeight.w500)),
             trailing: selected
-                ? const Icon(Icons.check_rounded, color: AppTheme.primary)
+                ? Icon(Icons.check_rounded, color: AppTheme.primary)
                 : null,
             onTap: () async {
               await ThemePrefs.instance.setMode(mode);
@@ -311,7 +328,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   'Sistem (otomatik)'),
               option(ThemeMode.light, Icons.light_mode_rounded, 'Aydınlık'),
               option(ThemeMode.dark, Icons.dark_mode_rounded, 'Koyu'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Ana Renk',
+                      style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: _palette.map((c) {
+                    final selected =
+                        ThemePrefs.instance.primaryColor == c.value;
+                    return GestureDetector(
+                      onTap: () async {
+                        await ThemePrefs.instance.setPrimaryColor(c.value);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: c,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: selected ? Colors.white : Colors.transparent,
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: c.withOpacity(selected ? 0.6 : 0.3),
+                              blurRadius: selected ? 12 : 6,
+                              spreadRadius: selected ? 1 : 0,
+                            ),
+                          ],
+                        ),
+                        child: selected
+                            ? const Icon(Icons.check,
+                                color: Colors.white, size: 22)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
             ],
           ),
         );

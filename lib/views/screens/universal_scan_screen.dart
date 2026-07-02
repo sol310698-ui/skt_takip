@@ -164,7 +164,7 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
   }
 
   Widget _corner(Alignment a) {
-    const c = AppTheme.primary;
+    final c = AppTheme.primary;
     final top = a.y < 0;
     final left = a.x < 0;
     return Container(

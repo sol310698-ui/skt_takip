@@ -8,7 +8,14 @@ class ThemePrefs extends ChangeNotifier {
   static final ThemePrefs instance = ThemePrefs._();
 
   static const _key = 'theme_mode';
+  static const _colorKey = 'theme_primary_color';
   final _storage = const FlutterSecureStorage();
+
+  // Kullanicinin sectigi ANA RENK (primary). Varsayilan: canli mavi.
+  // Uygulamadaki butonlar, vurgular, secili durumlar bu renge gore degisir.
+  int _primaryColor = 0xFF2563EB;
+  int get primaryColor => _primaryColor;
+  Color get primaryColorValue => Color(_primaryColor);
 
   // Soft Glass tasarimi acik temada en iyi gorundugu icin varsayilan
   // ACIK yapildi (eskiden koyuydu). Kullanici dilerse Ayarlar'dan
@@ -29,6 +36,23 @@ class ThemePrefs extends ChangeNotifier {
     } catch (_) {
       _mode = ThemeMode.light;
     }
+    // Ana renk tercihini yukle.
+    try {
+      final c = await _storage.read(key: _colorKey);
+      if (c != null) {
+        final parsed = int.tryParse(c);
+        if (parsed != null) _primaryColor = parsed;
+      }
+    } catch (_) {}
+  }
+
+  /// Kullanicinin sectigi ana rengi kaydet ve dinleyicileri guncelle.
+  Future<void> setPrimaryColor(int colorValue) async {
+    _primaryColor = colorValue;
+    notifyListeners();
+    try {
+      await _storage.write(key: _colorKey, value: colorValue.toString());
+    } catch (_) {}
   }
 
   Future<void> setMode(ThemeMode mode) async {

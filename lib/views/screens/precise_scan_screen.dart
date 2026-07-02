@@ -116,7 +116,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
 
             if (_processing) ...[
               const Spacer(),
-              const CircularProgressIndicator(color: AppTheme.primary),
+              CircularProgressIndicator(color: AppTheme.primary),
               const SizedBox(height: 16),
               Text(_status,
                   style: TextStyle(color: AppTheme.textSecondary)),

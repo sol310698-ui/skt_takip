@@ -1020,7 +1020,7 @@ class _QuickDateSheetState extends State<_QuickDateSheet> {
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      const BorderSide(color: AppTheme.primary, width: 1.5),
+                      BorderSide(color: AppTheme.primary, width: 1.5),
                 ),
               ),
             ),
