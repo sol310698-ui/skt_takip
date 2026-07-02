@@ -25,23 +25,9 @@ class AppTheme {
   // Kirmizi-Mavi tema: ana renk MAVI (butonlar), vurgu BORDO/KIRMIZI.
   // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ; onlar
   // SKT anlamlarini (guvenli/kritik/doldu) tasir.
-  // Ana renk — KULLANICI tarafindan degistirilebilir (ThemePrefs uzerinden).
-  // const DEGIL: setPrimary() ile calisma aninda degisir; tum uygulama
-  // (butonlar, vurgular, secili durumlar) bu renge gore guncellenir.
-  static Color primary = const Color(0xFF2563EB); // canli mavi (varsayilan)
-  static Color primaryLight = const Color(0xFF60A5FA); // acik ton
-  static Color primaryDark = const Color(0xFF1D4ED8);  // koyu ton
-
-  /// Kullanicinin sectigi ana rengi uygular. Acik/koyu tonlari otomatik
-  /// turetilir. ThemeData yeniden kurulmadan once cagrilmali.
-  static void setPrimary(Color color) {
-    primary = color;
-    final hsl = HSLColor.fromColor(color);
-    primaryLight =
-        hsl.withLightness((hsl.lightness + 0.15).clamp(0.0, 1.0)).toColor();
-    primaryDark =
-        hsl.withLightness((hsl.lightness - 0.12).clamp(0.0, 1.0)).toColor();
-  }
+  static const Color primary = Color(0xFF2563EB);      // canli mavi (butonlar)
+  static const Color primaryLight = Color(0xFF60A5FA); // acik mavi
+  static const Color primaryDark = Color(0xFF1D4ED8);  // koyu mavi
   static const Color accent = Color(0xFFB91C1C);        // bordo/kirmizi (vurgu)
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari

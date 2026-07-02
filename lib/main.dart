@@ -272,8 +272,6 @@ class _SktTakipAppState extends State<SktTakipApp>
           ThemeMode.system => platformLight,
         };
         AppTheme.applyBrightness(useLight);
-        // Kullanicinin sectigi ana rengi uygula (butonlar, vurgular...).
-        AppTheme.setPrimary(ThemePrefs.instance.primaryColorValue);
 
         return MaterialApp(
           title: AppConstants.appName,
