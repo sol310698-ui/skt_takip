@@ -2,6 +2,7 @@ package com.example.skt_takip
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -434,9 +435,11 @@ class PriceAccessibilityService : AccessibilityService() {
                 return false
             }
 
-            // ── 5) BUTONA TIKLA (ACTION_CLICK) ──
+            // ── 5) BUTONA TIKLA — once ACTION_CLICK, olmazsa GERCEK DOKUNMA ──
+            // Bazi custom butonlar ACTION_CLICK'e yanit vermiyor. O durumda
+            // butonun ekran koordinatina gercek parmak dokunusu (dispatchGesture)
+            // gonderiyoruz. Boylece hangi yontem calisiyorsa o kullanilir.
             var clicked = addBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            // Buton kendisi tiklanabilir degilse, tiklanabilir atasini bul.
             if (!clicked) {
                 val clickable = firstClickableAncestor(addBtn)
                 if (clickable != null) {
@@ -444,6 +447,18 @@ class PriceAccessibilityService : AccessibilityService() {
                     clickable.recycle()
                 }
             }
+
+            // ACTION_CLICK ise yaramadiysa: butonun konumuna gercek dokunma.
+            if (!clicked) {
+                val rect = android.graphics.Rect()
+                addBtn.getBoundsInScreen(rect)
+                if (rect.width() > 0 && rect.height() > 0) {
+                    clicked = tapAt(rect.exactCenterX(), rect.exactCenterY())
+                    autoInfo = if (clicked) "Gercek dokunma ile tiklandi"
+                               else "Tiklama basarisiz (her iki yontem)"
+                }
+            }
+
             addBtn.recycle()
             root2.recycle()
             if (root2 !== root) root.recycle()
@@ -453,6 +468,22 @@ class PriceAccessibilityService : AccessibilityService() {
             autoInfo = "HATA: ${e.message}"
             Log.e(TAG, "enterOneBarcode hata: ${e.message}")
             return false
+        }
+    }
+
+    /**
+     * Ekranda (x,y) noktasina gercek bir DOKUNMA gonderir (dispatchGesture).
+     * ACTION_CLICK islemeyen custom butonlarda calisir.
+     */
+    private fun tapAt(x: Float, y: Float): Boolean {
+        return try {
+            val path = android.graphics.Path().apply { moveTo(x, y) }
+            val stroke = GestureDescription.StrokeDescription(path, 0, 50)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "tapAt hata: ${e.message}")
+            false
         }
     }
 

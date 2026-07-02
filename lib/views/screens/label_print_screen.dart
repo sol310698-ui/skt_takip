@@ -1405,6 +1405,15 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
   Timer? _bannerTimer;
   int? _lastQuantity; // son okutulan urunun guncel adedi (buyuk rakam icin)
 
+  // ── COKLU-KARE DOGRULAMA (yanlis okumayi ele) ──
+  // Kamera bulanik/yarim bir kareden YANLIS rakam okuyabilir. Bir barkodu
+  // KABUL etmeden once, ayni degeri ART ARDA en az 2 kez okumasini bekleriz.
+  // Tek seferlik hatali okuma (bir kare) boylece elenir; cunku bir sonraki
+  // karede farkli bir yanlis deger gelir ve eslesmez.
+  String? _candidate;
+  int _candidateHits = 0;
+  static const int _requiredHits = 2;
+
   // Sag ustteki switch ile kontrol edilir: acikken SADECE EAN-13 formati
   // kabul edilir (12/8 haneli UPC, code128 vb. okutulsa da yoksayilir).
   // Kapaliyken tum desteklenen formatlar (varsayilan) okunur.
@@ -1447,6 +1456,10 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
     if (_ean13Only) {
       final isEan13Shape = RegExp(r'^\d{13}$').hasMatch(value);
       if (!isEan13Shape) return;
+      // KONTROL HANESI dogrulamasi: EAN-13'un son hanesi matematiksel bir
+      // saglama rakamidir. Yanlis okunan barkod genelde bunu gecemez —
+      // boylece hatali okuma listeye EKLENMEZ.
+      if (!_isValidEan13(value)) return;
     }
 
     final now = DateTime.now();
@@ -1455,6 +1468,25 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
         now.difference(_lastScanTime!) < _cooldown) {
       return; // ayni barkod cok kisa surede tekrar okundu, yoksay
     }
+
+    // ── COKLU-KARE DOGRULAMA ──
+    // Bu degeri daha once (kabul edilmemis) aday olarak gorduysek sayaci
+    // artir; farkli bir deger geldiyse adayi sifirla. Yeterli tekrar
+    // (art arda ayni okuma) olmadan KABUL ETME — boylece tek karelik yanlis
+    // okuma listeye eklenmez.
+    if (value == _candidate) {
+      _candidateHits++;
+    } else {
+      _candidate = value;
+      _candidateHits = 1;
+    }
+    if (_candidateHits < _requiredHits) {
+      return; // henuz yeterince dogrulanmadi, bekle
+    }
+    // Dogrulandi — adayi sifirla, kabul et.
+    _candidate = null;
+    _candidateHits = 0;
+
     _lastBarcode = value;
     _lastScanTime = now;
 
@@ -1471,6 +1503,20 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
     _bannerTimer = Timer(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => _banner = null);
     });
+  }
+
+  /// EAN-13 kontrol hanesi (check digit) dogrulamasi.
+  /// Ilk 12 haneden hesaplanan saglama rakami, 13. haneye esit olmali.
+  /// Yanlis okunan barkodlar genelde bu testi gecemez.
+  bool _isValidEan13(String code) {
+    if (code.length != 13 || !RegExp(r'^\d{13}$').hasMatch(code)) return false;
+    var sum = 0;
+    for (var i = 0; i < 12; i++) {
+      final digit = code.codeUnitAt(i) - 48; // '0' = 48
+      sum += (i % 2 == 0) ? digit : digit * 3;
+    }
+    final check = (10 - (sum % 10)) % 10;
+    return check == (code.codeUnitAt(12) - 48);
   }
 
   Future<void> _editLastQuantity() async {
