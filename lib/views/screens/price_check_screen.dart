@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/scan_overlay.dart';
 import 'pending_products_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -671,17 +672,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     return Stack(
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
-        // Tarama cercevesi
-        Center(
-          child: Container(
-            width: 240,
-            height: 240,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white.withOpacity(0.9), width: 3),
-              borderRadius: BorderRadius.circular(20),
-            ),
-          ),
-        ),
+        const ScanOverlay(hint: 'Etiket barkodunu çerçeveye getirin'),
       ],
     );
   }

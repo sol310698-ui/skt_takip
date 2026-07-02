@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -20,6 +21,16 @@ class AppLogger {
   File? _cachedFile;
   bool _initializing = false;
 
+  // ── TAMPON (BUFFER) ──
+  // Her log satirini AYRI AYRI diske flush etmek (ozellikle debugPrint
+  // saganaginda) UI'i kasiyordu. Cozum: satirlari bellekte biriktir,
+  // periyodik olarak (veya tampon dolunca) TEK seferde diske yaz.
+  final StringBuffer _buffer = StringBuffer();
+  int _bufferLines = 0;
+  Timer? _flushTimer;
+  static const int _flushEveryLines = 20; // 20 satirda bir yaz
+  static const Duration _flushInterval = Duration(seconds: 3);
+
   Future<File> _file() async {
     if (_cachedFile != null) return _cachedFile!;
     final dir = await getApplicationDocumentsDirectory();
@@ -28,18 +39,47 @@ class AppLogger {
   }
 
   /// Bir olayi loga ekle. [tag] kisa kategori (orn 'ALARM'), [message] detay.
+  /// Satir once BELLEK tamponuna eklenir; diske yazma periyodik/toplu yapilir
+  /// (UI kasmasini onlemek icin). Uygulama kapanirken de flush edilir.
   Future<void> log(String tag, String message) async {
     try {
-      final f = await _file();
       final ts = DateTime.now().toIso8601String();
-      final line = '[$ts] [$tag] $message\n';
-      // Append modunda yaz (uygulama kapaliyken acilan isolate'lerde de calisir).
-      await f.writeAsString(line, mode: FileMode.append, flush: true);
-      await _trimIfNeeded(f);
+      _buffer.write('[$ts] [$tag] $message\n');
+      _bufferLines++;
+      // Tampon doldu -> hemen yaz. Dolmadi -> zamanlayici ile yaz.
+      if (_bufferLines >= _flushEveryLines) {
+        await _flush();
+      } else {
+        _scheduleFlush();
+      }
     } catch (_) {
-      // Log yazimi asla uygulamayi bloke etmesin / cokmesine yol acmasin.
+      // Log yazimi asla uygulamayi bloke etmesin.
     }
   }
+
+  void _scheduleFlush() {
+    _flushTimer ??= Timer(_flushInterval, () {
+      _flush();
+    });
+  }
+
+  /// Tamponu diske yaz (tek I/O islemi).
+  Future<void> _flush() async {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    if (_buffer.isEmpty) return;
+    final data = _buffer.toString();
+    _buffer.clear();
+    _bufferLines = 0;
+    try {
+      final f = await _file();
+      await f.writeAsString(data, mode: FileMode.append, flush: false);
+      await _trimIfNeeded(f);
+    } catch (_) {}
+  }
+
+  /// Bekleyen tamponu hemen diske yaz (ornegin log ekrani acilmadan once).
+  Future<void> flushNow() => _flush();
 
   /// Dosya cok buyukse eski yarisini at.
   Future<void> _trimIfNeeded(File f) async {
@@ -67,6 +107,7 @@ class AppLogger {
 
   /// Tum log icerigini oku (goruntuleme/paylasim icin).
   Future<String> readAll() async {
+    await _flush(); // bekleyen tamponu once diske yaz ki son loglar gorunsun
     try {
       final f = await _file();
       if (!await f.exists()) return '(Henüz log kaydı yok)';

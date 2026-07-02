@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -17,6 +18,7 @@ import '../../core/services/database_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
@@ -381,6 +383,7 @@ class _PriceChangeSessionScreenState
     if (raw == null || raw.trim().isEmpty) return;
     final code = ScanParser.parse(raw).barcode;
     if (code == null) return;
+    HapticFeedback.mediumImpact(); // okuma basarili — titresimle uyar
 
     final item = await PriceChangeService.instance
         .findInSession(widget.sessionId, code);
@@ -850,6 +853,7 @@ class _PriceChangeSessionScreenState
             fit: StackFit.expand,
             children: [
               MobileScanner(controller: _scanner, onDetect: _onDetect),
+              const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
               if (_scanMessage != null)
                 Positioned(
                   bottom: 12,

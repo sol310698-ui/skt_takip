@@ -6,6 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'price_change_session_screen.dart';
@@ -825,6 +826,7 @@ class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> {
         capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
     if (value == null || value.isEmpty) return;
     _handled = true;
+    HapticFeedback.mediumImpact(); // okuma basarili — titresimle uyar
     // Yapisal QR ise barkod+fiyat birlikte coz.
     Navigator.of(context).pop(ScanParser.parse(value));
   }
@@ -850,33 +852,7 @@ class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> {
         alignment: Alignment.center,
         children: [
           MobileScanner(controller: _controller, onDetect: _onDetect),
-          // Tarama cercevesi
-          Container(
-            width: MediaQuery.of(context).size.width * 0.8,
-            height: 160,
-            decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.primary, width: 3),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          Positioned(
-            bottom: 60,
-            left: 32,
-            right: 32,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: const Text(
-                'Sorgulamak için barkodu çerçeveye getir',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white, fontSize: 14),
-              ),
-            ),
-          ),
+          const ScanOverlay(hint: 'Sorgulamak için barkodu çerçeveye getirin'),
         ],
       ),
     );

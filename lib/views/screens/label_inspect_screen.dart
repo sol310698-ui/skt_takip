@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
@@ -188,6 +189,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     return Stack(
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
+        const ScanOverlay(hint: 'Etiket QR veya barkodunu çerçeveye getirin'),
         if (_busy)
           Container(
             color: Colors.black54,

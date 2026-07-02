@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/count_item.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/scan_overlay.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  SAYIM (BAGIMSIZ)
@@ -437,17 +438,11 @@ class _CountScreenState extends ConsumerState<CountScreen> {
       alignment: Alignment.center,
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
-        Container(
-          width: 220,
-          height: 120,
-          decoration: BoxDecoration(
-            border: Border.all(
-                color: _activeBarcode != null
-                    ? Colors.orange
-                    : Colors.greenAccent,
-                width: 3),
-            borderRadius: BorderRadius.circular(12),
-          ),
+        ScanOverlay(
+          hint: _activeBarcode != null
+              ? 'Adet girin'
+              : 'Ürün barkodunu okutun',
+          accent: _activeBarcode != null ? Colors.orange : AppTheme.primary,
         ),
       ],
     );
