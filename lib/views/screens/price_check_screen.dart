@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/scan_overlay.dart';
+import 'label_print_screen.dart';
 import 'pending_products_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -64,6 +66,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   double? _labelPrice;
   double? _systemPrice;
   String? _systemBarcode;
+  String? _systemStockCode; // sonuc anindaki sistem stok kodu (etiket basimi icin)
   String? _systemProductName;
   _CompareResult? _result;
 
@@ -307,6 +310,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       _labelPrice = parsed.price;
       _systemPrice = systemPrice;
       _systemBarcode = systemBarcode;
+      _systemStockCode = sys.stockCode;
       _systemProductName = sys.productName;
       _result = result;
       _busy = false;
@@ -315,9 +319,35 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // Sesli + titresimli geri bildirim.
     await _announce(result, parsed.price, systemPrice);
 
+    // ── HATALI SONUC -> ETIKET BASIMINA GONDER TEKLIFI ──
+    // Yanlis etiket / yanlis fiyat durumunda raftaki etiketin YENIDEN
+    // BASILMASI gerekir. Kullaniciyi ayri bir ekrana gitmeye zorlamak
+    // yerine, sonucun hemen ardindan kayan bir pencere acilir ve urun tek
+    // dokunusla Etiket Basim listelerinden birine gonderilebilir.
+    //
+    // Bu sirada OTOMATIK YENIDEN TARAMA CALISMAZ (pencere aciktir);
+    // pencere kapaninca tarama kaldigi yerden devam eder.
+    if (_needsNewLabel(result)) {
+      _autoRescanTimer?.cancel();
+      await _offerLabelPrint(result);
+      if (!mounted) return;
+      await _scanAgain();
+      return;
+    }
+
     // OTOMATIK DEVAM: kullanici "Tekrar Okut"a basmak zorunda kalmasin.
     _scheduleAutoRescan();
   }
+
+  /// Bu sonuc raftaki etiketin YENIDEN BASILMASINI gerektirir mi?
+  ///  - wrongLabel        : etiket baska urune ait -> dogru etiket basilmali
+  ///  - wrongLabelPriceOk : fiyat tutuyor ama etiket yanlis urunun -> basilmali
+  ///  - mismatch          : etiketteki fiyat eski/yanlis -> basilmali
+  ///  - match / noSystem  : basim gerekmez (noSystem'de zaten karsilastirma yok)
+  bool _needsNewLabel(_CompareResult r) =>
+      r == _CompareResult.wrongLabel ||
+      r == _CompareResult.wrongLabelPriceOk ||
+      r == _CompareResult.mismatch;
 
   void _scheduleAutoRescan() {
     _autoRescanTimer?.cancel();
@@ -336,21 +366,27 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   }) {
     if (systemPrice == null) return _CompareResult.noSystem;
 
+    // 1 kurus hassasiyet (kayan nokta hatasini tolere et).
+    final priceSame = (labelPrice - systemPrice).abs() < 0.005;
+
     // YANLIS ETIKET: QR'daki barkod ile sistemdeki barkod farkliysa, bu
     // etiket bu urune ait degildir. (Barkodlardan biri yoksa bu kontrolu
     // atla; sadece fiyata bak.)
-    if (systemBarcode != null &&
+    final barcodeMismatch = systemBarcode != null &&
         labelBarcode.isNotEmpty &&
         labelBarcode != '—' &&
-        labelBarcode != systemBarcode) {
-      return _CompareResult.wrongLabel;
+        labelBarcode != systemBarcode;
+
+    if (barcodeMismatch) {
+      // v3: Fiyat TUTUYOR ama etiket baska bir urune ait. Eskiden bu durum
+      // duz "Yanlış etiket" olarak isaretleniyordu ve kullanici fiyatin
+      // dogru oldugunu goremiyordu. Artik ayri bir sonuc.
+      return priceSame
+          ? _CompareResult.wrongLabelPriceOk
+          : _CompareResult.wrongLabel;
     }
 
-    // 1 kurus hassasiyet (kayan nokta hatasini tolere et).
-    if ((labelPrice - systemPrice).abs() < 0.005) {
-      return _CompareResult.match;
-    }
-    return _CompareResult.mismatch;
+    return priceSame ? _CompareResult.match : _CompareResult.mismatch;
   }
 
   Future<void> _announce(
@@ -368,10 +404,372 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         await PriceCheckChannel.vibrate(mismatch: true);
         await PriceCheckChannel.speak('Yanlış etiket');
         break;
+      case _CompareResult.wrongLabelPriceOk:
+        // Fiyat dogru oldugu icin "yanlis fiyat" alarmi vermiyoruz; ama
+        // etiket baska urune ait oldugundan yine de UYARI titresimi veriyoruz.
+        await PriceCheckChannel.vibrate(mismatch: true);
+        await PriceCheckChannel.speak('Fiyat doğru, etiket yanlış');
+        break;
       case _CompareResult.noSystem:
         await PriceCheckChannel.vibrate(mismatch: true);
         await PriceCheckChannel.speak('Sistem fiyatı yok');
         break;
+    }
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  ETIKET BASIMINA GONDER — KAYAN PENCERE (bottom sheet)
+  /// ──────────────────────────────────────────────────────────────────
+  ///  Hatali bir sonuctan (yanlis etiket / yanlis fiyat) hemen sonra acilir.
+  ///  Kullanici:
+  ///    1) Etiket tipini secer (Kalın Reyon / İnce Reyon / A4 / A4 İkili /
+  ///       A4 Üçlü) — Etiket Basim ekranindaki AYNI 5 liste.
+  ///    2) Adedi belirler (- / + veya hazir 1-2-3-5-10 secenekleri).
+  ///    3) "Etiket Basıma Ekle" der.
+  ///  Urun, LabelPendingQueueService kuyruguna yazilir; Etiket Basim ekrani
+  ///  bir sonraki acilisinda kuyrugu bosaltip ilgili sekmeye ekler (mevcut
+  ///  "Fiyat Değişim'den gönder" akisiyla BIREBIR ayni mekanizma — yeni bir
+  ///  paralel sistem kurulmadi).
+  ///
+  ///  HANGI URUN GONDERILIR? Her zaman SISTEMDEKI urun (sistem barkodu +
+  ///  sistem urun adi). Cunku "yanlis etiket" durumunda raftaki etiket zaten
+  ///  BASKA bir urune aittir; basilmasi gereken, sistemin gosterdigi dogru
+  ///  urunun etiketidir.
+  /// ══════════════════════════════════════════════════════════════════
+
+  /// Kullanicinin en son sectigi etiket tipi — bir sonraki teklifte hazir
+  /// gelsin diye hatirlanir (reyonda ayni tip pes pese kullanilir).
+  static LabelGroup _lastLabelGroup = LabelGroup.inceRon;
+
+  Future<void> _offerLabelPrint(_CompareResult result) async {
+    final barcode = _systemBarcode ?? _labelBarcode;
+    if (!mounted || barcode == null || barcode.isEmpty || barcode == '—') {
+      return;
+    }
+    final productName = _systemProductName?.trim();
+
+    // Gorme dostu: pencere acilirken soruyu sesli de sor.
+    await PriceCheckChannel.speak('Etiket basımına eklensin mi?');
+
+    LabelGroup group = _lastLabelGroup;
+    int qty = 1;
+
+    final added = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF14181E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheet) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 18,
+                right: 18,
+                top: 12,
+                bottom: 18 + MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.local_printshop_rounded,
+                          color: _resultColor(result), size: 26),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Etiket basım sayfasına eklensin mi?',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _labelReasonText(result),
+                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // ── URUN OZETI ──
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          productName?.isNotEmpty == true
+                              ? productName!
+                              : 'Ürün adı okunamadı',
+                          style: TextStyle(
+                            color: productName?.isNotEmpty == true
+                                ? Colors.white
+                                : Colors.white54,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Barkod: $barcode'
+                          '${_systemStockCode != null ? '  •  Stok: $_systemStockCode' : ''}'
+                          '${_systemPrice != null ? '  •  ${_systemPrice!.toStringAsFixed(2)} ₺' : ''}',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── ETIKET TIPI ──
+                  const Text('Etiket tipi',
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: LabelGroup.values.map((g) {
+                      final selected = g == group;
+                      return ChoiceChip(
+                        label: Text(g.title),
+                        selected: selected,
+                        showCheckmark: false,
+                        onSelected: (_) => setSheet(() => group = g),
+                        backgroundColor: Colors.white.withOpacity(0.06),
+                        selectedColor: AppTheme.primary,
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : Colors.white70,
+                          fontWeight:
+                              selected ? FontWeight.w800 : FontWeight.w500,
+                        ),
+                        side: BorderSide(
+                          color: selected ? AppTheme.primary : Colors.white24,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── ADET ──
+                  const Text('Adet',
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _qtyButton(
+                        icon: Icons.remove_rounded,
+                        onTap: qty > 1
+                            ? () => setSheet(() => qty--)
+                            : null,
+                      ),
+                      Container(
+                        width: 68,
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Text('$qty',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900)),
+                      ),
+                      _qtyButton(
+                        icon: Icons.add_rounded,
+                        onTap: qty < 99 ? () => setSheet(() => qty++) : null,
+                      ),
+                      const SizedBox(width: 12),
+                      // Hazir adetler — reyonda hizli secim icin.
+                      Expanded(
+                        child: Wrap(
+                          alignment: WrapAlignment.end,
+                          spacing: 6,
+                          children: const [1, 2, 3, 5, 10].map((n) {
+                            return ActionChip(
+                              label: Text('$n'),
+                              onPressed: () => setSheet(() => qty = n),
+                              backgroundColor: qty == n
+                                  ? AppTheme.primary.withOpacity(0.3)
+                                  : Colors.white.withOpacity(0.06),
+                              labelStyle: const TextStyle(
+                                  color: Colors.white70, fontSize: 12),
+                              side: const BorderSide(color: Colors.white24),
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── BUTONLAR ──
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 54,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(sheetCtx).pop(false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white24),
+                            ),
+                            child: const Text('Vazgeç',
+                                style: TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w700)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: SizedBox(
+                          height: 54,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.statusSafe,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () async {
+                              _lastLabelGroup = group;
+                              await LabelPendingQueueService.instance.push(
+                                barcode: barcode,
+                                productName: (productName?.isNotEmpty == true)
+                                    ? productName!
+                                    : barcode,
+                                stockCode: _systemStockCode,
+                                groupKey: group.name,
+                                quantity: qty,
+                                source: 'price_check',
+                              );
+                              if (sheetCtx.mounted) {
+                                Navigator.of(sheetCtx).pop(true);
+                              }
+                            },
+                            icon: const Icon(Icons.add_rounded, size: 24),
+                            label: Text('$qty adet ekle',
+                                style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted || added != true) return;
+
+    await PriceCheckChannel.speak('Etiket basımına eklendi');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppTheme.statusSafe,
+        duration: const Duration(seconds: 3),
+        content: Text(
+            '${_lastLabelGroup.title} listesine eklendi ($qty adet). '
+            'Etiket Basım ekranını açtığınızda listeye düşecek.'),
+        action: SnackBarAction(
+          label: 'AÇ',
+          textColor: Colors.white,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const LabelPrintScreen()),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _qtyButton({required IconData icon, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 48,
+        height: 48,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(onTap == null ? 0.03 : 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Icon(icon,
+            color: onTap == null ? Colors.white24 : Colors.white, size: 24),
+      ),
+    );
+  }
+
+  /// Kayan penceredeki "neden" satiri — kullanici hangi hata yuzunden etiket
+  /// basmasi gerektigini gorsun.
+  String _labelReasonText(_CompareResult r) {
+    switch (r) {
+      case _CompareResult.wrongLabel:
+        return 'Raftaki etiket başka bir ürüne ait. Doğru ürünün etiketi basılmalı.';
+      case _CompareResult.wrongLabelPriceOk:
+        return 'Fiyat doğru ama etiket başka ürünün. Doğru ürünün etiketi basılmalı.';
+      case _CompareResult.mismatch:
+        return 'Etiketteki fiyat sistemle uyuşmuyor. Etiket yenilenmeli.';
+      case _CompareResult.match:
+      case _CompareResult.noSystem:
+        return '';
+    }
+  }
+
+  /// Sonuc rengi (hem AppBar hem kayan pencere ikonu icin ortak kaynak).
+  Color _resultColor(_CompareResult r) {
+    switch (r) {
+      case _CompareResult.match:
+        return AppTheme.statusSafe;
+      case _CompareResult.mismatch:
+      case _CompareResult.wrongLabel:
+        return AppTheme.statusExpired;
+      case _CompareResult.wrongLabelPriceOk:
+      case _CompareResult.noSystem:
+        return AppTheme.statusWarning;
     }
   }
 
@@ -384,6 +782,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       _labelPrice = null;
       _systemPrice = null;
       _systemBarcode = null;
+      _systemStockCode = null;
       _systemProductName = null;
       _busy = false;
       _scanning = true;
@@ -616,19 +1015,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   }
 
   /// App bar rengi duruma gore: dogru=yesil, yanlis fiyat/etiket=kirmizi,
-  /// sistem fiyati yok=sari, henuz sonuc yok=normal (mor).
+  /// fiyat dogru+etiket yanlis / sistem fiyati yok=sari, sonuc yok=mor.
   Color _appBarColor() {
-    switch (_result) {
-      case _CompareResult.match:
-        return AppTheme.statusSafe;
-      case _CompareResult.mismatch:
-      case _CompareResult.wrongLabel:
-        return AppTheme.statusExpired;
-      case _CompareResult.noSystem:
-        return AppTheme.statusWarning;
-      case null:
-        return AppTheme.primary;
-    }
+    final r = _result;
+    if (r == null) return AppTheme.primary;
+    return _resultColor(r);
   }
 
 
@@ -698,6 +1089,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         icon = Icons.wrong_location_rounded;
         title = 'YANLIŞ ETİKET';
         break;
+      case _CompareResult.wrongLabelPriceOk:
+        bg = AppTheme.statusWarning;
+        icon = Icons.swap_horiz_rounded;
+        title = 'FİYAT DOĞRU\nETİKET YANLIŞ';
+        break;
       case _CompareResult.noSystem:
         bg = AppTheme.statusWarning;
         icon = Icons.help_rounded;
@@ -738,12 +1134,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
           _priceRow('Etiket', _labelPrice),
           const SizedBox(height: 12),
           _priceRow('Sistem', _systemPrice),
-          if (r == _CompareResult.wrongLabel) ...[
+          if (r == _CompareResult.wrongLabel ||
+              r == _CompareResult.wrongLabelPriceOk) ...[
             const SizedBox(height: 16),
             Text(
               'Etiket barkodu: ${_labelBarcode ?? "—"}\n'
               'Sistem barkodu: ${_systemBarcode ?? "—"}\n'
-              'Bu etiket bu ürüne ait değil. Diğer etiketleri okutun.',
+              '${r == _CompareResult.wrongLabelPriceOk ? "Fiyatlar aynı ama bu etiket başka bir ürüne ait. Etiketi doğru ürünle değiştirin." : "Bu etiket bu ürüne ait değil. Diğer etiketleri okutun."}',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white.withOpacity(0.95)),
             ),
@@ -800,4 +1197,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   }
 }
 
-enum _CompareResult { match, mismatch, wrongLabel, noSystem }
+/// Karsilastirma sonuclari:
+///  - [match]              : barkod ayni + fiyat ayni  -> "Doğru"
+///  - [mismatch]           : barkod ayni + fiyat farkli -> "Yanlış fiyat"
+///  - [wrongLabel]         : barkod FARKLI + fiyat da farkli -> "Yanlış etiket"
+///  - [wrongLabelPriceOk]  : barkod FARKLI ama fiyat AYNI    -> "Fiyat doğru,
+///    etiket yanlış". (v3'te eklendi.) Bu durum pratikte cok kritiktir:
+///    fiyat tuttugu icin gozden kacar, ama raftaki etiket BASKA bir urune
+///    aittir — musteri yanlis urun bilgisi gorur. Kirmizi degil TURUNCU ile
+///    gosterilir; cunku fiyat hatasi YOK, etiket yerlesimi hatasi VAR.
+///  - [noSystem]           : sistem fiyati okunamadi -> "Sistem fiyatı yok"
+enum _CompareResult { match, mismatch, wrongLabel, wrongLabelPriceOk, noSystem }

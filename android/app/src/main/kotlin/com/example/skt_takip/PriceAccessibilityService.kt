@@ -85,6 +85,59 @@ class PriceAccessibilityService : AccessibilityService() {
             "(\\d{1,6}[.,]\\d{1,2})"
         )
 
+        // ════════════════════════════════════════════════════════════════
+        //  v3 — "GRAMAJI FIYAT SANMA" DUZELTMESI
+        // ────────────────────────────────────────────────────────────────
+        //  HATA: Kilogram/litre bazli urunlerde (orn. "ZX KING 2,5 KG",
+        //  "AYRAN 1,5 LT") urun ADI icinde ondalikli bir sayi bulunuyor.
+        //  Eski mantik ekrandaki ILK ondalikli sayiyi fiyat sayiyordu; urun
+        //  adi ekranda "Sistem Fiyatı" satirindan ONCE geldigi icin sistem
+        //  fiyati olarak 2,50 okunuyordu. Barkod/stok kodu dogru okundugu
+        //  halde fiyat yanlis cikmasinin sebebi TAM OLARAK BUYDU.
+        //
+        //  COZUM iki katmanli:
+        //   1) KONUM: fiyat SADECE "Sistem Fiyatı" etiketinin AYNI
+        //      satirinda veya ALTINDAKI birkac satirda aranir. Etiketin
+        //      USTUNDE kalan hicbir sayi fiyat olarak kabul EDILMEZ.
+        //   2) BICIM: sayidan hemen sonra bir OLCU BIRIMI geliyorsa
+        //      (KG, GR, LT, ML, ADET, X, % ...) ya da satirda para birimi
+        //      disinda HARF varsa, o sayi fiyat DEGILDIR.
+        // ════════════════════════════════════════════════════════════════
+
+        /** Sayidan HEMEN SONRA gelirse o sayinin fiyat OLMADIGINI gosteren olcu birimleri. */
+        private val UNIT_SUFFIX = Regex(
+            "^\\s*(kg|kilo(gram)?|gr|gram|g|mg|ml|mlt|lt|litre|l|cl|cc|cm|mm|m|adet|ad|pk|paket|koli|top|rulo|x|%|li|lu|lı|lük|luk|lik|lık)\\b",
+            RegexOption.IGNORE_CASE
+        )
+
+        /**
+         * Fiyat satirinda GORULMESI NORMAL olan (harf iceren) kelimeler.
+         * Bunlar elendikten sonra satirda HARF kalmamalidir; kaliyorsa o
+         * satir bir fiyat degil, urun adi/aciklamadir.
+         *
+         * NOT: Turkce'nin noktali/noktasiz I sorunu (I/ı, İ/i) yuzunden
+         * sadece IGNORE_CASE yetmez — bu yuzden hem [ıi] karakter sinifi
+         * kullanilir hem de metin once [normalizeTurkish] ile sadelestirilir.
+         */
+        private val PRICE_NOISE = Regex(
+            "(?i)(s[ıi]stem\\s*f[ıi]yat[ıi]?|f[ıi]yat[ıi]?|tutar|b[ıi]r[ıi]m|kdv|tl|try|₺)"
+        )
+
+        /**
+         * Sayidan HEMEN SONRA para birimi geliyorsa ("129,90 ₺", "129,90 TL")
+         * bu KESIN bir fiyattir — satirda baska harfler olsa bile (orn. urun
+         * adi ile fiyatin ayni satirda birlestigi duzenlerde:
+         * "ZX KING 2,5 KG   129,90 ₺").
+         */
+        // NOT: "₺" bir KELIME karakteri degildir; bu yuzden ondan sonra "\\b"
+        // KULLANILAMAZ (hicbir zaman eslesmez). Sadece harfli birimlerde (TL,
+        // TRY) kelime sinirina bakiyoruz.
+        private val CURRENCY_SUFFIX = Regex("^\\s*(₺|tl\\b|try\\b)", RegexOption.IGNORE_CASE)
+
+        /** 'İ' -> 'i', 'I' -> 'ı' donusumu: Turkce buyuk harfli ekranlarda filtreler sasmasin. */
+        private fun normalizeTurkish(s: String): String =
+            s.replace('İ', 'i').replace('I', 'ı')
+
         // Son okunan sistem fiyati, Flutter tarafinin (MethodChannel ile)
         // erisebilmesi icin statik tutulur (ayni process icinde, basit ve
         // yeterli).
@@ -738,8 +791,30 @@ class PriceAccessibilityService : AccessibilityService() {
         return c
     }
 
+    /**
+     * Ekrandan toplanan metin satirlarindan (yukaridan asagi sirali) sistem
+     * fiyatini bulur.
+     *
+     * v3 — KONUM KURALI: Fiyat, "Sistem Fiyatı" etiketinin YA AYNI
+     * SATIRINDA ya da ALTINDAKI birkac satirdadir. Etiketin USTUNDE kalan
+     * satirlar (urun adi, barkod, stok kodu, gramaj...) fiyat olarak ASLA
+     * degerlendirilmez. Eski hata ("ZX KING 2,5 KG" -> 2,50 TL) tam olarak
+     * bu kuralin olmamasindan kaynaklaniyordu.
+     */
     private fun priceFromTexts(texts: List<String>): Pair<Double, String>? {
-        for (t in texts) {
+        val labelIdx = texts.indexOfFirst { it.contains(PRICE_LABEL, ignoreCase = true) }
+        if (labelIdx < 0) return null
+
+        // 1) Etiket ve fiyat AYNI dugumde olabilir: "Sistem Fiyatı: 129,90 ₺"
+        val labelLine = texts[labelIdx]
+        parsePrice(labelLine)?.let { return Pair(it, labelLine) }
+
+        // 2) Etiketin ALTINDAKI ilk gecerli fiyat satiri. Pencere dar
+        //    tutulur (6 satir) — cok asagidaki alakasiz bir sayiyi
+        //    (orn. "Toplam", "KDV", tarih) yakalamamak icin.
+        val end = minOf(texts.size, labelIdx + 7)
+        for (i in (labelIdx + 1) until end) {
+            val t = texts[i]
             if (t.contains(PRICE_LABEL, ignoreCase = true)) continue
             val p = parsePrice(t) ?: continue
             return Pair(p, t)
@@ -789,9 +864,19 @@ class PriceAccessibilityService : AccessibilityService() {
                 reachedPriceLabel = true
             }
 
-            // Ondalikli fiyat (9,95 / 9.95) bir KOD degildir; atla.
-            if (clean.matches(".*\\d[.,]\\d.*".toRegex()) &&
-                clean.replace("[^0-9]".toRegex(), "").length <= 6) {
+            // Ondalikli sayi iceren satir bir KOD (barkod/stok) DEGILDIR.
+            //
+            // v3 DUZELTMESI: Eskiden burada `continue` vardi; yani ondalikli
+            // sayi iceren HER satir tamamen atlaniyordu. Bu, "ZX KING 2,5 KG"
+            // gibi GRAMAJLI urun adlarinin urun-adi ADAY listesine bile
+            // girememesine yol aciyordu — sonucta urun adi olarak bir ustteki
+            // satir (form basligi/sube adi) seciliyordu. Artik bu satir kod
+            // olarak degerlendirilmez ama urun adi adayi OLABILIR.
+            val looksNumericValue = clean.matches(".*\\d[.,]\\d.*".toRegex()) &&
+                clean.replace("[^0-9]".toRegex(), "").length <= 6
+            val hasLetters = clean.any { it.isLetter() }
+            if (looksNumericValue && !hasLetters) {
+                // Saf sayisal ondalik deger (orn. "129,90") — ne kod ne urun adi.
                 continue
             }
 
@@ -926,6 +1011,11 @@ class PriceAccessibilityService : AccessibilityService() {
     ): Pair<Double, String>? {
         val labelNode = findNodeByText(root, labelText) ?: return null
 
+        // 0) Etiket ve fiyat AYNI dugumde olabilir: "Sistem Fiyatı: 129,90 ₺"
+        labelNode.text?.toString()?.let { t ->
+            parsePrice(t)?.let { return Pair(it, t) }
+        }
+
         // 1) Ebeveynin cocuklari arasinda, etiketten SONRAKI dugumlerde ara.
         val parent = labelNode.parent
         if (parent != null) {
@@ -941,28 +1031,47 @@ class PriceAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2) Bulunamadiysa: grandparent alt agacinda ilk fiyatli metni ara.
+        // 2) Bulunamadiysa: grandparent alt agacinda ara — AMA SADECE
+        //    etiket dugumunden SONRA gelen dugumlerde.
+        //
+        //    v3: Eskiden burada grandparent'in TUM alt agaci bastan taraniyor,
+        //    ilk ondalikli sayi fiyat sayiliyordu. Urun adi ("ZX KING 2,5 KG")
+        //    etiketten ONCE geldigi icin gramaj fiyat olarak okunuyordu.
+        //    Artik agac DFS sirasiyla geziliyor ve fiyat aramasi ancak etiket
+        //    dugumu GECILDIKTEN sonra basliyor.
         val grandparent = parent?.parent
         if (grandparent != null) {
-            val price = searchSubtreeForPrice(grandparent, excludeText = labelText)
+            val passed = booleanArrayOf(false)
+            val price = searchSubtreeForPrice(grandparent, labelText, passed)
             if (price != null) return price
         }
 
         return null
     }
 
+    /**
+     * Alt agaci DFS (yukaridan asagi, gorsel siraya en yakin) gezerek fiyat
+     * arar. [passed] bayragi, etiket dugumune ULASILANA KADAR hicbir sayinin
+     * fiyat olarak kabul edilmemesini saglar.
+     */
     private fun searchSubtreeForPrice(
         node: AccessibilityNodeInfo,
-        excludeText: String
+        labelText: String,
+        passed: BooleanArray
     ): Pair<Double, String>? {
         val text = node.text?.toString()
-        if (text != null && !text.contains(excludeText)) {
-            val price = parsePrice(text)
-            if (price != null) return Pair(price, text)
+        if (text != null) {
+            if (text.contains(labelText, ignoreCase = true)) {
+                passed[0] = true
+                // Etiket + fiyat ayni dugumdeyse hemen dondur.
+                parsePrice(text)?.let { return Pair(it, text) }
+            } else if (passed[0]) {
+                parsePrice(text)?.let { return Pair(it, text) }
+            }
         }
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val result = searchSubtreeForPrice(child, excludeText)
+            val result = searchSubtreeForPrice(child, labelText, passed)
             if (result != null) return result
         }
         return null
@@ -974,11 +1083,54 @@ class PriceAccessibilityService : AccessibilityService() {
         return Pair(price, text)
     }
 
+    /**
+     * Bir metin satirindan SISTEM FIYATINI cikarir — ama sadece o sayi
+     * gercekten bir FIYATSA.
+     *
+     * ELENEN ORNEKLER (eskiden yanlislikla fiyat sayiliyordu):
+     *   "ZX KING 2,5 KG"     -> 2,5'ten sonra "KG" var           -> null
+     *   "AYRAN 1,5 LT"       -> "LT"                             -> null
+     *   "SUT 1,5 L 6'LI"     -> "L"                              -> null
+     *   "PEYNIR 2.50 KG'LIK" -> "KG"                             -> null
+     *   "COLA 2,5 X 6"       -> "X"                              -> null
+     *
+     * KABUL EDILEN ORNEKLER:
+     *   "129,90"  "129,90 ₺"  "129,90 TL"  "Sistem Fiyatı: 129,90 ₺"
+     *
+     * KURAL: Sayidan sonra olcu birimi gelmeyecek VE satirda para
+     * birimi/fiyat kelimeleri disinda HARF kalmayacak. Bir satirda birden
+     * fazla sayi varsa, bu kurallari gecen ILK sayi alinir.
+     */
     private fun parsePrice(raw: String): Double? {
-        val matcher = PRICE_PATTERN.matcher(raw)
-        if (!matcher.find()) return null
-        val numStr = matcher.group(1)?.replace(',', '.') ?: return null
-        return numStr.toDoubleOrNull()
+        val s = raw.trim()
+        if (s.isEmpty()) return null
+
+        val matcher = PRICE_PATTERN.matcher(s)
+        while (matcher.find()) {
+            val group = matcher.group(1) ?: continue
+            val start = matcher.start(1)
+            val end = matcher.end(1)
+
+            // 1) Sayidan HEMEN SONRA olcu birimi mi geliyor? -> fiyat degil.
+            val tail = s.substring(end)
+            if (UNIT_SUFFIX.containsMatchIn(tail)) continue
+
+            // 1b) Sayidan hemen sonra PARA BIRIMI geliyorsa -> kesin fiyat.
+            if (CURRENCY_SUFFIX.containsMatchIn(tail)) {
+                return group.replace(',', '.').toDoubleOrNull()
+            }
+
+            // 2) Satirin geri kalaninda (sayi haric) para birimi/fiyat
+            //    kelimeleri disinda HARF var mi? Varsa bu bir urun adi /
+            //    aciklama satiridir, fiyat satiri degildir.
+            val rest = normalizeTurkish(s.substring(0, start) + " " + tail)
+                .replace(PRICE_NOISE, " ")
+                .replace(Regex("[\\d.,:;()\\[\\]/\\-*+_|]"), " ")
+            if (rest.any { it.isLetter() }) continue
+
+            return group.replace(',', '.').toDoubleOrNull()
+        }
+        return null
     }
 
     private fun findNodeByText(

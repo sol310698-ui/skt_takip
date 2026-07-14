@@ -17,6 +17,8 @@ class WarehouseListScreen extends StatefulWidget {
 
 class _WarehouseListScreenState extends State<WarehouseListScreen> {
   List<Warehouse> _warehouses = [];
+  // Her depo için ozet: warehouseId -> (palet sayisi, cesit, toplam adet)
+  final Map<int, ({int pallets, int types, int qty})> _stats = {};
   // Her depo için zemin paletleri: warehouseId -> paletler
   final Map<int, List<PalletSummary>> _floorByWarehouse = {};
   bool _loading = true;
@@ -30,10 +32,18 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
   Future<void> _load() async {
     final list = await WarehouseService.instance.getWarehouses();
     _floorByWarehouse.clear();
+    _stats.clear();
     for (final w in list) {
       final floor =
           await WarehouseService.instance.getFloorPallets(w.id!);
       if (floor.isNotEmpty) _floorByWarehouse[w.id!] = floor;
+      // Depo ozeti: tum paletler uzerinden cesit + adet topla.
+      final all = await WarehouseService.instance.getAllPallets(w.id!);
+      _stats[w.id!] = (
+        pallets: all.length,
+        types: all.fold(0, (s, p) => s + p.itemTypes),
+        qty: all.fold(0, (s, p) => s + p.totalQty),
+      );
     }
     if (!mounted) return;
     setState(() {
@@ -226,48 +236,118 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
   }
 
   Widget _card(Warehouse w) {
+    final st = _stats[w.id];
     return InkWell(
       borderRadius: BorderRadius.circular(AppTheme.rLg),
       onTap: () => _open(w),
       onLongPress: () => _delete(w),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: AppTheme.card(accentColor: AppTheme.accent),
-        child: Row(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppTheme.accent.withOpacity(0.16),
+              AppTheme.accent.withOpacity(0.04),
+            ],
+          ),
+          border: Border.all(color: AppTheme.accent.withOpacity(0.25)),
+        ),
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.accent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(Icons.warehouse_rounded,
-                  color: AppTheme.accent, size: 26),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // Ust: ikon + isim + tarih + ok
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+              child: Row(
                 children: [
-                  Text(w.name,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  Text(
-                      'Oluşturuldu: ${DateFormat('dd.MM.yyyy').format(w.createdAt)}',
-                      style: TextStyle(
-                          fontSize: 12, color: AppTheme.textTertiary)),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accent.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.warehouse_rounded,
+                        color: AppTheme.accent, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(w.name,
+                            style: const TextStyle(
+                                fontSize: 16.5, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 2),
+                        Text(
+                            'Oluşturuldu: ${DateFormat('dd.MM.yyyy').format(w.createdAt)}',
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppTheme.textTertiary)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded,
+                      color: AppTheme.textTertiary),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded,
-                color: AppTheme.textTertiary),
+            // Alt: ozet istatistikler seridi
+            if (st != null)
+              Container(
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withOpacity(0.08),
+                  borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(AppTheme.rLg)),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    _statChip(Icons.inventory_2_rounded, '${st.pallets}',
+                        'palet'),
+                    _statDivider(),
+                    _statChip(Icons.category_rounded, '${st.types}', 'çeşit'),
+                    _statDivider(),
+                    _statChip(
+                        Icons.numbers_rounded, '${st.qty}', 'adet'),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
     );
   }
+
+  Widget _statChip(IconData icon, String value, String label) {
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 15, color: AppTheme.accent),
+              const SizedBox(width: 5),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 1),
+          Text(label,
+              style: TextStyle(fontSize: 10.5, color: AppTheme.textTertiary)),
+        ],
+      ),
+    );
+  }
+
+  Widget _statDivider() => Container(
+        width: 1,
+        height: 28,
+        color: AppTheme.accent.withOpacity(0.18),
+      );
 }
 
 /// ════════════════════════════════════════════════════════════════════

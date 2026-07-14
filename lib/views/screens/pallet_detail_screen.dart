@@ -648,42 +648,79 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
           ? const LoadingState()
           : Column(
               children: [
-                // Ozet
+                // Ozet — gradient kart + istatistik seridi
                 Container(
                   margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: AppTheme.card(accentColor: AppTheme.accent),
-                  child: Row(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppTheme.rLg),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppTheme.accent.withOpacity(0.16),
+                        AppTheme.accent.withOpacity(0.04),
+                      ],
+                    ),
+                    border:
+                        Border.all(color: AppTheme.accent.withOpacity(0.25)),
+                  ),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      // Konum satiri
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                        child: Row(
                           children: [
-                            Row(
-                              children: [
-                                Icon(
-                                    _shelf != null
-                                        ? Icons.place_rounded
-                                        : Icons.pending_rounded,
-                                    size: 16,
-                                    color: _shelf != null
+                            Container(
+                              padding: const EdgeInsets.all(9),
+                              decoration: BoxDecoration(
+                                color: (_shelf != null
                                         ? AppTheme.accent
-                                        : AppTheme.amber),
-                                const SizedBox(width: 6),
-                                Text(loc,
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: _shelf != null
-                                            ? AppTheme.accent
-                                            : AppTheme.amber)),
-                              ],
+                                        : AppTheme.amber)
+                                    .withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                  _shelf != null
+                                      ? Icons.place_rounded
+                                      : Icons.pending_rounded,
+                                  size: 18,
+                                  color: _shelf != null
+                                      ? AppTheme.accent
+                                      : AppTheme.amber),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                                '${_items.length} çeşit • $_totalQty toplam adet',
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.textSecondary)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(loc,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14.5,
+                                      color: _shelf != null
+                                          ? AppTheme.accent
+                                          : AppTheme.amber)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Istatistik seridi
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withOpacity(0.08),
+                          borderRadius: const BorderRadius.vertical(
+                              bottom: Radius.circular(AppTheme.rLg)),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
+                        child: Row(
+                          children: [
+                            _pStat(Icons.category_rounded,
+                                '${_items.length}', 'çeşit'),
+                            Container(
+                                width: 1,
+                                height: 28,
+                                color: AppTheme.accent.withOpacity(0.18)),
+                            _pStat(Icons.numbers_rounded, '$_totalQty',
+                                'toplam adet'),
                           ],
                         ),
                       ),
@@ -725,6 +762,28 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               icon: const Icon(Icons.add_rounded),
               label: const Text('Ürün Ekle'),
             ),
+    );
+  }
+
+  Widget _pStat(IconData icon, String value, String label) {
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: AppTheme.accent),
+              const SizedBox(width: 6),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 1),
+          Text(label,
+              style: TextStyle(fontSize: 11, color: AppTheme.textTertiary)),
+        ],
+      ),
     );
   }
 

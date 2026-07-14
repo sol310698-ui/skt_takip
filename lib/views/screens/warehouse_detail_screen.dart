@@ -277,9 +277,11 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   }
 
   Widget _buildShelfCell(ShelfSummary s) {
+    // Dolu raf icin KIRMIZI kullanilmaz — dolu "hata" degil, sadece tam.
+    // Amber (dikkat cekici ama alarm degil) kullanilir.
     final color = s.isEmpty
         ? AppTheme.textTertiary
-        : (s.isFull ? AppTheme.statusExpired : AppTheme.statusSafe);
+        : (s.isFull ? AppTheme.amber : AppTheme.statusSafe);
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () => _onShelfTap(s),
@@ -302,7 +304,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                         fontWeight: FontWeight.w700, fontSize: 13)),
                 Icon(
                     s.isFull
-                        ? Icons.block_rounded
+                        ? Icons.check_circle_rounded
                         : Icons.inventory_2_rounded,
                     size: 14,
                     color: color),
@@ -428,7 +430,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         children: [
           dot(AppTheme.textTertiary, 'Boş'),
           dot(AppTheme.statusSafe, 'Müsait'),
-          dot(AppTheme.statusExpired, 'Dolu'),
+          dot(AppTheme.amber, 'Dolu'),
         ],
       ),
     );
