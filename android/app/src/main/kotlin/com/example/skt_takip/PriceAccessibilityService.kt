@@ -75,7 +75,11 @@ class PriceAccessibilityService : AccessibilityService() {
 
         // Kendi uygulamamizin paketi — bunu OKUMAYIZ (kendi ekranindaki
         // "Sistem fiyati 9,95" gibi test metinleri yanlis veri yaratmasin).
-        private const val OWN_PACKAGE = "com.example.skt_takip"
+        // Runtime paket adi = applicationId (build.gradle). Play icin bu
+        // com.solmarket.skttakip yapildi; auto-flow kendi ekranimizi tanimasi
+        // ve uygulamayi one getirmesi icin buranin applicationId ILE AYNI
+        // olmasi sarttir.
+        private const val OWN_PACKAGE = "com.solmarket.skttakip"
 
         // "Sistem Fiyati" etiketinin aranacagi metin.
         private const val PRICE_LABEL = "Sistem Fiyatı"

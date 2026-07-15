@@ -28,9 +28,14 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.skt_takip"
+        // NOT: Google Play "com.example.*" paket adlarini KABUL ETMEZ.
+        // Bu yuzden gercek, kalici bir applicationId kullaniyoruz. Bu ID
+        // yayindan sonra ASLA degismemeli (degisirse Play ayri uygulama sayar).
+        // namespace (Kotlin paket adi) com.example.skt_takip kalabilir; sadece
+        // uygulamanin DIS kimligi olan applicationId onemli.
+        applicationId = "com.solmarket.skttakip"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true

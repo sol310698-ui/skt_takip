@@ -15,6 +15,7 @@ import 'price_change_screen.dart';
 import 'price_check_screen.dart';
 import 'shelf_check_screen.dart';
 import 'shift_screen.dart';
+import 'warehouse_chat_screen.dart';
 import 'warehouse_list_screen.dart';
 
 /// Alt navigasyon barli ana kabuk.
@@ -396,10 +397,112 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  /// Depo sayfasını aç (alttan kayarak — tema otomatik).
+  /// Depo düğmesine basınca iki seçenek sun: Depo ya da Asistan (chat).
   void _enterWarehouse() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const WarehouseListScreen()),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                _sheetOption(
+                  sheetCtx,
+                  icon: Icons.warehouse_rounded,
+                  title: 'Depo',
+                  subtitle: 'Reyon, palet ve raf yönetimi',
+                  color: AppTheme.primary,
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const WarehouseListScreen()));
+                  },
+                ),
+                const SizedBox(height: 10),
+                _sheetOption(
+                  sheetCtx,
+                  icon: Icons.assistant_rounded,
+                  title: 'Depo Asistanı',
+                  subtitle: 'Ürün nerede? Sor, yerini bulayım',
+                  color: AppTheme.accent,
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const WarehouseChatScreen()));
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _sheetOption(
+    BuildContext ctx, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: Colors.white, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 12, color: AppTheme.textTertiary)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: AppTheme.textTertiary),
+          ],
+        ),
+      ),
     );
   }
 }

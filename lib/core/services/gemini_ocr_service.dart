@@ -440,7 +440,82 @@ Kurallar:
         v.toString().replaceAll('.', '').replaceAll(',', '.'));
   }
 
-  static String _shortError(String body) {
+  /// ════════════════════════════════════════════════════════════════════
+  ///  DEPO ASISTANI SOHBET — Google Arama destekli
+  /// ────────────────────────────────────────────────────────────────────
+  ///  Once telefondaki YEREL veri (reyon konumlari, urun dizini) verilir.
+  ///  Yerel veri yetmezse Gemini, Google Arama araciyla internetten arayip
+  ///  daha detayli cevap uretir. Turkce, kisa ve net yanit verir.
+  ///
+  ///  [context]  : yerel veri ozeti (reyonlar, urunler, konumlari).
+  ///  [history]  : onceki mesajlar — her biri {'role':'user'|'model','text':..}
+  ///  [question] : kullanicinin son sorusu.
+  /// ════════════════════════════════════════════════════════════════════
+  Future<String> assistantAnswer({
+    required String context,
+    required List<Map<String, String>> history,
+    required String question,
+  }) async {
+    final key = await getApiKey();
+    if (key == null || key.isEmpty) {
+      throw const GeminiOcrException('API anahtarı yok');
+    }
+
+    final preamble =
+        'Sen bir market/mağaza çalışanına yardım eden Türkçe asistansın. '
+        'Görevin: müşteri veya çalışan bir ürünün yerini ya da bilgisini '
+        'sorduğunda yardımcı olmak. Aşağıda mağazadaki ürünlerin REYON '
+        'KONUMLARI (telefondaki yerel veriler) var. Bir ürünün yeri '
+        'soruluyorsa ÖNCE bu listeden bul ve "Reyon adı, Sütun X, Raf Y" '
+        'biçiminde net söyle. Listede yoksa ya da ürün/kategori hakkında '
+        'genel bilgi gerekiyorsa (ör. bir markanın ürünü, içerik, muadil) '
+        'Google Arama ile internetten araştır. Kısa, net ve Türkçe yanıt '
+        'ver. Emin değilsen tahmin etme, bilmediğini söyle.\n\n'
+        '=== MAĞAZA REYON VERİLERİ ===\n$context';
+
+    final contents = <Map<String, dynamic>>[
+      {
+        'role': 'user',
+        'parts': [
+          {'text': preamble}
+        ]
+      },
+      {
+        'role': 'model',
+        'parts': [
+          {'text': 'Anladım, hazırım. Sorunuzu bekliyorum.'}
+        ]
+      },
+    ];
+
+    for (final m in history) {
+      contents.add({
+        'role': m['role'] == 'user' ? 'user' : 'model',
+        'parts': [
+          {'text': m['text'] ?? ''}
+        ],
+      });
+    }
+    contents.add({
+      'role': 'user',
+      'parts': [
+        {'text': question}
+      ],
+    });
+
+    final body = jsonEncode({
+      'contents': contents,
+      // Yerel veri yetmezse internetten arayabilsin diye Google Arama araci.
+      'tools': [
+        {'google_search': <String, dynamic>{}}
+      ],
+      'generationConfig': {'temperature': 0.3},
+    });
+
+    return _generate(key, body);
+  }
+
+
     try {
       final m = jsonDecode(body);
       return (m['error']?['message'] as String?)
