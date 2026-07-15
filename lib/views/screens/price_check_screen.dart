@@ -492,7 +492,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       await _barcodeDs.setLocalImage(barcode, path: path, productName: name);
     } catch (_) {}
 
-    if (!mounted) return;
+    if (!mounted) return true;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppTheme.statusSafe,
