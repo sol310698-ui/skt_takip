@@ -31,6 +31,11 @@ class DatabaseService {
   Future<void> _onOpen(Database db) async {
     await _ensureColumn(db, AppConstants.barcodeTable, 'stock_code', 'TEXT');
     await _ensureColumn(db, AppConstants.barcodeTable, 'source', 'TEXT');
+    // Urunun YEREL fotografi (internet fotografi yoksa gosterilir).
+    await _ensureColumn(
+        db, AppConstants.barcodeTable, 'local_image_path', 'TEXT');
+    // Migration bir sebeple atlandiysa reyon tablolari yine de olussun.
+    await _createShelfLayoutTables(db);
   }
 
   /// Bir tabloda sutun yoksa ekler (varsa sessizce gecer).
@@ -66,6 +71,7 @@ class DatabaseService {
     await _createControlListTable(db);
     await _createCountTable(db);
     await _createLabelDeletedTable(db);
+    await _createShelfLayoutTables(db);
   }
 
   /// v1 -> v2 migration: mevcut veriler korunur.
@@ -182,6 +188,48 @@ class DatabaseService {
       // Silinen etiketler (parti halinde geri alma icin).
       await _createLabelDeletedTable(db);
     }
+    if (oldVersion < 26) {
+      // Reyon dizilim modulu + urun yerel fotografi (internet yoksa fallback).
+      await db.execute(
+          'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
+      await _createShelfLayoutTables(db);
+    }
+  }
+
+  /// Reyon dizilim (planogram) tablolari.
+  ///  shelf_units : bir reyon. sections = bolum(sutun) sayisi, rows = satir(kat).
+  ///  shelf_slots : reyondaki tek bir urun. (section_no, row_no) hucresinde
+  ///                seq sirasina gore soldan saga dizilir; foto YEREL saklanir.
+  Future<void> _createShelfLayoutTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.shelfUnitTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        warehouse_id INTEGER,
+        name TEXT NOT NULL,
+        sections INTEGER NOT NULL DEFAULT 1,
+        rows INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.shelfSlotTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        unit_id INTEGER NOT NULL,
+        section_no INTEGER NOT NULL,
+        row_no INTEGER NOT NULL,
+        seq INTEGER NOT NULL DEFAULT 0,
+        barcode TEXT NOT NULL,
+        product_name TEXT,
+        photo_path TEXT,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_slot_unit ON ${AppConstants.shelfSlotTable}(unit_id)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_slot_cell ON ${AppConstants.shelfSlotTable}(unit_id, section_no, row_no)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_slot_barcode ON ${AppConstants.shelfSlotTable}(barcode)');
   }
 
   Future<void> _createLabelDeletedTable(Database db) async {

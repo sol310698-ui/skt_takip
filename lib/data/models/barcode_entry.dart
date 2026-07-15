@@ -71,6 +71,7 @@ class BarcodeEntry {
   final String? stockCode; // urun stok kodu (4-6 hane, Excel'den)
   final DateTime importedAt;
   final BarcodeSource source; // kaydin kaynagi (oncelik icin)
+  final String? localImagePath; // internet fotografi yoksa gosterilecek yerel foto
 
   const BarcodeEntry({
     this.id,
@@ -79,6 +80,7 @@ class BarcodeEntry {
     this.stockCode,
     required this.importedAt,
     this.source = BarcodeSource.unknown,
+    this.localImagePath,
   });
 
   BarcodeEntry copyWith({
@@ -88,6 +90,7 @@ class BarcodeEntry {
     String? stockCode,
     DateTime? importedAt,
     BarcodeSource? source,
+    String? localImagePath,
   }) =>
       BarcodeEntry(
         id: id ?? this.id,
@@ -96,6 +99,7 @@ class BarcodeEntry {
         stockCode: stockCode ?? this.stockCode,
         importedAt: importedAt ?? this.importedAt,
         source: source ?? this.source,
+        localImagePath: localImagePath ?? this.localImagePath,
       );
 
   Map<String, Object?> toMap() => {
@@ -105,6 +109,7 @@ class BarcodeEntry {
         'stock_code': stockCode,
         'imported_at': importedAt.millisecondsSinceEpoch,
         'source': source.dbValue,
+        'local_image_path': localImagePath,
       };
 
   factory BarcodeEntry.fromMap(Map<String, Object?> map) => BarcodeEntry(
@@ -115,5 +120,6 @@ class BarcodeEntry {
         importedAt:
             DateTime.fromMillisecondsSinceEpoch(map['imported_at'] as int),
         source: BarcodeSourceX.fromDb(map['source'] as String?),
+        localImagePath: map['local_image_path'] as String?,
       );
 }

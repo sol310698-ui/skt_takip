@@ -250,13 +250,12 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                                         strokeWidth: 2, color: Colors.white),
                                   ),
                                 )
-                              : (_imageUrl != null
-                                  ? CachedImage(
-                                      url: _imageUrl!,
-                                      fit: BoxFit.cover,
-                                      placeholder: _ph,
-                                    )
-                                  : _ph()),
+                              : SmartProductImage(
+                                  networkUrl: _imageUrl,
+                                  barcode: _entry.barcode,
+                                  fit: BoxFit.cover,
+                                  placeholder: _ph,
+                                ),
                         ),
                       ),
                     ),

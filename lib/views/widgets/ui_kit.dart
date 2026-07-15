@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/database_service.dart';
+import '../../data/datasources/barcode_directory_datasource.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  Paylasilan UI bilesenleri — tum ekranlarda tutarli gorunum.
@@ -223,6 +227,117 @@ class StatTile extends StatelessWidget {
 
 /// Önbellekli ag gorseli. Image.network'un yerine kullan.
 /// Yükleniyor: küçük spinner. Hata: placeholder ikon.
+/// Urun gorseli — ONCELIK: internet fotografi > YEREL foto (barkod dizini) >
+/// yer tutucu ikon. "Uygulamadaki mevcut veritabani internetten fotograf alir;
+/// fotograf yoksa yerel veritabanindaki fotografi goster" kuralini uygular.
+///
+/// - [networkUrl] verilmisse once o denenir; yuklenemezse yerel fotoya duser.
+/// - [barcode] verilmisse ve networkUrl yoksa/basarisizsa, barkod dizinindeki
+///   local_image_path aranir.
+/// - [directLocalPath] verilmisse (orn. reyon slotunun kendi fotografi) barkod
+///   dizinine gitmeden dogrudan o dosya kullanilir.
+class SmartProductImage extends StatefulWidget {
+  final String? networkUrl;
+  final String? barcode;
+  final String? directLocalPath;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final Widget Function()? placeholder;
+
+  const SmartProductImage({
+    super.key,
+    this.networkUrl,
+    this.barcode,
+    this.directLocalPath,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.placeholder,
+  });
+
+  @override
+  State<SmartProductImage> createState() => _SmartProductImageState();
+}
+
+class _SmartProductImageState extends State<SmartProductImage> {
+  String? _localPath;
+  bool _resolving = false;
+  bool _networkFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _localPath = widget.directLocalPath;
+    // Internet URL yoksa hemen yerel yolu cozmeye calis.
+    if (_localPath == null &&
+        (widget.networkUrl == null || widget.networkUrl!.isEmpty)) {
+      _resolveLocal();
+    }
+  }
+
+  Future<void> _resolveLocal() async {
+    if (_resolving || widget.barcode == null || widget.barcode!.isEmpty) return;
+    _resolving = true;
+    try {
+      final ds = BarcodeDirectoryDataSource(DatabaseService.instance);
+      final path = await ds.getLocalImage(widget.barcode!);
+      if (mounted && path != null && await File(path).exists()) {
+        setState(() => _localPath = path);
+      }
+    } catch (_) {
+      // sessizce yer tutucuya dus
+    }
+  }
+
+  Widget _ph() =>
+      widget.placeholder?.call() ??
+      Container(
+        color: AppTheme.surfaceAlt,
+        child: Icon(Icons.inventory_2_rounded, color: AppTheme.textTertiary),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final hasNet = widget.networkUrl != null &&
+        widget.networkUrl!.isNotEmpty &&
+        !_networkFailed;
+
+    if (hasNet) {
+      return CachedNetworkImage(
+        imageUrl: widget.networkUrl!,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        placeholder: (c, _) => _ph(),
+        errorWidget: (c, _, __) {
+          // Internet fotografi yuklenemedi -> yerel fotoya dus.
+          if (!_networkFailed) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() => _networkFailed = true);
+                _resolveLocal();
+              }
+            });
+          }
+          return _localPath != null ? _localFile() : _ph();
+        },
+      );
+    }
+
+    if (_localPath != null) return _localFile();
+    return _ph();
+  }
+
+  Widget _localFile() => Image.file(
+        File(_localPath!),
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        errorBuilder: (_, __, ___) => _ph(),
+      );
+}
+
 class CachedImage extends StatelessWidget {
   final String url;
   final double? width;

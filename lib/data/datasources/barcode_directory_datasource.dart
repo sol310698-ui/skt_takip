@@ -144,6 +144,59 @@ class BarcodeDirectoryDataSource {
     return entries.length;
   }
 
+  /// Bir barkodun YEREL fotografini kaydeder (reyon dizilim akisindan).
+  /// Barkod dizinde yoksa minimal bir kayit olusturur ki fallback her yerde
+  /// calissin. Boylece internet fotografi olmayan urunlerde bu foto gosterilir.
+  Future<void> setLocalImage(
+    String barcode, {
+    required String path,
+    String? productName,
+  }) async {
+    final db = await _dbService.database;
+    final code = barcode.trim();
+    if (code.isEmpty) return;
+    final rows = await db.query(
+      AppConstants.barcodeTable,
+      where: 'TRIM(barcode) = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      await db.insert(AppConstants.barcodeTable, {
+        'barcode': code,
+        'product_name': (productName == null || productName.trim().isEmpty)
+            ? code
+            : productName.trim(),
+        'source': 'scan',
+        'imported_at': DateTime.now().millisecondsSinceEpoch,
+        'local_image_path': path,
+      });
+    } else {
+      await db.update(
+        AppConstants.barcodeTable,
+        {'local_image_path': path},
+        where: 'id = ?',
+        whereArgs: [rows.first['id']],
+      );
+    }
+  }
+
+  /// Bir barkodun yerel foto yolunu dondurur (yoksa null).
+  Future<String?> getLocalImage(String barcode) async {
+    final db = await _dbService.database;
+    final code = barcode.trim();
+    if (code.isEmpty) return null;
+    final rows = await db.query(
+      AppConstants.barcodeTable,
+      columns: ['local_image_path'],
+      where: 'TRIM(barcode) = ?',
+      whereArgs: [code],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['local_image_path'] as String?;
+  }
+
   Future<List<BarcodeEntry>> getAll() async {
     final db = await _dbService.database;
     final rows = await db.query(

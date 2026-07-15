@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -87,6 +88,74 @@ class CameraHelper {
         '${sourcePath.hashCode.toUnsigned(20)}$ext';
     final destPath = '${photoDir.path}/$name';
     await File(sourcePath).copy(destPath);
+    return destPath;
+  }
+
+  /// Fotograf cek/sec, KUCULT (en uzun kenar [maxSide] px) ve <docs>/[subdir]/
+  /// altina JPEG olarak kaydet. Reyon dizilim gibi COK sayida foto tutan
+  /// yerlerde disk/RAM tasarrufu icin kullanilir (720 px ~ 60-120 KB).
+  ///
+  /// Iptal/hata durumunda null doner.
+  static Future<String?> pickImageDownscaled({
+    ImageSource source = ImageSource.camera,
+    int maxSide = 720,
+    int quality = 80,
+    String subdir = 'shelf_photos',
+  }) async {
+    // ImagePicker'in kendi maxWidth/Height'i cihazdan cihaza tutarsiz; bu yuzden
+    // once orijinali (biraz sinirli) alip, sonra 'image' paketiyle KESIN olcuye
+    // indiriyoruz. quality=100 aliyoruz cunku asil sikistirmayi biz yapacagiz.
+    final x = await pickImage(
+      source: source,
+      imageQuality: 100,
+      maxWidth: (maxSide * 2).toDouble(),
+      maxHeight: (maxSide * 2).toDouble(),
+    );
+    if (x == null) return null;
+    try {
+      return await downscaleToFile(x.path, maxSide: maxSide, quality: quality, subdir: subdir);
+    } catch (_) {
+      // Kucultme basarisiz olursa hic olmazsa kalici kopyayi dondur.
+      try {
+        return await persistPhoto(x.path);
+      } catch (_) {
+        return x.path;
+      }
+    }
+  }
+
+  /// Verilen fotograf yolunu kucultup <docs>/[subdir]/ altina JPEG yazar,
+  /// yeni yolu dondurur. Kaynak zaten kucukse yine de yeniden kodlanir
+  /// (boyutu garanti altina almak icin).
+  static Future<String> downscaleToFile(
+    String sourcePath, {
+    int maxSide = 720,
+    int quality = 80,
+    String subdir = 'shelf_photos',
+  }) async {
+    final bytes = await File(sourcePath).readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      // Cozulemezse orijinali kalici dizine kopyala.
+      return persistPhoto(sourcePath);
+    }
+    // En uzun kenari maxSide'a indir (kucukse buyutme).
+    final img.Image resized = (decoded.width >= decoded.height)
+        ? (decoded.width > maxSide
+            ? img.copyResize(decoded, width: maxSide)
+            : decoded)
+        : (decoded.height > maxSide
+            ? img.copyResize(decoded, height: maxSide)
+            : decoded);
+    final jpg = img.encodeJpg(resized, quality: quality);
+
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/$subdir');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final name =
+        'p_${DateTime.now().millisecondsSinceEpoch}_${sourcePath.hashCode.toUnsigned(16)}.jpg';
+    final destPath = '${dir.path}/$name';
+    await File(destPath).writeAsBytes(jpg, flush: true);
     return destPath;
   }
 

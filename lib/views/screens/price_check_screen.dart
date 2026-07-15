@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,10 +9,13 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
+import '../../core/services/database_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/datasources/barcode_directory_datasource.dart';
 import '../widgets/scan_overlay.dart';
 import 'label_print_screen.dart';
 import 'pending_products_screen.dart';
+import 'quick_photo_capture_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  FIYAT KONTROL ASISTANI
@@ -53,6 +57,15 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   Timer? _serviceStatusTimer;
   StreamSubscription<SystemPriceSnapshot>? _liveSub; // canli sistem verisi
   Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
+
+  // Ortak yerel veritabani (barkod dizini) — urun fotografini buraya yazariz.
+  final BarcodeDirectoryDataSource _barcodeDs =
+      BarcodeDirectoryDataSource(DatabaseService.instance);
+
+  // Bu oturumda foto teklifi yapilan/iptal edilen barkodlar — ayni urun icin
+  // pes pese tekrar tekrar sormamak icin. (Basarili kayittan sonra zaten
+  // yerel foto olustugu icin bir daha sorulmaz.)
+  final Set<String> _photoHandled = <String>{};
 
   // ── CANLI sistem verisi (erisilebilirlik servisinden surekli okunur) ──
   // QR okutmadan, sirket uygulamasinda urun degistikce guncellenir.
@@ -331,12 +344,89 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       _autoRescanTimer?.cancel();
       await _offerLabelPrint(result);
       if (!mounted) return;
+      // Etiket teklifinden sonra, sistem urununun fotosu yoksa cek.
+      await _maybeCaptureProductPhoto();
+      if (!mounted) return;
       await _scanAgain();
       return;
     }
 
+    // Sonuc dogru/uyumlu: once foto eksikse cek, sonra otomatik devam.
+    await _maybeCaptureProductPhoto();
+    if (!mounted) return;
+
     // OTOMATIK DEVAM: kullanici "Tekrar Okut"a basmak zorunda kalmasin.
     _scheduleAutoRescan();
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  URUN FOTOGRAFI EKSIKSE — UYGULAMA ICINDE CEK, ORTAK DB'YE KAYDET
+  /// ──────────────────────────────────────────────────────────────────
+  ///  Kural: Sistemdeki urunun (systemBarcode) ortak yerel veritabaninda
+  ///  (barkod dizini) fotografi YOKSA, uygulama ICINDE hizli cekim ekrani
+  ///  acilir (telefonun kamera uygulamasi ACILMAZ — pil/hiz kaybi olmaz).
+  ///  Cekilen foto 720 px'e kucultulup barkod dizinine yazilir; boylece
+  ///  uygulamanin HER YERINDE ve internet olmadan da gorunur.
+  ///
+  ///  Sadece gecerli bir sistem urunu (barkod + ad) oldugunda calisir; ayni
+  ///  urun icin oturumda bir kez sorulur.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _maybeCaptureProductPhoto() async {
+    final barcode = _systemBarcode?.trim();
+    final name = _systemProductName?.trim();
+    if (barcode == null || barcode.isEmpty) return;
+    if (name == null || name.isEmpty || _looksLikeStaticFormLabel(name)) return;
+    if (_photoHandled.contains(barcode)) return;
+
+    // Zaten yerel foto var mi? Varsa hic sorma.
+    String? existing;
+    try {
+      existing = await _barcodeDs.getLocalImage(barcode);
+    } catch (_) {
+      existing = null;
+    }
+    if (existing != null && existing.isNotEmpty && File(existing).existsSync()) {
+      _photoHandled.add(barcode);
+      return;
+    }
+
+    if (!mounted) return;
+    _autoRescanTimer?.cancel();
+    _photoHandled.add(barcode); // iptal edilse bile bu oturumda tekrar sorma
+
+    // Tarayici kamerasini birak (cakismasin).
+    try {
+      await _controller.stop();
+      _scanning = false;
+    } catch (_) {}
+
+    await PriceCheckChannel.speak('Ürün fotoğrafı çekilecek');
+
+    final path = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => QuickPhotoCaptureScreen(
+          productName: name,
+          barcode: barcode,
+        ),
+      ),
+    );
+
+    if (path == null || path.isEmpty) return; // kullanici vazgecti
+
+    // Ortak yerel veritabanina yaz — her yerden erisilsin, offline fallback.
+    try {
+      await _barcodeDs.setLocalImage(barcode, path: path, productName: name);
+    } catch (_) {}
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppTheme.statusSafe,
+        duration: const Duration(seconds: 2),
+        content: Text('Fotoğraf kaydedildi: $name'),
+      ),
+    );
   }
 
   /// Bu sonuc raftaki etiketin YENIDEN BASILMASINI gerektirir mi?

@@ -6,7 +6,10 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 25; // v25: silinen etiketler (parti geri al)
+  static const int dbVersion = 26; // v26: reyon dizilim + urun yerel fotografi
+  // Reyon dizilim (planogram): bir reyon = bolum(sutun) x satir(kat) izgarasi.
+  static const String shelfUnitTable = 'shelf_units';   // reyon tanimi
+  static const String shelfSlotTable = 'shelf_slots';   // reyondaki tek urun (foto)
   static const String countTable = 'count_items'; // bagimsiz sayim oturumu
   static const String labelDeletedTable = 'label_deleted'; // silinen etiketler
   static const String productTable = 'products';

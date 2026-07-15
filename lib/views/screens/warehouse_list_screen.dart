@@ -5,6 +5,7 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'pallet_detail_screen.dart';
+import 'shelf_layout_list_screen.dart';
 import 'warehouse_detail_screen.dart';
 
 /// Depo listesi — kartlar + "Yeni Depo" sihirbazi.
@@ -94,6 +95,49 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
     if (created == true) _load();
   }
 
+  Widget _reyonEntry() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const ShelfLayoutListScreen())),
+      child: Container(
+        decoration: AppTheme.card(),
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: AppTheme.accent.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.grid_view_rounded,
+                  color: AppTheme.accent),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Reyon Dizilim',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 16)),
+                  SizedBox(height: 2),
+                  Text(
+                    'Ürünleri okutup fotoğrafla, dizilimi kuş bakışı gör',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: AppTheme.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -107,24 +151,43 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
       body: _loading
           ? const LoadingState()
           : _warehouses.isEmpty
-              ? EmptyState(
-                  icon: Icons.warehouse_rounded,
-                  iconColor: AppTheme.accent,
-                  title: 'Henüz depo yok',
-                  subtitle:
+              ? ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                  children: [
+                    _reyonEntry(),
+                    const SizedBox(height: 24),
+                    Icon(Icons.warehouse_rounded,
+                        size: 56, color: AppTheme.accent.withOpacity(0.6)),
+                    const SizedBox(height: 12),
+                    const Text('Henüz depo yok',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    Text(
                       'Sütunları, rafları ve palet kapasitelerini girerek '
                       'ilk deponuzu oluşturun.',
-                  action: FilledButton.icon(
-                    onPressed: _newWarehouse,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Yeni Depo'),
-                  ),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppTheme.textTertiary),
+                    ),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: FilledButton.icon(
+                        onPressed: _newWarehouse,
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Yeni Depo'),
+                      ),
+                    ),
+                  ],
                 )
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
                     children: [
+                      // Reyon Dizilim modulu — depo icinden erisim.
+                      _reyonEntry(),
+                      const SizedBox(height: 16),
                       const SectionLabel('Depolar'),
                       const SizedBox(height: 8),
                       ..._warehouses.map(_card),
