@@ -364,10 +364,11 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       await _offerLabelPrint(result);
       if (!mounted) return;
       // Etiket teklifinden sonra, sistem urununun fotosu yoksa cek.
-      await _maybeCaptureProductPhoto();
+      final photographed = await _maybeCaptureProductPhoto();
       if (!mounted) return;
       if (_autoFlow) {
-        _scheduleReturnToCompanyApp();
+        // Foto cekildiyse HEMEN sirket uygulamasina don (bekleme yok).
+        _returnToCompanyApp(immediate: photographed);
       } else {
         await _scanAgain();
       }
@@ -375,13 +376,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
 
     // Sonuc dogru/uyumlu: once foto eksikse cek.
-    await _maybeCaptureProductPhoto();
+    final photographed = await _maybeCaptureProductPhoto();
     if (!mounted) return;
 
     if (_autoFlow) {
-      // OTOMATIK GEZINME: 2 sn icinde yeni etiket okutulmazsa sirket
-      // uygulamasina geri don; dongu kendiliginden aksin.
-      _scheduleReturnToCompanyApp();
+      // OTOMATIK GEZINME: foto cekildiyse HEMEN don; cekilmediyse sonucu
+      // duymak/gormek icin cok kisa bir bekleme sonrasi don.
+      _returnToCompanyApp(immediate: photographed);
     } else {
       // OTOMATIK DEVAM (yerinde): kullanici "Tekrar Okut"a basmasin.
       _scheduleAutoRescan();
@@ -410,12 +411,18 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
   }
 
-  /// Auto-flow: sonuc gosterildikten 2 sn sonra (yeni tarama olmadiysa)
-  /// sirket uygulamasina geri doner. Native taraf, sirket uygulamasi bir
-  /// sonraki urunu gosterince bizi otomatik tekrar one getirir.
-  void _scheduleReturnToCompanyApp() {
+  /// Auto-flow: sirket uygulamasina geri doner.
+  ///  - [immediate] true ise (orn. foto cekildikten sonra) HIC BEKLEMEDEN.
+  ///  - Aksi halde sonucu duymak/gormek icin cok kisa bir gecikme (900 ms).
+  /// Native taraf, sirket uygulamasi bir sonraki urunu gosterince bizi
+  /// otomatik tekrar one getirir.
+  void _returnToCompanyApp({bool immediate = false}) {
     _autoRescanTimer?.cancel();
-    _autoRescanTimer = Timer(const Duration(seconds: 2), () {
+    if (immediate) {
+      PriceCheckChannel.switchToCompanyApp();
+      return;
+    }
+    _autoRescanTimer = Timer(const Duration(milliseconds: 900), () {
       if (mounted && _result != null && !_scanning && !_busy) {
         PriceCheckChannel.switchToCompanyApp();
       }
@@ -434,12 +441,15 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   ///  Sadece gecerli bir sistem urunu (barkod + ad) oldugunda calisir; ayni
   ///  urun icin oturumda bir kez sorulur.
   /// ══════════════════════════════════════════════════════════════════
-  Future<void> _maybeCaptureProductPhoto() async {
+  /// Sistem urununun yerel fotosu yoksa uygulama ici cekim acar.
+  /// Foto CEKILIP kaydedildiyse `true`, aksi halde `false` doner (cagiran
+  /// taraf foto cekildiyse sirket uygulamasina HEMEN donebilsin diye).
+  Future<bool> _maybeCaptureProductPhoto() async {
     final barcode = _systemBarcode?.trim();
     final name = _systemProductName?.trim();
-    if (barcode == null || barcode.isEmpty) return;
-    if (name == null || name.isEmpty || _looksLikeStaticFormLabel(name)) return;
-    if (_photoHandled.contains(barcode)) return;
+    if (barcode == null || barcode.isEmpty) return false;
+    if (name == null || name.isEmpty || _looksLikeStaticFormLabel(name)) return false;
+    if (_photoHandled.contains(barcode)) return false;
 
     // Zaten yerel foto var mi? Varsa hic sorma.
     String? existing;
@@ -450,10 +460,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
     if (existing != null && existing.isNotEmpty && File(existing).existsSync()) {
       _photoHandled.add(barcode);
-      return;
+      return false;
     }
 
-    if (!mounted) return;
+    if (!mounted) return false;
     _autoRescanTimer?.cancel();
     _photoHandled.add(barcode); // iptal edilse bile bu oturumda tekrar sorma
 
@@ -475,7 +485,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       ),
     );
 
-    if (path == null || path.isEmpty) return; // kullanici vazgecti
+    if (path == null || path.isEmpty) return false; // kullanici vazgecti
 
     // Ortak yerel veritabanina yaz — her yerden erisilsin, offline fallback.
     try {
@@ -490,6 +500,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         content: Text('Fotoğraf kaydedildi: $name'),
       ),
     );
+    return true;
   }
 
   /// Bu sonuc raftaki etiketin YENIDEN BASILMASINI gerektirir mi?

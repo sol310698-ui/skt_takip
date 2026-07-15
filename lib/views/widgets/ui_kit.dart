@@ -264,29 +264,42 @@ class _SmartProductImageState extends State<SmartProductImage> {
   String? _localPath;
   bool _resolving = false;
   bool _networkFailed = false;
+  // Yerel foto arama TAMAMLANDI mi? Tamamlanana kadar internet gosterilmez
+  // (yerel foto varsa internet hic gorunmesin, titreme olmasin).
+  bool _localResolved = false;
 
   @override
   void initState() {
     super.initState();
     _localPath = widget.directLocalPath;
-    // Internet URL yoksa hemen yerel yolu cozmeye calis.
-    if (_localPath == null &&
-        (widget.networkUrl == null || widget.networkUrl!.isEmpty)) {
+    // ONCELIK: TELEFONDAKI (yerel) fotograf her zaman internetten daha
+    // degerlidir. Bu yuzden barkod verilmisse — internet URL'i olsa bile —
+    // once yerel fotografi cozmeye calisiriz; varsa onu gosteririz, yoksa
+    // internete duseriz.
+    if (_localPath == null) {
       _resolveLocal();
     }
   }
 
   Future<void> _resolveLocal() async {
-    if (_resolving || widget.barcode == null || widget.barcode!.isEmpty) return;
+    if (_resolving) return;
+    if (widget.barcode == null || widget.barcode!.isEmpty) {
+      // Cozecek barkod yok; internete gecebilmek icin cozumlemeyi bitmis say.
+      if (mounted) setState(() => _localResolved = true);
+      return;
+    }
     _resolving = true;
     try {
       final ds = BarcodeDirectoryDataSource(DatabaseService.instance);
       final path = await ds.getLocalImage(widget.barcode!);
-      if (mounted && path != null && await File(path).exists()) {
-        setState(() => _localPath = path);
+      if (mounted) {
+        setState(() {
+          if (path != null && File(path).existsSync()) _localPath = path;
+          _localResolved = true;
+        });
       }
     } catch (_) {
-      // sessizce yer tutucuya dus
+      if (mounted) setState(() => _localResolved = true);
     }
   }
 
@@ -299,6 +312,19 @@ class _SmartProductImageState extends State<SmartProductImage> {
 
   @override
   Widget build(BuildContext context) {
+    // ONCELIK 1: Telefondaki (yerel) fotograf. Varsa her zaman o gosterilir,
+    // internet fotografina hic bakilmaz.
+    if (_localPath != null) return _localFile();
+
+    // Yerel foto aramasi henuz bitmediyse: internete gecmeden once bekle
+    // (yerel foto varsa aninda gosterilsin, arada internet flash'i olmasin).
+    if (!_localResolved &&
+        widget.barcode != null &&
+        widget.barcode!.isNotEmpty) {
+      return _ph();
+    }
+
+    // ONCELIK 2: Yerel foto yoksa internet fotografi (varsa) denenir.
     final hasNet = widget.networkUrl != null &&
         widget.networkUrl!.isNotEmpty &&
         !_networkFailed;
@@ -311,21 +337,17 @@ class _SmartProductImageState extends State<SmartProductImage> {
         fit: widget.fit,
         placeholder: (c, _) => _ph(),
         errorWidget: (c, _, __) {
-          // Internet fotografi yuklenemedi -> yerel fotoya dus.
+          // Internet fotografi da yuklenemedi -> yer tutucu.
           if (!_networkFailed) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                setState(() => _networkFailed = true);
-                _resolveLocal();
-              }
+              if (mounted) setState(() => _networkFailed = true);
             });
           }
-          return _localPath != null ? _localFile() : _ph();
+          return _ph();
         },
       );
     }
 
-    if (_localPath != null) return _localFile();
     return _ph();
   }
 
