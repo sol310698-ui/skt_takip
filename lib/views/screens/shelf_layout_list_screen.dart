@@ -6,7 +6,6 @@ import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'shelf_layout_view_screen.dart';
-import 'shelf_scan_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  REYON DIZILIM — KUS BAKISI LISTE
@@ -48,7 +47,6 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
     final nameCtrl = TextEditingController(
         text: 'Reyon ${_units.length + 1}');
     int sections = 4;
-    int rows = 5;
 
     final created = await showDialog<bool>(
       context: context,
@@ -69,17 +67,11 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
               ),
               const SizedBox(height: 18),
               _stepper(
-                label: 'Bölüm (sütun)',
-                help: 'Reyonun soldan sağa kaç bölmesi var',
+                label: 'Sütun sayısı',
+                help: 'Reyonun soldan sağa kaç sütunu var. Raflar ve '
+                    'ürünler sonra serbestçe eklenir (sınır yok).',
                 value: sections,
                 onChanged: (v) => setD(() => sections = v),
-              ),
-              const SizedBox(height: 12),
-              _stepper(
-                label: 'Satır (kat)',
-                help: 'Üstten alta kaç raf/kat var',
-                value: rows,
-                onChanged: (v) => setD(() => rows = v),
               ),
             ],
           ),
@@ -99,16 +91,16 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
     final id = await ShelfLayoutService.instance.createUnit(
       name: nameCtrl.text.trim().isEmpty ? 'Reyon' : nameCtrl.text.trim(),
       sections: sections,
-      rows: rows,
       warehouseId: widget.warehouseId,
     );
     await _load();
     if (!mounted) return;
-    // Yeni reyon olusturunca dogrudan okutmaya baslamak icin tarama ekranini ac.
+    // Yeni reyon olusturunca dogrudan dizilim (planogram) ekranini ac;
+    // kullanici oradan sutun sutun raf/urun ekler.
     final unit = await ShelfLayoutService.instance.getUnit(id);
     if (unit != null && mounted) {
       await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ShelfScanScreen(unit: unit)));
+          builder: (_) => ShelfLayoutViewScreen(unitId: unit.id!)));
       _load();
     }
   }
@@ -275,8 +267,7 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
                           fontWeight: FontWeight.w800, fontSize: 15)),
                   const SizedBox(height: 2),
                   Text(
-                    '${s.unit.sections} bölüm × ${s.unit.rows} satır'
-                    '  •  ${s.itemCount} ürün',
+                    '${s.unit.sections} sütun  •  ${s.itemCount} ürün',
                     style: TextStyle(
                         fontSize: 11, color: AppTheme.textTertiary),
                   ),

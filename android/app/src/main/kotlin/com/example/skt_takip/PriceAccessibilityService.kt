@@ -3,6 +3,7 @@ package com.example.skt_takip
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -209,6 +210,13 @@ class PriceAccessibilityService : AccessibilityService() {
 
         private val mainHandler = Handler(Looper.getMainLooper())
 
+        // Auto-flow: sirket uygulamasina donduktan sonra son degerleri
+        // temizleyen (ayni urun bile yeniden okutulunca "yeni" sayilsin diye)
+        // GECIKMELI is. Ayri bir Runnable olarak tutulur ki, arada gercek bir
+        // one-getirme olursa IPTAL edilebilsin (taze veriyi yanlislikla
+        // silmesin).
+        private val clearRunnable = Runnable { clearLastPrice() }
+
         fun setListener(l: PriceUpdateListener?) {
             listener = l
         }
@@ -246,6 +254,51 @@ class PriceAccessibilityService : AccessibilityService() {
 
         fun requestStopAuto() {
             instance?.stopAutoEntry()
+        }
+
+        // ════════════════════════════════════════════════════════════════
+        //  OTOMATIK GEZINME AKISI (auto-flow)
+        // ────────────────────────────────────────────────────────────────
+        //  Amac: kullanici bizim uygulamayi sirket uygulamasinin ustunde
+        //  KUCUK PENCERE olarak tutmak zorunda kalmasin. Bunun yerine:
+        //   (1) Sirket uygulamasinda YENI bir urun okununca (ekrandaki veri
+        //       degisince) bizim uygulama otomatik ONE gelir; kullanici raf
+        //       etiketini okutur, sonuc soylenir.
+        //   (2) Sonuctan sonra ~2 sn icinde yeni etiket okutulmazsa, bizim
+        //       uygulama otomatik olarak SIRKET uygulamasina geri doner;
+        //       boylece kullanici bir sonraki urunu okutabilir. Dongu boyle
+        //       kendiliginden akar.
+        //
+        //  "AYNI URUN" problemi: Kullanici ayni urunu tekrar okutursa sirket
+        //  uygulamasi AYNI veriyi gosterir. Bizi sonsuz dongude one-arkaya
+        //  atmamasi icin iki koruma var:
+        //   - Deger bazli: one getirme SADECE veri GERCEKTEN degistiginde
+        //     tetiklenir (scanNow'daki `changed`). Ayni ekranin tekrar tekrar
+        //     okunmasi (deger ayni) tetiklemez.
+        //   - Zaman bazli: sirket uygulamasina geri donerken kisa bir
+        //     "bastirma penceresi" acilir; bu pencerede hicbir one-getirme
+        //     olmaz (geri donuste ekranda hala duran ESKI veri bizi hemen
+        //     geri sekmesin). Pencere bitince son degerler temizlenir; boylece
+        //     kullanici AYNI urunu bile yeniden okutsa bu "yeni" sayilir.
+        // ════════════════════════════════════════════════════════════════
+
+        @Volatile
+        var autoFlowEnabled: Boolean = false
+            private set
+
+        // Bu ana kadar hicbir one-getirme yapilmaz (geri donus bastirma penceresi).
+        @Volatile
+        private var suppressForwardUntil: Long = 0L
+
+        /** Flutter tarafindaki "Oto akis" anahtarindan cagrilir. */
+        fun requestSetAutoFlow(on: Boolean) {
+            autoFlowEnabled = on
+            if (!on) suppressForwardUntil = 0L
+        }
+
+        /** Sonuc sonrasi (Flutter'dan) sirket uygulamasina geri donus istegi. */
+        fun requestSwitchToTarget() {
+            instance?.switchToTargetApp()
         }
 
         /**
@@ -686,11 +739,81 @@ class PriceAccessibilityService : AccessibilityService() {
 
             if (changed) {
                 notifyListener()
+                // OTOMATIK GEZINME: sirket uygulamasi yeni urun gosterdiyse
+                // bizim uygulamayi one getir. (Otomatik barkod girisi
+                // sirasinda YAPMA — o akis kendi ekran gecislerini yonetir.)
+                if (autoFlowEnabled && !autoRunning) {
+                    maybeBringForward()
+                }
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Ekran taranirken hata: ${e.message}")
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  OTOMATIK GEZINME — INSTANCE METOTLARI (Context/startActivity gerekir)
+    // ════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sirket uygulamasi YENI bir urun gosterdiginde bizim uygulamayi one
+     * getirir. Yalnizca:
+     *  - bastirma penceresi disindaysak,
+     *  - elimizde gercek bir urun (barkod veya fiyat) varsa,
+     *  - tetikleyen olay SIRKET uygulamasindan geldiyse (biz zaten ondeyken
+     *    kendi kendimizi one getirmeyelim)
+     * calisir.
+     */
+    private fun maybeBringForward() {
+        val now = System.currentTimeMillis()
+        if (now < suppressForwardUntil) return
+        if (lastBarcode.isNullOrBlank() && lastSystemPrice == null) return
+        if (lastPackage != TARGET_PACKAGE) return
+        bringOwnAppToFront()
+    }
+
+    private fun bringOwnAppToFront() {
+        try {
+            // Bekleyen "gecikmeli temizle" varsa iptal et: az sonra okunacak
+            // taze veriyi yanlislikla silmesin.
+            mainHandler.removeCallbacks(clearRunnable)
+            val i = packageManager.getLaunchIntentForPackage(OWN_PACKAGE) ?: return
+            i.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+            i.putExtra("auto_flow", true)
+            startActivity(i)
+        } catch (e: Exception) {
+            Log.e(TAG, "one getirme hata: ${e.message}")
+        }
+    }
+
+    /**
+     * Sonuc sonrasi sirket uygulamasina geri doner (Flutter 2 sn bosta
+     * kalinca cagirir). Geri donuste ekranda hala duran ESKI verinin bizi
+     * hemen geri sekmesini onlemek icin kisa bir bastirma penceresi acilir;
+     * pencere bitince son degerler temizlenir (ayni urun bile yeniden
+     * okutulursa "yeni" sayilsin diye).
+     */
+    fun switchToTargetApp() {
+        suppressForwardUntil = System.currentTimeMillis() + 1500L
+        try {
+            val i = packageManager.getLaunchIntentForPackage(TARGET_PACKAGE)
+            if (i != null) {
+                i.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+                startActivity(i)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "sirket uygulamasina donus hata: ${e.message}")
+        }
+        mainHandler.removeCallbacks(clearRunnable)
+        mainHandler.postDelayed(clearRunnable, 1600L)
     }
 
     /**

@@ -104,6 +104,21 @@ class PriceCheckChannel {
     } catch (_) {}
   }
 
+  /// OTOMATIK GEZINME akisini native tarafta ac/kapat. Acikken sirket
+  /// uygulamasi yeni urun gosterdiginde bu uygulama otomatik one gelir.
+  static Future<void> setAutoFlow(bool enabled) async {
+    try {
+      await _ch.invokeMethod('setAutoFlow', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  /// Sirket uygulamasina geri don (sonuc sonrasi, dongu devam etsin diye).
+  static Future<void> switchToCompanyApp() async {
+    try {
+      await _ch.invokeMethod('switchToCompanyApp');
+    } catch (_) {}
+  }
+
   /// TANI icin: servisin son durumu (acik mi, ne okudu, ekranda ne gordu).
   static Future<Map<String, dynamic>> getDebugInfo() async {
     try {

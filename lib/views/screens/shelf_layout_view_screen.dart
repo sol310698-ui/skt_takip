@@ -11,10 +11,18 @@ import 'shelf_scan_screen.dart';
 /// ════════════════════════════════════════════════════════════════════
 ///  REYON DIZILIM — KUS BAKISI GORUNUM (PLANOGRAM)
 /// ────────────────────────────────────────────────────────────────────
-///  Bir reyonu satir satir gosterir. Her satir, bolumlere ayrilmistir ve her
-///  hucredeki urun fotograflari SOLDAN SAGA kucuk kucuk dizilir — boylece
-///  raftaki gercek dizilim gorunur. Bos bir hucreye dokununca o hucre icin
-///  okutma ekrani acilir; bir fotografa dokununca buyutulur.
+///  Yapi (kullanicinin modeli):
+///     Reyon  →  SUTUN (section)  →  RAF (row)  →  URUNLER (sinirsiz)
+///
+///  Reyon olusturulurken SADECE sutun sayisi belirlenir. Raf sayisi
+///  SABIT DEGILDIR: her sutuna istenildigi kadar raf eklenir ("+ Raf"),
+///  her rafa da istenildigi kadar urun okutulur (sinir yok). Yani bir rafa
+///  5 urun, digerine 10 urun eklenebilir.
+///
+///  Bu ekran her sutunu ayri bir kart olarak, altinda kendi raflarini
+///  (ve her raftaki urun fotograflarini soldan saga) gosterir. Rafa
+///  dokununca o rafa urun eklemek icin okutma ekrani acilir; bir fotografa
+///  dokununca buyutulur.
 /// ════════════════════════════════════════════════════════════════════
 class ShelfLayoutViewScreen extends StatefulWidget {
   final int unitId;
@@ -47,11 +55,23 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
     }
   }
 
+  /// Bir sutundaki raf numaralari (icinde urun olanlar), artan.
+  List<int> _shelvesIn(int section) {
+    final set = <int>{};
+    for (final s in _slots) {
+      if (s.sectionNo == section) set.add(s.rowNo);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  /// Bir raftaki urunler, soldan saga (seq).
   List<ShelfSlot> _cell(int section, int row) => _slots
       .where((s) => s.sectionNo == section && s.rowNo == row)
       .toList()
     ..sort((a, b) => a.seq.compareTo(b.seq));
 
+  /// Belirli bir (sutun, raf) hucresine urun eklemek icin okutma ekrani.
   Future<void> _openScan(int section, int row) async {
     if (_unit == null) return;
     await Navigator.of(context).push(MaterialPageRoute(
@@ -64,6 +84,13 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
     _load();
   }
 
+  /// Sutuna YENI raf ekle: siradaki raf numarasini bulup okutmayi acar.
+  Future<void> _addShelf(int section) async {
+    final next =
+        await ShelfLayoutService.instance.nextShelfNumber(widget.unitId, section);
+    await _openScan(section, next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final unit = _unit;
@@ -74,101 +101,144 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
         systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
-        actions: [
-          if (unit != null)
-            IconButton(
-              tooltip: 'Okutmaya başla',
-              onPressed: () => _openScan(1, 1),
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-            ),
-        ],
       ),
       body: _loading || unit == null
           ? const LoadingState()
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
-              itemCount: unit.rows,
-              itemBuilder: (_, ri) => _rowBlock(unit, ri + 1),
+              itemCount: unit.sections,
+              itemBuilder: (_, si) => _columnBlock(unit, si + 1),
             ),
     );
   }
 
-  Widget _rowBlock(ShelfUnit unit, int row) {
+  Widget _columnBlock(ShelfUnit unit, int section) {
+    final shelves = _shelvesIn(section);
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: AppTheme.card(),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Sutun basligi.
           Row(
             children: [
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppTheme.accent.withOpacity(0.15),
+                  color: AppTheme.accent,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text('Satır $row',
+                child: Text('Sütun $section',
                     style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.accent,
-                        fontSize: 12)),
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black,
+                        fontSize: 13)),
               ),
+              const Spacer(),
+              Text('${shelves.length} raf',
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.textTertiary)),
             ],
           ),
-          const SizedBox(height: 8),
-          // Bolumler yan yana; her bolumun urunleri soldan saga.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: List.generate(unit.sections, (si) {
-              final section = si + 1;
-              return Expanded(child: _sectionCell(section, row));
-            }),
+          const SizedBox(height: 10),
+
+          // Bu sutunun raflari (yoksa bilgi).
+          if (shelves.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text('Henüz raf yok — aşağıdan raf ekleyin',
+                  style: TextStyle(color: AppTheme.textTertiary)),
+            )
+          else
+            ...shelves.map((r) => _shelfRow(section, r)),
+
+          const SizedBox(height: 6),
+          // Yeni raf ekle.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _addShelf(section),
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('Raf ekle'),
+              style: TextButton.styleFrom(foregroundColor: AppTheme.accent),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _sectionCell(int section, int row) {
+  Widget _shelfRow(int section, int row) {
     final items = _cell(section, row);
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => _openScan(section, row),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 3),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceAlt.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.hairline),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('B$section',
-                style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textTertiary)),
-            const SizedBox(height: 4),
-            if (items.isEmpty)
-              Container(
-                height: 46,
-                alignment: Alignment.center,
-                child: Icon(Icons.add_rounded,
-                    size: 18, color: AppTheme.textTertiary),
-              )
-            else
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: items.map(_miniThumb).toList(),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Raf $row',
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 6),
+              Text('(${items.length} ürün)',
+                  style: TextStyle(
+                      fontSize: 11, color: AppTheme.textTertiary)),
+              const Spacer(),
+              // Bu rafa daha urun ekle.
+              InkWell(
+                onTap: () => _openScan(section, row),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.add_a_photo_rounded,
+                          size: 14, color: AppTheme.accent),
+                      SizedBox(width: 4),
+                      Text('Ürün ekle',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.accent)),
+                    ],
+                  ),
+                ),
               ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Urun fotograflari soldan saga (raftaki gercek dizilim).
+          items.isEmpty
+              ? SizedBox(
+                  height: 46,
+                  child: Center(
+                    child: Text('Bu raf boş',
+                        style: TextStyle(
+                            color: AppTheme.textTertiary, fontSize: 12)),
+                  ),
+                )
+              : Wrap(
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: items.map(_miniThumb).toList(),
+                ),
+        ],
       ),
     );
   }
@@ -180,16 +250,39 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
           ? () => openImageZoom(context,
               filePath: s.photoPath, title: s.productName)
           : null,
+      onLongPress: () async {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Ürünü kaldır'),
+            content: Text(s.productName ?? s.barcode),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Vazgeç')),
+              FilledButton(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: AppTheme.statusExpired),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Kaldır')),
+            ],
+          ),
+        );
+        if (ok == true) {
+          await ShelfLayoutService.instance.deleteSlot(s.id!);
+          _load();
+        }
+      },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(6),
         child: Container(
-          width: 42,
-          height: 46,
+          width: 48,
+          height: 52,
           color: AppTheme.surfaceAlt,
           child: hasPhoto
               ? Image.file(File(s.photoPath!), fit: BoxFit.cover)
               : Icon(Icons.inventory_2_rounded,
-                  size: 18, color: AppTheme.textTertiary),
+                  size: 20, color: AppTheme.textTertiary),
         ),
       ),
     );

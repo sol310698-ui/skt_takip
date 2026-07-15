@@ -135,7 +135,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
     if (!mounted) return;
     setState(() {
       _busy = false;
-      _lastMsg = '${name ?? code} eklendi (B$_section-S$_row)';
+      _lastMsg = '${name ?? code} eklendi (Sütun $_section · Raf $_row)';
       _lastMsgError = false;
     });
   }
@@ -151,10 +151,12 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _picker('Bölüm', s, widget.unit.sections,
+              _picker('Sütun', s, widget.unit.sections,
                   (v) => setD(() => s = v)),
               const SizedBox(height: 12),
-              _picker('Satır', r, widget.unit.rows, (v) => setD(() => r = v)),
+              // Raf ust siniri SABIT DEGIL: sutun basina istenildigi kadar
+              // raf. Pratik bir tavan (99) veriyoruz.
+              _picker('Raf', r, 99, (v) => setD(() => r = v)),
             ],
           ),
           actions: [
@@ -204,13 +206,10 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
   }
 
   void _nextRow() {
+    // Ayni sutunda BIR SONRAKI rafa gec (ust sinir yok). Boylece bir rafi
+    // bitirince ayni sutunun yeni rafina serbestce devam edilir.
     setState(() {
-      if (_row < widget.unit.rows) {
-        _row++;
-      } else if (_section < widget.unit.sections) {
-        _section++;
-        _row = 1;
-      }
+      _row++;
     });
     _loadCell();
   }
@@ -268,7 +267,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
                           const Icon(Icons.my_location_rounded,
                               size: 16, color: Colors.black),
                           const SizedBox(width: 6),
-                          Text('Bölüm $_section · Satır $_row',
+                          Text('Sütun $_section · Raf $_row',
                               style: const TextStyle(
                                   color: Colors.black,
                                   fontWeight: FontWeight.w800)),
@@ -312,7 +311,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
                     TextButton.icon(
                       onPressed: _nextRow,
                       icon: const Icon(Icons.skip_next_rounded),
-                      label: const Text('Sonraki satır'),
+                      label: const Text('Sonraki raf'),
                     ),
                   ],
                 ),

@@ -103,7 +103,7 @@ class ShelfLayoutService {
   Future<int> createUnit({
     required String name,
     required int sections,
-    required int rows,
+    int rows = 1, // ARTIK sabit degil: raflar sutun bazinda dinamik eklenir.
     int? warehouseId,
   }) async {
     final db = await DatabaseService.instance.database;
@@ -192,6 +192,33 @@ class ShelfLayoutService {
       orderBy: 'section_no ASC, row_no ASC, seq ASC, id ASC',
     );
     return rows.map(ShelfSlot.fromMap).toList();
+  }
+
+  /// ── DINAMIK RAF (kolon-bazli) ────────────────────────────────────────
+  /// Bir sutundaki (section) MEVCUT raflarin numaralari — icinde en az bir
+  /// urun olan row_no degerleri, artan sirada. Raf sayisi ONCEDEN sabit
+  /// DEGILDIR; her sutun kendi kadar rafa sahip olabilir.
+  Future<List<int>> shelfNumbersInColumn(int unitId, int sectionNo) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT row_no FROM ${AppConstants.shelfSlotTable} '
+      'WHERE unit_id = ? AND section_no = ? ORDER BY row_no ASC',
+      [unitId, sectionNo],
+    );
+    return rows.map((r) => r['row_no'] as int).toList();
+  }
+
+  /// Bir sutuna YENI raf eklemek icin kullanilacak siradaki raf numarasi
+  /// (mevcut en buyuk + 1; hic yoksa 1). Bos raf DB'ye yazilmaz; ilk urun
+  /// okununca raf fiilen olusur.
+  Future<int> nextShelfNumber(int unitId, int sectionNo) async {
+    final db = await DatabaseService.instance.database;
+    final r = await db.rawQuery(
+      'SELECT COALESCE(MAX(row_no), 0) m FROM ${AppConstants.shelfSlotTable} '
+      'WHERE unit_id = ? AND section_no = ?',
+      [unitId, sectionNo],
+    );
+    return ((r.first['m'] as int?) ?? 0) + 1;
   }
 
   /// Bir hucreye urun ekler (sona). Foto verildiyse barkod dizinine de yerel

@@ -168,6 +168,15 @@ class MainActivity : FlutterFragmentActivity() {
                         PriceAccessibilityService.clearLastPrice()
                         result.success(true)
                     }
+                    "setAutoFlow" -> {
+                        val on = call.argument<Boolean>("enabled") ?: false
+                        PriceAccessibilityService.requestSetAutoFlow(on)
+                        result.success(true)
+                    }
+                    "switchToCompanyApp" -> {
+                        PriceAccessibilityService.requestSwitchToTarget()
+                        result.success(true)
+                    }
                     "speak" -> {
                         val text = call.argument<String>("text") ?: ""
                         speak(text)

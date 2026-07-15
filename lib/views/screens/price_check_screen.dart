@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/label_pending_queue_service.dart';
+import '../../core/services/flow_prefs.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/database_service.dart';
@@ -49,6 +50,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   bool _scanning = false;
   bool _busy = false;
   bool _serviceOn = false;
+  // OTOMATIK GEZINME anahtari (sag ustteki switch). Kalici (FlowPrefs).
+  bool _autoFlow = false;
 
   // Servis acik/kapali durumunu periyodik kontrol eden zamanlayici.
   // (Eskiden burada gorunur bir "TANI PANELI" de besleniyordu; kullanici
@@ -95,6 +98,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // State asagida bu durumu duzeltir.
     WidgetsBinding.instance.addObserver(this);
     _init();
+
+    // OTOMATIK GEZINME tercihini yukle ve native tarafa bildir.
+    _autoFlow = FlowPrefs.instance.autoFlow;
+    PriceCheckChannel.setAutoFlow(_autoFlow);
     // Servis acik/kapali durumunu her saniye kontrol et (sadece uyari
     // satirinin gosterilip gosterilmeyecegine karar vermek icin).
     _serviceStatusTimer =
@@ -156,6 +163,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Ekrandan cikinca otomatik gezinmeyi native tarafta da durdur; arka
+    // planda beklenmedik uygulama gecisleri olmasin.
+    PriceCheckChannel.setAutoFlow(false);
     _serviceStatusTimer?.cancel();
     _liveSub?.cancel();
     _autoRescanTimer?.cancel();
@@ -181,6 +191,15 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         _controller.start();
       }
       _refreshServiceStatus();
+      // OTOMATIK GEZINME: sirket uygulamasi yeni urun gosterince native bizi
+      // one getirdi. Kullanici elle bir sey yapmadan raf etiketini
+      // okutabilsin diye TAZE bir tarama baslat (onceki sonucu temizleyip
+      // tarayiciyi ac). Bir sonuc gosteriliyorsa ya da tarama zaten
+      // calisiyorsa dokunma.
+      if (_autoFlow && !_busy && (_result != null || !_scanning)) {
+        _autoRescanTimer?.cancel();
+        _scanAgain(clearSystem: false);
+      }
     }
   }
 
@@ -347,16 +366,60 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       // Etiket teklifinden sonra, sistem urununun fotosu yoksa cek.
       await _maybeCaptureProductPhoto();
       if (!mounted) return;
-      await _scanAgain();
+      if (_autoFlow) {
+        _scheduleReturnToCompanyApp();
+      } else {
+        await _scanAgain();
+      }
       return;
     }
 
-    // Sonuc dogru/uyumlu: once foto eksikse cek, sonra otomatik devam.
+    // Sonuc dogru/uyumlu: once foto eksikse cek.
     await _maybeCaptureProductPhoto();
     if (!mounted) return;
 
-    // OTOMATIK DEVAM: kullanici "Tekrar Okut"a basmak zorunda kalmasin.
-    _scheduleAutoRescan();
+    if (_autoFlow) {
+      // OTOMATIK GEZINME: 2 sn icinde yeni etiket okutulmazsa sirket
+      // uygulamasina geri don; dongu kendiliginden aksin.
+      _scheduleReturnToCompanyApp();
+    } else {
+      // OTOMATIK DEVAM (yerinde): kullanici "Tekrar Okut"a basmasin.
+      _scheduleAutoRescan();
+    }
+  }
+
+  /// Sag ustteki anahtar: otomatik gezinmeyi ac/kapat. Hem kalici tercihe
+  /// yazar hem native tarafa bildirir. Kapatilirsa bekleyen donus/tarama
+  /// zamanlayicisini iptal eder.
+  Future<void> _setAutoFlow(bool value) async {
+    setState(() => _autoFlow = value);
+    await FlowPrefs.instance.setAutoFlow(value);
+    await PriceCheckChannel.setAutoFlow(value);
+    if (!value) {
+      _autoRescanTimer?.cancel();
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 2),
+          content: Text(value
+              ? 'Otomatik gezinme açık: ürün okununca uygulama kendiliğinden gelir'
+              : 'Otomatik gezinme kapalı'),
+        ),
+      );
+    }
+  }
+
+  /// Auto-flow: sonuc gosterildikten 2 sn sonra (yeni tarama olmadiysa)
+  /// sirket uygulamasina geri doner. Native taraf, sirket uygulamasi bir
+  /// sonraki urunu gosterince bizi otomatik tekrar one getirir.
+  void _scheduleReturnToCompanyApp() {
+    _autoRescanTimer?.cancel();
+    _autoRescanTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted && _result != null && !_scanning && !_busy) {
+        PriceCheckChannel.switchToCompanyApp();
+      }
+    });
   }
 
   /// ══════════════════════════════════════════════════════════════════
@@ -863,9 +926,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
   }
 
-  Future<void> _scanAgain() async {
+  Future<void> _scanAgain({bool clearSystem = true}) async {
     _autoRescanTimer?.cancel();
-    await PriceCheckChannel.clearLastSystemPrice();
+    // Auto-flow'da sirket uygulamasi ARKA PLANDA oldugu icin sistem verisini
+    // yeniden okuyamayiz; bu yuzden native'in okudugu degeri KORURUZ
+    // (clearSystem=false). Normal akista ise yeni urun icin temizleriz.
+    if (clearSystem) {
+      await PriceCheckChannel.clearLastSystemPrice();
+    }
     setState(() {
       _result = null;
       _labelBarcode = null;
@@ -928,6 +996,30 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
               foregroundColor: Colors.white,
               title: const Text('Fiyat Kontrol'),
               actions: [
+                // ── OTOMATIK GEZINME anahtari ──
+                // Acikken: sirket uygulamasi yeni urun gosterince bu
+                // uygulama otomatik one gelir; sonuc sonrasi 2 sn'de sirket
+                // uygulamasina geri doner. Kapaliyken her sey elle.
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _autoFlow
+                          ? Icons.sync_rounded
+                          : Icons.sync_disabled_rounded,
+                      size: 20,
+                      color: Colors.white,
+                    ),
+                    Switch(
+                      value: _autoFlow,
+                      onChanged: _setAutoFlow,
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.white54,
+                      inactiveThumbColor: Colors.white70,
+                      inactiveTrackColor: Colors.white24,
+                    ),
+                  ],
+                ),
                 // Okunan urunler (onay) sayfasi — rozette bekleyen sayisi.
                 ValueListenableBuilder<List<PendingProduct>>(
                   valueListenable: pendingProductsQueue,
