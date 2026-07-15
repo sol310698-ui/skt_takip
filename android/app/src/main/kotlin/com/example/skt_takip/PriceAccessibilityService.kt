@@ -296,9 +296,15 @@ class PriceAccessibilityService : AccessibilityService() {
             if (!on) suppressForwardUntil = 0L
         }
 
-        /** Sonuc sonrasi (Flutter'dan) sirket uygulamasina geri donus istegi. */
-        fun requestSwitchToTarget() {
-            instance?.switchToTargetApp()
+        /// Sonuc sonrasi geri donus icin: yalnizca "bastirma penceresi" acar
+        /// ve son degerleri temizlemeyi zamanlar. Sirket uygulamasini PAKET
+        /// ADIYLA ACMAYIZ; MainActivity uygulamayi arka plana atar
+        /// (moveTaskToBack), altindaki uygulama (Anpa) kendiliginden one
+        /// gelir. Boylece Anpa'nin paket adini bilmemize gerek yok.
+        fun requestSuppressForward() {
+            suppressForwardUntil = System.currentTimeMillis() + 1500L
+            mainHandler.removeCallbacks(clearRunnable)
+            mainHandler.postDelayed(clearRunnable, 1600L)
         }
 
         /**
@@ -769,7 +775,10 @@ class PriceAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now < suppressForwardUntil) return
         if (lastBarcode.isNullOrBlank() && lastSystemPrice == null) return
-        if (lastPackage != TARGET_PACKAGE) return
+        // Zaten ONDEYSEK kendi kendimizi one getirmeyelim. (Anpa'nin tam paket
+        // adina BAGLI DEGILIZ: veri zaten yalnizca sirket uygulamasi ekraninda
+        // degistigi icin, biz onde degilsek tetikleyici sirket uygulamasidir.)
+        if (lastPackage == OWN_PACKAGE) return
         bringOwnAppToFront()
     }
 
@@ -789,31 +798,6 @@ class PriceAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "one getirme hata: ${e.message}")
         }
-    }
-
-    /**
-     * Sonuc sonrasi sirket uygulamasina geri doner (Flutter 2 sn bosta
-     * kalinca cagirir). Geri donuste ekranda hala duran ESKI verinin bizi
-     * hemen geri sekmesini onlemek icin kisa bir bastirma penceresi acilir;
-     * pencere bitince son degerler temizlenir (ayni urun bile yeniden
-     * okutulursa "yeni" sayilsin diye).
-     */
-    fun switchToTargetApp() {
-        suppressForwardUntil = System.currentTimeMillis() + 1500L
-        try {
-            val i = packageManager.getLaunchIntentForPackage(TARGET_PACKAGE)
-            if (i != null) {
-                i.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                )
-                startActivity(i)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "sirket uygulamasina donus hata: ${e.message}")
-        }
-        mainHandler.removeCallbacks(clearRunnable)
-        mainHandler.postDelayed(clearRunnable, 1600L)
     }
 
     /**

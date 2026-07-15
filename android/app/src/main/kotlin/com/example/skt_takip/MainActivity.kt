@@ -174,7 +174,13 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(true)
                     }
                     "switchToCompanyApp" -> {
-                        PriceAccessibilityService.requestSwitchToTarget()
+                        // Sirket uygulamasini PAKET ADIYLA acmiyoruz; kendi
+                        // uygulamamizi arka plana atiyoruz, altindaki uygulama
+                        // (Anpa) kendiliginden one geliyor. Once native tarafta
+                        // "bastirma penceresi" acilir ki geri donuste ekranda
+                        // duran eski veri bizi hemen geri sekmesin.
+                        PriceAccessibilityService.requestSuppressForward()
+                        moveTaskToBack(true)
                         result.success(true)
                     }
                     "speak" -> {
