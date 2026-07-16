@@ -11,6 +11,7 @@ import '../../core/services/flow_prefs.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/database_service.dart';
+import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../widgets/scan_overlay.dart';
@@ -69,6 +70,18 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   // pes pese tekrar tekrar sormamak icin. (Basarili kayittan sonra zaten
   // yerel foto olustugu icin bir daha sorulmaz.)
   final Set<String> _photoHandled = <String>{};
+
+  // ── REYON KAYDI MODU ──
+  // Acikken, fiyat kontrol edilen her urun ayni anda secili reyon hucresine
+  // (sutun/raf) eklenir; boylece fiyat kontrolu yaparken planogram da olusur.
+  // Ikinci kez dolasmaya gerek kalmaz.
+  bool _reyonMode = false;
+  ShelfUnit? _reyonUnit;
+  int _reyonSection = 1;
+  int _reyonRow = 1;
+  // En son cekilen fotografin yolu — reyon slotunda yeniden kullanilir
+  // (ayni urun icin iki kez foto cektirmemek icin).
+  String? _lastPhotoPath;
 
   // ── CANLI sistem verisi (erisilebilirlik servisinden surekli okunur) ──
   // QR okutmadan, sirket uygulamasinda urun degistikce guncellenir.
@@ -366,6 +379,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       // Etiket teklifinden sonra, sistem urununun fotosu yoksa cek.
       final photographed = await _maybeCaptureProductPhoto();
       if (!mounted) return;
+      await _maybeAddToReyon(); // reyon modu aciksa hucreye ekle
+      if (!mounted) return;
       if (_autoFlow) {
         // Foto cekildiyse HEMEN sirket uygulamasina don (bekleme yok).
         _returnToCompanyApp(immediate: photographed);
@@ -377,6 +392,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
 
     // Sonuc dogru/uyumlu: once foto eksikse cek.
     final photographed = await _maybeCaptureProductPhoto();
+    if (!mounted) return;
+    await _maybeAddToReyon(); // reyon modu aciksa hucreye ekle
     if (!mounted) return;
 
     if (_autoFlow) {
@@ -445,13 +462,14 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   /// Foto CEKILIP kaydedildiyse `true`, aksi halde `false` doner (cagiran
   /// taraf foto cekildiyse sirket uygulamasina HEMEN donebilsin diye).
   Future<bool> _maybeCaptureProductPhoto() async {
+    _lastPhotoPath = null;
     final barcode = _systemBarcode?.trim();
     final name = _systemProductName?.trim();
     if (barcode == null || barcode.isEmpty) return false;
     if (name == null || name.isEmpty || _looksLikeStaticFormLabel(name)) return false;
-    if (_photoHandled.contains(barcode)) return false;
 
-    // Zaten yerel foto var mi? Varsa hic sorma.
+    // Zaten yerel foto var mi? Varsa REYON kaydinda yeniden kullanmak icin
+    // yolunu tut; ama yeni foto icin tekrar sorma.
     String? existing;
     try {
       existing = await _barcodeDs.getLocalImage(barcode);
@@ -459,10 +477,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       existing = null;
     }
     if (existing != null && existing.isNotEmpty && File(existing).existsSync()) {
+      _lastPhotoPath = existing;
       _photoHandled.add(barcode);
       return false;
     }
 
+    if (_photoHandled.contains(barcode)) return false;
     if (!mounted) return false;
     _autoRescanTimer?.cancel();
     _photoHandled.add(barcode); // iptal edilse bile bu oturumda tekrar sorma
@@ -486,6 +506,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     );
 
     if (path == null || path.isEmpty) return false; // kullanici vazgecti
+    _lastPhotoPath = path;
 
     // Ortak yerel veritabanina yaz — her yerden erisilsin, offline fallback.
     try {
@@ -503,7 +524,250 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     return true;
   }
 
-  /// Bu sonuc raftaki etiketin YENIDEN BASILMASINI gerektirir mi?
+  /// ══════════════════════════════════════════════════════════════════
+  ///  REYON KAYDI — fiyat kontrol ile ES ZAMANLI
+  /// ──────────────────────────────────────────────────────────────────
+  ///  Reyon modu aciksa, kontrol edilen sistem urununu secili reyon
+  ///  hucresine (sutun/raf) ekler. Fotograf zaten fiyat kontrol sirasinda
+  ///  cekildigi/bulundugu icin YENIDEN cektirmez — _lastPhotoPath yeniden
+  ///  kullanilir. Ayni barkod o hucrede zaten varsa tekrar eklemez.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _maybeAddToReyon() async {
+    if (!_reyonMode || _reyonUnit == null) return;
+    final barcode = _systemBarcode?.trim();
+    final name = _systemProductName?.trim();
+    if (barcode == null || barcode.isEmpty) return;
+    if (name == null || name.isEmpty || _looksLikeStaticFormLabel(name)) return;
+
+    try {
+      // Ayni barkod bu hucrede zaten var mi? Varsa tekrar ekleme.
+      final existing = await ShelfLayoutService.instance
+          .getSlotsInCell(_reyonUnit!.id!, _reyonSection, _reyonRow);
+      if (existing.any((s) => s.barcode == barcode)) return;
+
+      await ShelfLayoutService.instance.addSlot(
+        unitId: _reyonUnit!.id!,
+        sectionNo: _reyonSection,
+        rowNo: _reyonRow,
+        barcode: barcode,
+        productName: name,
+        photoPath: _lastPhotoPath,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppTheme.primary,
+          duration: const Duration(milliseconds: 1400),
+          content: Text(
+              '$name → ${_reyonUnit!.name} · Sütun $_reyonSection · Raf $_reyonRow'),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  /// Reyon modunu ac/kapat. Acarken reyon + baslangic sutun/raf sectirir.
+  Future<void> _toggleReyonMode() async {
+    if (_reyonMode) {
+      setState(() => _reyonMode = false);
+      return;
+    }
+    final units = await ShelfLayoutService.instance.getUnitSummaries();
+    if (!mounted) return;
+    if (units.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Önce Depo > Reyon Dizilim\'den bir reyon oluşturun.'),
+        ),
+      );
+      return;
+    }
+
+    ShelfUnit chosen = _reyonUnit ?? units.first.unit;
+    int section = _reyonSection;
+    int row = _reyonRow;
+
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => Padding(
+          padding: EdgeInsets.fromLTRB(
+              18, 14, 18, 18 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Reyon Kaydı',
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(
+                  'Fiyat kontrol ederken okunan her ürün buradaki hücreye eklenir.',
+                  style:
+                      TextStyle(fontSize: 12, color: AppTheme.textTertiary)),
+              const SizedBox(height: 16),
+              // Reyon secimi
+              DropdownButtonFormField<int>(
+                value: chosen.id,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Reyon'),
+                items: units
+                    .map((u) => DropdownMenuItem(
+                          value: u.unit.id,
+                          child: Text(
+                              '${u.unit.name} (${u.unit.sections} sütun)'),
+                        ))
+                    .toList(),
+                onChanged: (v) {
+                  final u = units.firstWhere((e) => e.unit.id == v).unit;
+                  setS(() {
+                    chosen = u;
+                    if (section > u.sections) section = 1;
+                  });
+                },
+              ),
+              const SizedBox(height: 14),
+              _reyonStepper('Sütun', section, 1, chosen.sections,
+                  (v) => setS(() => section = v)),
+              const SizedBox(height: 10),
+              _reyonStepper(
+                  'Raf', row, 1, 99, (v) => setS(() => row = v)),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Kaydı Başlat'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (ok == true && mounted) {
+      setState(() {
+        _reyonMode = true;
+        _reyonUnit = chosen;
+        _reyonSection = section;
+        _reyonRow = row;
+      });
+    }
+  }
+
+  Widget _reyonStepper(
+      String label, int value, int min, int max, ValueChanged<int> onCh) {
+    return Row(
+      children: [
+        SizedBox(width: 70, child: Text(label)),
+        IconButton(
+          onPressed: value > min ? () => onCh(value - 1) : null,
+          icon: const Icon(Icons.remove_circle_outline_rounded),
+        ),
+        Container(
+          width: 46,
+          alignment: Alignment.center,
+          child: Text('$value',
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w900)),
+        ),
+        IconButton(
+          onPressed: value < max ? () => onCh(value + 1) : null,
+          icon: const Icon(Icons.add_circle_outline_rounded),
+        ),
+      ],
+    );
+  }
+
+  /// Ekran uzerindeki "Sonraki raf" — ayni sutunda bir alt rafa gec.
+  void _reyonNextRow() {
+    setState(() => _reyonRow++);
+    _reyonToast('Raf $_reyonRow');
+  }
+
+  /// "Sonraki sütun" — bir sonraki sutunun 1. rafina gec.
+  void _reyonNextSection() {
+    if (_reyonUnit == null) return;
+    setState(() {
+      if (_reyonSection < _reyonUnit!.sections) {
+        _reyonSection++;
+      }
+      _reyonRow = 1;
+    });
+    _reyonToast('Sütun $_reyonSection · Raf 1');
+  }
+
+  void _reyonToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(milliseconds: 900),
+      content: Text('Reyon konumu: $msg'),
+    ));
+  }
+
+  /// Reyon modu aktifken ekranin ustunde gorunen konum seridi: mevcut
+  /// reyon/sutun/raf + "Sonraki raf" / "Sonraki sütun" / kapat.
+  Widget _reyonBar() {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.accent.withOpacity(0.18),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.grid_view_rounded,
+              size: 18, color: AppTheme.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${_reyonUnit?.name ?? "Reyon"} · Sütun $_reyonSection · Raf $_reyonRow',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          _reyonBarBtn('Sonraki raf', Icons.arrow_downward_rounded,
+              _reyonNextRow),
+          const SizedBox(width: 4),
+          _reyonBarBtn('Sonraki sütun', Icons.arrow_forward_rounded,
+              _reyonNextSection),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: _toggleReyonMode,
+            borderRadius: BorderRadius.circular(20),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child: Icon(Icons.close_rounded, size: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _reyonBarBtn(String tip, IconData icon, VoidCallback onTap) {
+    return Tooltip(
+      message: tip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppTheme.accent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Icon(icon, size: 16, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
   ///  - wrongLabel        : etiket baska urune ait -> dogru etiket basilmali
   ///  - wrongLabelPriceOk : fiyat tutuyor ama etiket yanlis urunun -> basilmali
   ///  - mismatch          : etiketteki fiyat eski/yanlis -> basilmali
@@ -1068,6 +1332,17 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                     ],
                   ),
                 ),
+                // ── REYON KAYDI butonu ── (fiyat kontrol + reyon es zamanli)
+                IconButton(
+                  tooltip: 'Reyon kaydı',
+                  onPressed: _toggleReyonMode,
+                  icon: Icon(
+                    _reyonMode
+                        ? Icons.grid_view_rounded
+                        : Icons.grid_view_outlined,
+                    color: _reyonMode ? AppTheme.accent : Colors.white,
+                  ),
+                ),
                 IconButton(
                   tooltip: 'Servis durumunu yenile',
                   onPressed: _refreshServiceStatus,
@@ -1083,6 +1358,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         child: Column(
           children: [
             if (smallWindow) _smallWindowBar(),
+            if (_reyonMode) _reyonBar(),
             if (!_serviceOn) _serviceWarning(),
             if (_serviceOn) _liveSystemCard(),
             Expanded(
