@@ -515,7 +515,7 @@ Kurallar:
     return _generate(key, body);
   }
 
-
+  static String _shortError(String body) {
     try {
       final m = jsonDecode(body);
       return (m['error']?['message'] as String?)

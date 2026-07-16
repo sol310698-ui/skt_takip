@@ -423,7 +423,6 @@ class _MainShellState extends State<MainShell> {
                   ),
                 ),
                 _sheetOption(
-                  sheetCtx,
                   icon: Icons.warehouse_rounded,
                   title: 'Depo',
                   subtitle: 'Reyon, palet ve raf yönetimi',
@@ -436,7 +435,6 @@ class _MainShellState extends State<MainShell> {
                 ),
                 const SizedBox(height: 10),
                 _sheetOption(
-                  sheetCtx,
                   icon: Icons.assistant_rounded,
                   title: 'Depo Asistanı',
                   subtitle: 'Ürün nerede? Sor, yerini bulayım',
@@ -452,57 +450,6 @@ class _MainShellState extends State<MainShell> {
           ),
         );
       },
-    );
-  }
-
-  Widget _sheetOption(
-    BuildContext ctx, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.35)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: Colors.white, size: 26),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 2),
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 12, color: AppTheme.textTertiary)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: AppTheme.textTertiary),
-          ],
-        ),
-      ),
     );
   }
 }
