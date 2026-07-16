@@ -1,3 +1,5 @@
+import '../../data/datasources/barcode_directory_datasource.dart';
+import 'database_service.dart';
 import 'gemini_ocr_service.dart';
 import 'shelf_layout_service.dart';
 
@@ -19,40 +21,76 @@ class WarehouseAssistantService {
 
   /// Baglam metnini cok sismesin diye urun tavani.
   static const int _maxProducts = 500;
+  static const int _maxDirectory = 800;
 
-  /// Tum reyonlarin urun+konum ozetini metne dokerek dondurur.
+  /// Tum reyonlarin urun+konum ozetini VE kayitli urun dizinini metne
+  /// dokerek dondurur. Iki kaynak:
+  ///   1) REYON KONUMLARI — hangi urun hangi reyon/sutun/raf'ta (yer sorulari).
+  ///   2) KAYITLI URUNLER — barkod dizinindeki tum urunler (ad + stok kodu).
+  ///      Reyon konumu olmayan ama sistemde kayitli urunler icin. Boylece
+  ///      "bu urun var mi / stok kodu ne" gibi sorulara da cevap verebilir.
   Future<String> buildLocalContext() async {
-    final summaries = await ShelfLayoutService.instance.getUnitSummaries();
-    if (summaries.isEmpty) {
-      return '(Henüz reyon/ürün kaydı yok.)';
-    }
-
     final buf = StringBuffer();
-    int total = 0;
 
-    for (final s in summaries) {
-      final unit = s.unit;
-      buf.writeln('# Reyon: ${unit.name} (${unit.sections} sütun)');
-      final slots = await ShelfLayoutService.instance.getSlots(unit.id!);
-      if (slots.isEmpty) {
-        buf.writeln('  (boş)');
-        continue;
-      }
-      for (final sl in slots) {
-        if (total >= _maxProducts) {
-          buf.writeln('  ... (daha fazla ürün var, kısaltıldı)');
-          break;
+    // ── 1) REYON KONUMLARI ──
+    final summaries = await ShelfLayoutService.instance.getUnitSummaries();
+    final Set<String> placedBarcodes = {};
+    if (summaries.isEmpty) {
+      buf.writeln('(Henüz reyon/konum kaydı yok.)');
+    } else {
+      buf.writeln('=== REYON KONUMLARI (ürün → yeri) ===');
+      int total = 0;
+      for (final s in summaries) {
+        final unit = s.unit;
+        buf.writeln('# Reyon: ${unit.name} (${unit.sections} sütun)');
+        final slots = await ShelfLayoutService.instance.getSlots(unit.id!);
+        if (slots.isEmpty) {
+          buf.writeln('  (boş)');
+          continue;
         }
-        final name = (sl.productName?.trim().isNotEmpty ?? false)
-            ? sl.productName!.trim()
-            : sl.barcode;
-        buf.writeln(
-            '  - $name [${sl.barcode}] → Sütun ${sl.sectionNo}, Raf ${sl.rowNo}');
-        total++;
+        for (final sl in slots) {
+          if (total >= _maxProducts) {
+            buf.writeln('  ... (kısaltıldı)');
+            break;
+          }
+          final name = (sl.productName?.trim().isNotEmpty ?? false)
+              ? sl.productName!.trim()
+              : sl.barcode;
+          buf.writeln(
+              '  - $name [${sl.barcode}] → Sütun ${sl.sectionNo}, Raf ${sl.rowNo}');
+          placedBarcodes.add(sl.barcode);
+          total++;
+        }
+        if (total >= _maxProducts) break;
       }
-      if (total >= _maxProducts) break;
     }
-    return buf.toString();
+
+    // ── 2) KAYITLI URUNLER (konumu olmayanlar) ──
+    // Barkod dizinindeki tum urunler; reyonda zaten listelenenleri tekrar
+    // yazmayiz. Bunlarin YERI bilinmez ama sistemde KAYITLIDIR.
+    try {
+      final all = await BarcodeDirectoryDataSource(DatabaseService.instance)
+          .getAll();
+      final others = all.where((e) => !placedBarcodes.contains(e.barcode));
+      if (others.isNotEmpty) {
+        buf.writeln();
+        buf.writeln('=== KAYITLI ÜRÜNLER (yeri kayıtlı değil) ===');
+        int c = 0;
+        for (final e in others) {
+          if (c >= _maxDirectory) {
+            buf.writeln('  ... (kısaltıldı)');
+            break;
+          }
+          final stok =
+              (e.stockCode?.trim().isNotEmpty ?? false) ? ' (stok ${e.stockCode})' : '';
+          buf.writeln('  - ${e.productName} [${e.barcode}]$stok');
+          c++;
+        }
+      }
+    } catch (_) {}
+
+    final out = buf.toString().trim();
+    return out.isEmpty ? '(Kayıtlı veri yok.)' : out;
   }
 
   /// Kullanicinin sorusunu (gecmisle birlikte) yanitlar.

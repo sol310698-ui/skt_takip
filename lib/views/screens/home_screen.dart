@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -628,7 +629,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onPressed: () async {
                 Navigator.pop(context);
                 try {
-                  await BackupService.instance.exportDb();
+                  await BackupService.instance.exportAll();
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -668,15 +669,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 );
                 if (confirmed != true || !mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Yedek dosyasının yolunu dosya yöneticisinden kopyalayıp '
-                      'BackupService.instance.importDb(yol) ile çağırın.',
-                    ),
-                    duration: Duration(seconds: 4),
-                  ),
-                );
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  final res =
+                      await FilePicker.platform.pickFiles(type: FileType.any);
+                  if (res != null && res.files.single.path != null) {
+                    messenger.showSnackBar(const SnackBar(
+                        duration: Duration(minutes: 5),
+                        content: Text('Geri yükleniyor…')));
+                    await BackupService.instance.restoreAll(
+                      res.files.single.path!,
+                      onProgress: (s) {
+                        messenger.clearSnackBars();
+                        messenger.showSnackBar(SnackBar(
+                            duration: const Duration(minutes: 5),
+                            content: Text(s)));
+                      },
+                    );
+                    messenger.clearSnackBars();
+                    if (mounted) {
+                      messenger.showSnackBar(const SnackBar(
+                          content: Text(
+                              'Geri yüklendi. Uygulamayı yeniden başlatın.')));
+                    }
+                  }
+                } catch (e) {
+                  messenger.clearSnackBars();
+                  if (mounted) {
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Geri yükleme hatası: $e')));
+                  }
+                }
               },
               icon: const Icon(Icons.cloud_download_rounded),
               label: const Text('Yedekten Geri Yükle'),

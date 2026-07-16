@@ -185,11 +185,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _fullBackup() async {
+    // Fotograflar dahil oldugu icin biraz surebilir; kullaniciya durum goster.
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      await BackupService.instance.exportDb();
+      messenger.showSnackBar(const SnackBar(
+          duration: Duration(minutes: 5),
+          content: Text('Yedek hazırlanıyor…')));
+      await BackupService.instance.exportAll(
+        onProgress: (s) {
+          messenger.clearSnackBars();
+          messenger.showSnackBar(SnackBar(
+              duration: const Duration(minutes: 5), content: Text(s)));
+        },
+      );
+      messenger.clearSnackBars();
     } catch (e) {
+      messenger.clearSnackBars();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
             SnackBar(content: Text('Yedek alınamadı: $e')));
       }
     }
@@ -217,19 +230,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
     if (!mounted || confirm != true) return;
 
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.any);
       if (result != null && result.files.single.path != null) {
-        await BackupService.instance.importDb(result.files.single.path!);
+        messenger.showSnackBar(const SnackBar(
+            duration: Duration(minutes: 5),
+            content: Text('Geri yükleniyor…')));
+        await BackupService.instance.restoreAll(
+          result.files.single.path!,
+          onProgress: (s) {
+            messenger.clearSnackBars();
+            messenger.showSnackBar(SnackBar(
+                duration: const Duration(minutes: 5), content: Text(s)));
+          },
+        );
+        messenger.clearSnackBars();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          messenger.showSnackBar(const SnackBar(
               content:
                   Text('Geri yüklendi. Lütfen uygulamayı yeniden başlatın.')));
         }
       }
     } catch (e) {
+      messenger.clearSnackBars();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
             SnackBar(content: Text('Geri yükleme hatası: $e')));
       }
     }
