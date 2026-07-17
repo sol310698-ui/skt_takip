@@ -523,6 +523,47 @@ Kurallar:
     return _generate(key, body);
   }
 
+  /// ETIKET FOTOGRAFINDAN fiyat + barkod okur (QR'siz etiketler icin).
+  /// Fiyat Kontrol'un "fotografla oku" akisinda kullanilir.
+  Future<({String? barcode, double? price})> extractLabelPrice(
+      File image) async {
+    final key = await getApiKey();
+    if (key == null || key.isEmpty) {
+      throw const GeminiOcrException('API anahtarı yok');
+    }
+    final b64 = base64Encode(await image.readAsBytes());
+    final body = jsonEncode({
+      'contents': [
+        {
+          'parts': [
+            {
+              'text': 'Bu bir market RAF ETİKETİ fotoğrafı. Etiketteki '
+                  'SATIŞ FİYATINI ve BARKOD NUMARASINI oku. SADECE şu '
+                  'JSON ile cevap ver, başka hiçbir şey yazma: '
+                  '{"barcode":"8690...","price":12.5} '
+                  'Barkod okunamıyorsa null, fiyat okunamıyorsa null yaz. '
+                  'Fiyatı nokta ondalıklı sayı olarak ver (₺ işareti olmadan). '
+                  'Birden fazla fiyat varsa BÜYÜK PUNTOLU olanı (satış '
+                  'fiyatı) al; birim fiyatı (₺/kg) ALMA.'
+            },
+            {
+              'inline_data': {'mime_type': 'image/jpeg', 'data': b64}
+            },
+          ]
+        }
+      ],
+      'generationConfig': {'temperature': 0.0},
+    });
+    final raw = await _generate(key, body);
+    final clean = raw.replaceAll(RegExp(r'```json|```'), '').trim();
+    final m = jsonDecode(clean) as Map<String, dynamic>;
+    final bc = m['barcode']?.toString();
+    return (
+      barcode: (bc == null || bc == 'null' || bc.isEmpty) ? null : bc,
+      price: _num(m['price']),
+    );
+  }
+
   static String _shortError(String body) {
     try {
       final m = jsonDecode(body);

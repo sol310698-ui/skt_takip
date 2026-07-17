@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/camera_helper.dart';
 import '../../core/services/gemini_ocr_service.dart';
+import '../../core/services/price_check_channel.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/services/database_service.dart';
@@ -24,6 +25,7 @@ import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
 import 'label_print_screen.dart' show LabelGroup, LabelGroupX;
 import 'price_change_review_screen.dart';
+import 'quick_photo_capture_screen.dart';
 import 'price_review_guide_screen.dart';
 import 'web_search_screen.dart';
 
@@ -52,8 +54,38 @@ class _PriceChangeSessionScreenState
   String? _scanMessage;
   // Eslesen urunu onaylarken "Etiket Basim'a da gonder" secimi.
   // null = gonderilmeyecek; doluysa secilen grubun key'i (kalinRon, a4, ...).
-  // Her eslesmede sifirlanir (bir sonraki urun icin tekrar secim sorulur).
+  // v2: SON SECIM OTURUM BOYUNCA HATIRLANIR — reyonda ayni etiket tipi pes
+  // pese kullanilir; her urunde yeniden secmek akisi yavaslatiyordu.
   String? _sendToLabelGroup;
+  static String? _lastLabelGroup; // oturumlar arasi da hatirla
+
+  // ── LISTE FILTRE + ARAMA ──
+  // Uzun listelerde (100+ satir A4) kalanlari bulmak zordu. Varsayilan
+  // filtre KALAN'dir: is bitmemis urunler ustte, biten kalabalik yapmaz.
+  _ItemFilter _filter = _ItemFilter.pending;
+  final TextEditingController _listSearchCtrl = TextEditingController();
+  String _listQuery = '';
+
+  List<PriceChangeItem> get _visibleItems {
+    Iterable<PriceChangeItem> it = _items;
+    switch (_filter) {
+      case _ItemFilter.pending:
+        it = it.where((i) => !i.changed);
+        break;
+      case _ItemFilter.done:
+        it = it.where((i) => i.changed);
+        break;
+      case _ItemFilter.all:
+        break;
+    }
+    final q = _listQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      it = it.where((i) =>
+          i.barcode.toLowerCase().contains(q) ||
+          (i.productName?.toLowerCase().contains(q) ?? false));
+    }
+    return it.toList();
+  }
   // Excel'den okunan, stok kodu dahil barkod dizini kayitlari.
   // Onay sonrasi dizine (oncelik: excel) yazilir.
   List<BarcodeEntry> _pendingDirEntries = [];
@@ -69,6 +101,7 @@ class _PriceChangeSessionScreenState
   @override
   void dispose() {
     _scanner.dispose();
+    _listSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -390,32 +423,50 @@ class _PriceChangeSessionScreenState
     if (!mounted) return;
     if (item == null) {
       setState(() => _scanMessage = 'Listede yok: $code');
+      HapticFeedback.heavyImpact();
+      PriceCheckChannel.speak('Listede yok');
       return;
     }
     if (item.changed) {
       setState(() => _scanMessage =
           '${item.productName ?? code} zaten değiştirildi ✓');
+      PriceCheckChannel.speak('Zaten değiştirildi');
       return;
     }
     await _scanner.stop();
     setState(() {
       _matched = item;
       _scanMessage = null;
-      _sendToLabelGroup = null;
+      _sendToLabelGroup = _lastLabelGroup; // son secim hazir gelsin
     });
+    // Sesli: urun adi + yeni fiyat — ekrana bakmadan dogrulama.
+    final fiyat = item.newPrice != null
+        ? ', yeni fiyat ${item.newPrice!.toStringAsFixed(2)} lira'
+        : '';
+    PriceCheckChannel.speak('${item.productName ?? 'Ürün'} eşleşti$fiyat');
   }
 
   Future<void> _confirmChange() async {
     final item = _matched;
     if (item == null || item.id == null) return;
-    final photo = await CameraHelper.pickImage(
-        source: ImageSource.camera, imageQuality: 80);
-    if (photo == null) return; // foto ZORUNLU
+    // v2 — UYGULAMA ICI HIZLI CEKIM: sistem kamera uygulamasi ACILMAZ
+    // (pil/hiz kaybi yok, uygulama arka plana atilmaz). 1 sn geri sayimla
+    // OTOMATIK ceker; kullanici isterse erken ceker ya da vazgecer.
+    final photoPath = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => QuickPhotoCaptureScreen(
+          productName: item.productName ?? item.barcode,
+          barcode: item.barcode,
+        ),
+      ),
+    );
+    if (photoPath == null || photoPath.isEmpty) return; // foto ZORUNLU
 
     final labelGroup = _sendToLabelGroup;
     setState(() => _busy = true);
-    // Fotoyu KALICI dizine kopyala (onbellek temizlense de kaybolmasin).
-    final persistentPath = await CameraHelper.persistPhoto(photo.path);
+    // QuickPhoto zaten kucultup KALICI dizine yazar; dogrudan kullan.
+    final persistentPath = photoPath;
     await PriceChangeService.instance.markChanged(item.id!, persistentPath);
     if (labelGroup != null) {
       // Etiket Basim ekrani acildiginda bu kuyruktan okunup eklenecek.
@@ -428,17 +479,20 @@ class _PriceChangeSessionScreenState
     }
     await _load();
     if (!mounted) return;
+    _lastLabelGroup = labelGroup; // bir sonraki urun icin hatirla
     setState(() {
       _matched = null;
       _busy = false;
-      _sendToLabelGroup = null;
+      _sendToLabelGroup = labelGroup;
     });
 
     final pending = _items.where((i) => !i.changed).length;
     if (pending == 0 && _items.isNotEmpty) {
       // KUSURSUZ AKIS: hepsi bitti -> tamamlama onerisi.
+      PriceCheckChannel.speak('Tebrikler, liste tamamlandı');
       _offerComplete();
     } else {
+      PriceCheckChannel.speak('Kaydedildi, $pending kaldı');
       await _scanner.start();
       final groupTitle = labelGroup == null
           ? null
@@ -1079,11 +1133,134 @@ class _PriceChangeSessionScreenState
     if (_items.isEmpty) {
       return const Center(child: Text('Liste boş'));
     }
+    final visible = _visibleItems;
+    final done = _items.where((i) => i.changed).length;
+    final total = _items.length;
+    final progress = total == 0 ? 0.0 : done / total;
+
+    return Column(
+      children: [
+        // ── BUYUK ILERLEME: X/Y + animasyonlu bar ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: progress),
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, v, __) => LinearProgressIndicator(
+                      value: v,
+                      minHeight: 10,
+                      backgroundColor: AppTheme.surfaceHigh,
+                      valueColor: AlwaysStoppedAnimation(
+                          progress >= 1.0
+                              ? AppTheme.statusSafe
+                              : AppTheme.primary),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text('$done / $total',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 15)),
+            ],
+          ),
+        ),
+        // ── FILTRE CIPLERI + ARAMA ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Row(
+            children: [
+              _filterChip('Kalan', _ItemFilter.pending,
+                  _items.where((i) => !i.changed).length),
+              const SizedBox(width: 6),
+              _filterChip('Bitti', _ItemFilter.done, done),
+              const SizedBox(width: 6),
+              _filterChip('Tümü', _ItemFilter.all, total),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: TextField(
+                    controller: _listSearchCtrl,
+                    onChanged: (v) => setState(() => _listQuery = v),
+                    onTapOutside: (_) =>
+                        FocusManager.instance.primaryFocus?.unfocus(),
+                    style: const TextStyle(fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Ara...',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      prefixIcon:
+                          const Icon(Icons.search_rounded, size: 18),
+                      prefixIconConstraints: const BoxConstraints(
+                          minWidth: 34, minHeight: 34),
+                      suffixIcon: _listQuery.isEmpty
+                          ? null
+                          : InkWell(
+                              onTap: () => setState(() {
+                                _listSearchCtrl.clear();
+                                _listQuery = '';
+                              }),
+                              child: const Icon(Icons.close_rounded,
+                                  size: 16),
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Center(
+                  child: Text(
+                      _filter == _ItemFilter.pending
+                          ? 'Kalan ürün yok 🎉'
+                          : 'Sonuç yok',
+                      style: TextStyle(color: AppTheme.textSecondary)),
+                )
+              : _itemsListView(visible),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, _ItemFilter f, int count) {
+    final sel = _filter == f;
+    return InkWell(
+      onTap: () => setState(() => _filter = f),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: sel ? AppTheme.primary : AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: sel ? AppTheme.primary : AppTheme.hairline),
+        ),
+        child: Text('$label $count',
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: sel ? Colors.white : AppTheme.textSecondary)),
+      ),
+    );
+  }
+
+  Widget _itemsListView(List<PriceChangeItem> visible) {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
-      itemCount: _items.length,
+      itemCount: visible.length,
       itemBuilder: (_, i) {
-        final item = _items[i];
+        final item = visible[i];
         return InkWell(
           borderRadius: BorderRadius.circular(AppTheme.rLg),
           onLongPress: () => _openEditItem(item),
@@ -1449,3 +1626,6 @@ class _EditItemSheetState extends State<_EditItemSheet>
     );
   }
 }
+
+/// Fiyat degisim listesi filtresi: kalanlar (varsayilan), bitenler, tumu.
+enum _ItemFilter { pending, done, all }

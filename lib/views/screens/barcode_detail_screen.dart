@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +31,8 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
   late BarcodeEntry _entry;
   bool _loadingWeb = true;
   String? _imageUrl;
+  // Telefondaki (yerel) foto yolu — zoom acilirken oncelikli kullanilir.
+  String? _localImagePath;
   String? _category;
   String? _quantity;
   bool _changed = false; // geri donerken listeyi yenilemek icin
@@ -38,6 +42,18 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
     super.initState();
     _entry = widget.entry;
     _fetchWeb();
+    _loadLocalImage();
+  }
+
+  Future<void> _loadLocalImage() async {
+    try {
+      final p = await ref
+          .read(barcodeDirectoryDataSourceProvider)
+          .getLocalImage(_entry.barcode);
+      if (mounted && p != null && p.isNotEmpty && File(p).existsSync()) {
+        setState(() => _localImagePath = p);
+      }
+    } catch (_) {}
   }
 
   /// OFF'tan gorsel + ek bilgi. Ad'a dokunmaz (o veritabanindan).
@@ -213,12 +229,16 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Buyuk gorsel (OFF) - dokununca zoom.
+                    // Buyuk gorsel - dokununca zoom. YEREL foto varsa
+                    // ONCELIKLE o buyutulur (kural: telefondaki foto
+                    // internetten degerlidir); yoksa internet fotografi.
                     GestureDetector(
-                      onTap: _imageUrl == null
+                      onTap: (_localImagePath == null && _imageUrl == null)
                           ? null
                           : () => openImageZoom(context,
-                              networkUrl: _imageUrl,
+                              filePath: _localImagePath,
+                              networkUrl:
+                                  _localImagePath == null ? _imageUrl : null,
                               heroTag: 'bc_img',
                               title: _entry.productName),
                       child: Hero(

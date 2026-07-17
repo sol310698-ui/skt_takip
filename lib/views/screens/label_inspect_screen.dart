@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
@@ -43,6 +46,10 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   // null = ilk tarama (notr); yesil = ayni barkod; kirmizi = farkli barkod.
   String? _lastBarcode;
   Color _appBarColor = AppTheme.primary;
+  // Taranan urunun reyon konumu (varsa) — animasyonlu kartla gosterilir.
+  _ShelfLocation? _shelfLoc;
+  // Ayni urunun DEPO/palet konumlari (reyon bos olsa da depoda olabilir).
+  List<_PalletLocation> _palletLocs = const [];
 
   @override
   void initState() {
@@ -93,6 +100,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
 
     String? localName;
     BarcodeLookupResult? off;
+    _ShelfLocation? shelfLoc;
+    final palletLocs = <_PalletLocation>[];
 
     if (code != null) {
       // Yerel ad
@@ -108,6 +117,43 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       // OFF (gorsel + kategori + miktar + ad)
       try {
         off = await BarcodeLookupService.instance.lookupDetailed(code);
+      } catch (_) {}
+      // REYON KONUMU: urun bir reyonda kayitliysa "nerede" bilgisi.
+      try {
+        final units = await ShelfLayoutService.instance.getUnitSummaries();
+        outer:
+        for (final u in units) {
+          final slots =
+              await ShelfLayoutService.instance.getSlots(u.unit.id!);
+          for (final s in slots) {
+            if (s.barcode == code) {
+              shelfLoc = _ShelfLocation(
+                  unitName: u.unit.name,
+                  section: s.sectionNo,
+                  row: s.rowNo);
+              break outer;
+            }
+          }
+        }
+      } catch (_) {}
+      // DEPO (PALET) KONUMLARI: ayni urun depoda hangi paletlerde?
+      // Reyon bos oldugunda "depoya bakmadan" cevap verebilmek icin.
+      try {
+        final whs = await WarehouseService.instance.getWarehouses();
+        for (final w in whs) {
+          final locs =
+              await WarehouseService.instance.findProduct(w.id!, code);
+          for (final l in locs) {
+            palletLocs.add(_PalletLocation(
+              warehouseName: w.name,
+              palletName: l.pallet.code,
+              shelfLabel: l.shelf != null
+                  ? 'Sütun ${l.shelf!.columnNo} · Raf ${l.shelf!.shelfNo}'
+                  : 'Zemin',
+              quantity: l.item.quantity,
+            ));
+          }
+        }
       } catch (_) {}
     }
 
@@ -129,6 +175,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _parsed = parsed;
       _localName = localName;
       _off = off;
+      _shelfLoc = shelfLoc;
+      _palletLocs = palletLocs;
       _busy = false;
       _appBarColor = barColor;
       if (code != null) _lastBarcode = code; // sonraki karsilastirma icin
@@ -140,6 +188,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _parsed = null;
       _localName = null;
       _off = null;
+      _shelfLoc = null;
+      _palletLocs = const [];
       _scanning = true;
     });
     await _controller.start();
@@ -284,6 +334,17 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               ),
               const SizedBox(height: 16),
 
+              // ── ÜRÜN KONUMU (animasyonlu) ──
+              // Barkod bir reyonda kayitliysa "nerede" bilgisi dikkat
+              // cekecek sekilde gosterilir: karta yay ile giris + konum
+              // pinine surekli nabiz (pulse) animasyonu.
+              if (_shelfLoc != null) _locationCard(_shelfLoc!),
+              if (_shelfLoc != null) const SizedBox(height: 12),
+              // Depodaki palet konumlari — reyon karti olmasa da gorunur.
+              if (_palletLocs.isNotEmpty) _palletCard(),
+              if (_shelfLoc != null || _palletLocs.isNotEmpty)
+                const SizedBox(height: 16),
+
               // ETIKET VERILERI
               const SectionLabel('Etiket Verileri'),
               const SizedBox(height: 8),
@@ -364,6 +425,137 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     );
   }
 
+  /// Reyon konum karti — yayli giris, konum pini nabiz atar, sutun/raf
+  /// rozetleri sirayla belirir. "Urun surada!" hissi.
+  Widget _locationCard(_ShelfLocation loc) {
+    Widget badge(String label, String value, int delayMs) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.35)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.8), fontSize: 11)),
+            const SizedBox(width: 5),
+            Text(value,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900)),
+          ],
+        ),
+      )
+          .animate()
+          .fadeIn(delay: delayMs.ms, duration: 250.ms)
+          .slideY(begin: 0.4, delay: delayMs.ms, duration: 300.ms);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: AppTheme.accentGradient,
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        boxShadow: AppTheme.glow(AppTheme.accent),
+      ),
+      child: Row(
+        children: [
+          // Nabiz atan konum pini.
+          const Icon(Icons.location_on_rounded,
+                  color: Colors.white, size: 34)
+              .animate(onPlay: (c) => c.repeat(reverse: true))
+              .scale(
+                  begin: const Offset(1, 1),
+                  end: const Offset(1.25, 1.25),
+                  duration: 700.ms,
+                  curve: Curves.easeInOut),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('ÜRÜN BURADA',
+                    style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2)),
+                const SizedBox(height: 2),
+                Text(loc.unitName,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    badge('Sütun', '${loc.section}', 150),
+                    badge('Raf', '${loc.row}', 300),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    )
+        .animate()
+        .fadeIn(duration: 300.ms)
+        .scale(
+            begin: const Offset(0.9, 0.9),
+            duration: 450.ms,
+            curve: Curves.elasticOut);
+  }
+
+  /// Depodaki palet konumlari karti — reyon kartinin sade kardesi.
+  /// "Rafta yoksa depoda su paletlerde var" bilgisi.
+  Widget _palletCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: AppTheme.card(accentColor: AppTheme.primary),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.warehouse_rounded,
+                  color: AppTheme.primary, size: 20),
+              SizedBox(width: 8),
+              Text('DEPODA',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                      color: AppTheme.primary)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ..._palletLocs.take(4).map((l) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${l.warehouseName} · ${l.palletName} — ${l.shelfLabel}'
+                  '  (${l.quantity} adet)',
+                  style: TextStyle(
+                      fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              )),
+          if (_palletLocs.length > 4)
+            Text('… ve ${_palletLocs.length - 4} palet daha',
+                style: TextStyle(
+                    fontSize: 12, color: AppTheme.textTertiary)),
+        ],
+      ),
+    ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.15, duration: 300.ms);
+  }
+
   Widget _row(IconData icon, String label, String value,
       {bool monospace = false, Color? color, bool big = false}) {
     return Container(
@@ -427,4 +619,30 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       ),
     );
   }
+}
+
+/// Taranan barkodun reyon konumu (reyon adi + sutun + raf).
+class _ShelfLocation {
+  final String unitName;
+  final int section;
+  final int row;
+  const _ShelfLocation({
+    required this.unitName,
+    required this.section,
+    required this.row,
+  });
+}
+
+/// Urunun depodaki bir palet konumu.
+class _PalletLocation {
+  final String warehouseName;
+  final String palletName;
+  final String shelfLabel;
+  final int quantity;
+  const _PalletLocation({
+    required this.warehouseName,
+    required this.palletName,
+    required this.shelfLabel,
+    required this.quantity,
+  });
 }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,6 +63,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
+    _speech.stop();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -88,6 +91,101 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
         .toList();
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //  KESIK BARKOD MODU
+  // ────────────────────────────────────────────────────────────────────
+  //  Etiket yirtik/silik oldugunda barkodun yalnizca bir PARCASI okunur
+  //  (bastan, ortadan ya da sondan). Bu mod, girilen rakam parcasina gore:
+  //   1) ICERENLER — parcanin barkodun herhangi bir yerinde AYNEN gectigi
+  //      kayitlar (eslesen kisim vurgulanir; basta/ortada/sonda etiketi).
+  //   2) BENZERLER — parca birebir gecmese de, EN FAZLA 1 (parca >=8 hane
+  //      ise 2) hanesi FARKLI olacak sekilde hizalanabilen kayitlar. Silik
+  //      basilmis/yanlis okunmus tek haneyi tolere eder.
+  //  Mod, arama kutusundaki MAKAS dugmesiyle acilir; yalnizca rakam
+  //  girisiyle calisir (>=4 hane).
+  // ════════════════════════════════════════════════════════════════════
+  bool _fragmentMode = false;
+
+  // ── SESLI ARAMA ──
+  // Eldivenle/islak elle yazmak zordur; mikrofona urun adini soyle,
+  // arama kutusuna yazilip liste aninda filtrelenir.
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _listening = false;
+
+  Future<void> _voiceSearch() async {
+    if (_listening) {
+      await _speech.stop();
+      setState(() => _listening = false);
+      return;
+    }
+    final mic = await Permission.microphone.request();
+    if (!mic.isGranted) return;
+    final ok = await _speech.initialize(
+      onStatus: (st) {
+        if ((st == 'done' || st == 'notListening') && mounted) {
+          setState(() => _listening = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _listening = false);
+      },
+    );
+    if (!ok || !mounted) return;
+    setState(() => _listening = true);
+    await _speech.listen(
+      localeId: 'tr_TR',
+      pauseFor: const Duration(seconds: 2),
+      listenOptions: stt.SpeechListenOptions(partialResults: true),
+      onResult: (r) {
+        if (!mounted) return;
+        setState(() {
+          _searchCtrl.text = r.recognizedWords;
+          _query = r.recognizedWords;
+          if (r.finalResult) _listening = false;
+        });
+      },
+    );
+  }
+
+  ({List<(BarcodeEntry, int)> exact, List<(BarcodeEntry, int, int)> similar})
+      _fragmentResults() {
+    final q = _query.replaceAll(RegExp(r'\D'), '');
+    final exact = <(BarcodeEntry, int)>[]; // (kayit, eslesme baslangici)
+    final similar = <(BarcodeEntry, int, int)>[]; // (kayit, poz, fark)
+    if (q.length < 4) return (exact: exact, similar: similar);
+
+    final maxDiff = q.length >= 8 ? 2 : 1;
+
+    for (final e in _all) {
+      final b = e.barcode;
+      final idx = b.indexOf(q);
+      if (idx >= 0) {
+        exact.add((e, idx));
+        continue;
+      }
+      // Benzerlik: parcayi barkodun her pozisyonuna hizala, hane farki say.
+      int bestDiff = 999, bestPos = -1;
+      for (int p = 0; p + q.length <= b.length; p++) {
+        int diff = 0;
+        for (int k = 0; k < q.length; k++) {
+          if (b[p + k] != q[k]) {
+            diff++;
+            if (diff > maxDiff) break;
+          }
+        }
+        if (diff <= maxDiff && diff < bestDiff) {
+          bestDiff = diff;
+          bestPos = p;
+          if (diff == 1) break; // daha iyisi ancak 1 olur (0 = exact idi)
+        }
+      }
+      if (bestPos >= 0) similar.add((e, bestPos, bestDiff));
+    }
+    // Benzerleri az farktan coga sirala.
+    similar.sort((a, b) => a.$3.compareTo(b.$3));
+    return (exact: exact, similar: similar);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -103,7 +201,9 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                         ? const LoadingState()
                         : _all.isEmpty
                             ? _buildEmpty()
-                            : RefreshIndicator(
+                            : _fragmentMode
+                                ? _buildFragmentList()
+                                : RefreshIndicator(
                                 onRefresh: _load,
                                 child: ListView.separated(
                                   controller: _scrollCtrl,
@@ -210,6 +310,9 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                     child: TextField(
                       controller: _searchCtrl,
                       textInputAction: TextInputAction.search,
+                      keyboardType: _fragmentMode
+                          ? TextInputType.number
+                          : TextInputType.text,
                       // Disari dokununca/arama yapinca klavye kapanir ve
                       // imlec birakilir (geri donunce klavye acilmaz).
                       onTapOutside: (_) =>
@@ -217,9 +320,40 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                       onSubmitted: (_) =>
                           FocusManager.instance.primaryFocus?.unfocus(),
                       onChanged: (v) => setState(() => _query = v),
-                      decoration: const InputDecoration(
-                        hintText: 'Barkod, ürün veya stok kodu ara...',
-                        prefixIcon: Icon(Icons.search),
+                      decoration: InputDecoration(
+                        hintText: _fragmentMode
+                            ? 'Barkodun okunan kısmını gir (en az 4 hane)'
+                            : 'Barkod, ürün veya stok kodu ara...',
+                        prefixIcon: const Icon(Icons.search),
+                        // SESLI ARAMA + KESIK BARKOD dugmeleri yan yana.
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Sesli ara',
+                              icon: Icon(
+                                _listening
+                                    ? Icons.mic_rounded
+                                    : Icons.mic_none_rounded,
+                                color: _listening
+                                    ? AppTheme.statusExpired
+                                    : AppTheme.textTertiary,
+                              ),
+                              onPressed: _voiceSearch,
+                            ),
+                            IconButton(
+                              tooltip: 'Kesik barkod ara',
+                              icon: Icon(
+                                Icons.content_cut_rounded,
+                                color: _fragmentMode
+                                    ? AppTheme.primary
+                                    : AppTheme.textTertiary,
+                              ),
+                              onPressed: () => setState(
+                                  () => _fragmentMode = !_fragmentMode),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   )
@@ -228,6 +362,150 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
         ],
       ),
       ),
+    );
+  }
+
+  /// KESIK BARKOD sonuc listesi: once parcayi AYNEN icerenler, sonra
+  /// 1-2 hane farkla BENZEYENLER. Eslesen kisim renkli vurgulanir.
+  Widget _buildFragmentList() {
+    final digits = _query.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 4) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.content_cut_rounded,
+                  size: 48, color: AppTheme.textTertiary),
+              const SizedBox(height: 12),
+              Text(
+                'Yırtık/silik etiketteki barkodun okunabilen kısmını gir '
+                '(en az 4 rakam). Baştan, ortadan ya da sondan olması fark '
+                'etmez — içeren ve benzeyen kayıtları bulurum.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final r = _fragmentResults();
+    if (r.exact.isEmpty && r.similar.isEmpty) {
+      return Center(
+        child: Text('“$digits” ile eşleşen ya da benzeyen barkod yok',
+            style: TextStyle(color: AppTheme.textSecondary)),
+      );
+    }
+
+    final children = <Widget>[];
+    if (r.exact.isNotEmpty) {
+      children.add(_fragmentHeader(
+          'Parçayı içerenler (${r.exact.length})', AppTheme.statusSafe));
+      for (final (e, pos) in r.exact) {
+        children.add(_fragmentTile(e, pos, digits.length, 0));
+      }
+    }
+    if (r.similar.isNotEmpty) {
+      children.add(_fragmentHeader(
+          'Benzerler — 1-2 hane farklı (${r.similar.length})',
+          AppTheme.statusWarning));
+      for (final (e, pos, diff) in r.similar) {
+        children.add(_fragmentTile(e, pos, digits.length, diff));
+      }
+    }
+    return ListView(
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.only(top: 8, bottom: 100),
+      children: children,
+    );
+  }
+
+  Widget _fragmentHeader(String text, Color color) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            Text(text,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textSecondary)),
+          ],
+        ),
+      );
+
+  /// Eslesen araligi renkli gosteren kayit satiri. [diff]=0 icerme,
+  /// >0 benzerlik (fark sayisi rozeti gosterilir). Konum etiketi: parca
+  /// barkodun basinda/ortasinda/sonunda mi.
+  Widget _fragmentTile(BarcodeEntry e, int pos, int len, int diff) {
+    final b = e.barcode;
+    final end = (pos + len).clamp(0, b.length);
+    final where = pos == 0
+        ? 'başta'
+        : (end >= b.length ? 'sonda' : 'ortada');
+    final hl = diff == 0 ? AppTheme.statusSafe : AppTheme.statusWarning;
+
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(Icons.qr_code, color: AppTheme.primary, size: 22),
+      ),
+      title: Text(e.productName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: RichText(
+        text: TextSpan(
+          style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 13,
+              color: AppTheme.textSecondary),
+          children: [
+            TextSpan(text: b.substring(0, pos)),
+            TextSpan(
+              text: b.substring(pos, end),
+              style: TextStyle(
+                color: hl,
+                fontWeight: FontWeight.w900,
+                backgroundColor: hl.withOpacity(0.15),
+              ),
+            ),
+            TextSpan(text: b.substring(end)),
+          ],
+        ),
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(where,
+              style: TextStyle(fontSize: 11, color: AppTheme.textTertiary)),
+          if (diff > 0)
+            Text('$diff hane farklı',
+                style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.statusWarning,
+                    fontWeight: FontWeight.w700)),
+        ],
+      ),
+      onTap: () async {
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => BarcodeDetailScreen(entry: e)),
+        );
+        if (changed == true) _load();
+      },
     );
   }
 

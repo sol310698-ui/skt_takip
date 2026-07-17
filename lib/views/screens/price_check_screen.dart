@@ -11,6 +11,7 @@ import '../../core/services/flow_prefs.dart';
 import '../../core/services/pending_products_queue.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/database_service.dart';
+import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
@@ -61,6 +62,81 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   Timer? _serviceStatusTimer;
   StreamSubscription<SystemPriceSnapshot>? _liveSub; // canli sistem verisi
   Timer? _autoRescanTimer; // sonuc sonrasi otomatik yeniden tarama
+
+  // ── UST DURUM SERIDI (SnackBar YERINE) ──
+  // Kullanici istegi: alttan cikan bildirimler yigilip ekrani kapatiyordu.
+  // Artik TEK bir serit ekranin EN USTUNDE gosterilir; her yeni mesaj
+  // ONCEKINI EZER (asla yigilmaz) ve birkac saniye sonra kendiliginden
+  // kaybolur. Istege bagli tek bir aksiyon butonu tasiyabilir (orn. "AÇ").
+  String? _notice;
+  Color _noticeColor = const Color(0xFF000000);
+  String? _noticeActionLabel;
+  VoidCallback? _noticeAction;
+  Timer? _noticeTimer;
+
+  void _showNotice(String msg,
+      {Color? color,
+      Duration duration = const Duration(milliseconds: 2500),
+      String? actionLabel,
+      VoidCallback? action}) {
+    if (!mounted) return;
+    _noticeTimer?.cancel(); // oncekini EZ — yigilma yok
+    setState(() {
+      _notice = msg;
+      _noticeColor = color ?? AppTheme.primary;
+      _noticeActionLabel = actionLabel;
+      _noticeAction = action;
+    });
+    _noticeTimer = Timer(duration, () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  /// Ekranin en ustundeki durum seridi (varsa).
+  Widget _noticeBar() {
+    final msg = _notice;
+    if (msg == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      color: _noticeColor,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(msg,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700)),
+          ),
+          if (_noticeActionLabel != null)
+            TextButton(
+              onPressed: () {
+                final a = _noticeAction;
+                setState(() => _notice = null);
+                a?.call();
+              },
+              style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10)),
+              child: Text(_noticeActionLabel!,
+                  style: const TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          InkWell(
+            onTap: () => setState(() => _notice = null),
+            child: const Padding(
+              padding: EdgeInsets.all(4),
+              child:
+                  Icon(Icons.close_rounded, color: Colors.white, size: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   // Ortak yerel veritabani (barkod dizini) — urun fotografini buraya yazariz.
   final BarcodeDirectoryDataSource _barcodeDs =
@@ -162,13 +238,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       await _controller.start();
       if (mounted) setState(() => _scanning = true);
     } else if (status.isPermanentlyDenied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-              'Kamera izni gerekli. Lutfen uygulama ayarlarindan izin verin.'),
-          action: SnackBarAction(label: 'Ayarlar', onPressed: openAppSettings),
-          duration: const Duration(seconds: 5),
-        ),
+      _showNotice(
+        'Kamera izni gerekli — uygulama ayarlarından izin verin',
+        color: AppTheme.statusWarning,
+        duration: const Duration(seconds: 5),
+        actionLabel: 'Ayarlar',
+        action: openAppSettings,
       );
     }
   }
@@ -180,6 +255,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     // planda beklenmedik uygulama gecisleri olmasin.
     PriceCheckChannel.setAutoFlow(false);
     _serviceStatusTimer?.cancel();
+    _noticeTimer?.cancel();
     _liveSub?.cancel();
     _autoRescanTimer?.cancel();
     _controller.dispose();
@@ -293,17 +369,21 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       // (kullanici istegiyle) bu durumu kisa bir SnackBar ile bildiriyoruz;
       // sessizce yutmak kullaniciyi "hicbir sey olmuyor" hissiyle bas basa
       // birakirdi.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('QR okundu ama fiyat bulunamadı, tekrar deneyin'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      _showNotice('QR okundu ama fiyat bulunamadı, tekrar deneyin',
+          color: AppTheme.statusWarning);
       return;
     }
 
+    await _processLabel(barcode: parsed.barcode, price: parsed.price);
+  }
+
+  /// Etiket verisini (barkod + fiyat) sistemle karsilastirip TUM sonuc
+  /// akisini yurutur. Iki kaynaktan cagrilir:
+  ///  1) _onDetect — QR tarama
+  ///  2) _photoPriceCheck — QR'siz etiketlerde FOTOGRAFTAN Gemini okumasi
+  Future<void> _processLabel(
+      {required String barcode, required double price}) async {
+    final parsed = (barcode: barcode, price: price);
     setState(() {
       _busy = true;
       _scanning = false;
@@ -416,16 +496,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     if (!value) {
       _autoRescanTimer?.cancel();
     }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 2),
-          content: Text(value
-              ? 'Otomatik gezinme açık: ürün okununca uygulama kendiliğinden gelir'
-              : 'Otomatik gezinme kapalı'),
-        ),
-      );
-    }
+    _showNotice(value
+        ? 'Otomatik gezinme açık: ürün okununca uygulama kendiliğinden gelir'
+        : 'Otomatik gezinme kapalı');
   }
 
   /// Auto-flow: sirket uygulamasina geri doner.
@@ -514,13 +587,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     } catch (_) {}
 
     if (!mounted) return true;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppTheme.statusSafe,
-        duration: const Duration(seconds: 2),
-        content: Text('Fotoğraf kaydedildi: $name'),
-      ),
-    );
+    _showNotice('Fotoğraf kaydedildi: $name',
+        color: AppTheme.statusSafe);
     return true;
   }
 
@@ -554,14 +622,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         photoPath: _lastPhotoPath,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppTheme.primary,
-          duration: const Duration(milliseconds: 1400),
-          content: Text(
-              '$name → ${_reyonUnit!.name} · Sütun $_reyonSection · Raf $_reyonRow'),
-        ),
-      );
+      _showNotice(
+          '$name → ${_reyonUnit!.name} · Sütun $_reyonSection · Raf $_reyonRow',
+          color: AppTheme.primary,
+          duration: const Duration(milliseconds: 1400));
     } catch (_) {}
   }
 
@@ -574,12 +638,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     final units = await ShelfLayoutService.instance.getUnitSummaries();
     if (!mounted) return;
     if (units.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Önce Depo > Reyon Dizilim\'den bir reyon oluşturun.'),
-        ),
-      );
+      _showNotice('Önce Depo > Reyon Dizilim\'den bir reyon oluşturun',
+          color: AppTheme.statusWarning);
       return;
     }
 
@@ -705,10 +765,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   }
 
   void _reyonToast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(milliseconds: 900),
-      content: Text('Reyon konumu: $msg'),
-    ));
+    _showNotice('Reyon konumu: $msg',
+        duration: const Duration(milliseconds: 900));
   }
 
   /// Reyon modu aktifken ekranin ustunde gorunen konum seridi: mevcut
@@ -1134,20 +1192,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
 
     await PriceCheckChannel.speak('Etiket basımına eklendi');
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppTheme.statusSafe,
-        duration: const Duration(seconds: 3),
-        content: Text(
-            '${_lastLabelGroup.title} listesine eklendi ($qty adet). '
-            'Etiket Basım ekranını açtığınızda listeye düşecek.'),
-        action: SnackBarAction(
-          label: 'AÇ',
-          textColor: Colors.white,
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const LabelPrintScreen()),
-          ),
-        ),
+    _showNotice(
+      '${_lastLabelGroup.title} listesine eklendi ($qty adet)',
+      color: AppTheme.statusSafe,
+      duration: const Duration(seconds: 3),
+      actionLabel: 'AÇ',
+      action: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LabelPrintScreen()),
       ),
     );
   }
@@ -1198,6 +1249,66 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       case _CompareResult.wrongLabelPriceOk:
       case _CompareResult.noSystem:
         return AppTheme.statusWarning;
+    }
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  FOTOGRAFLA FIYAT KONTROL (QR'siz etiketler)
+  /// ──────────────────────────────────────────────────────────────────
+  ///  Eski/duz etiketlerde QR yoktur; tarayici okuyamaz. Bu akis:
+  ///  uygulama ici kamerayla etiketin fotografini ceker, Gemini fiyat +
+  ///  barkodu okur, sonra NORMAL karsilastirma akisina (_processLabel)
+  ///  verilir — sesli sonuc, etiket teklifi, reyon kaydi vb. aynen calisir.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _photoPriceCheck() async {
+    if (_busy) return;
+    _autoRescanTimer?.cancel();
+    try {
+      await _controller.stop();
+      _scanning = false;
+    } catch (_) {}
+
+    final path = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const QuickPhotoCaptureScreen(
+          productName: 'Etiket fotoğrafı',
+          countdown: Duration(seconds: 2),
+        ),
+      ),
+    );
+    if (path == null || path.isEmpty || !mounted) {
+      await _scanAgain(clearSystem: false);
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      final r =
+          await GeminiOcrService.instance.extractLabelPrice(File(path));
+      if (!mounted) return;
+      if (r.price == null || r.barcode == null) {
+        setState(() => _busy = false);
+        _showNotice(
+            r.price == null
+                ? 'Fotoğraftan fiyat okunamadı, tekrar deneyin'
+                : 'Fotoğraftan barkod okunamadı, tekrar deneyin',
+            color: AppTheme.statusWarning);
+        await _scanAgain(clearSystem: false);
+        return;
+      }
+      setState(() => _busy = false);
+      await _processLabel(barcode: r.barcode!, price: r.price!);
+    } on GeminiOcrException catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      _showNotice('Okuma hatası: ${e.message}',
+          color: AppTheme.statusExpired);
+      await _scanAgain(clearSystem: false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      await _scanAgain(clearSystem: false);
     }
   }
 
@@ -1332,6 +1443,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                     ],
                   ),
                 ),
+                // ── FOTOGRAFLA OKU: QR'siz etiketler icin ──
+                IconButton(
+                  tooltip: 'Etiketi fotoğrafla oku (QR yoksa)',
+                  onPressed: _photoPriceCheck,
+                  icon: const Icon(Icons.document_scanner_rounded),
+                ),
                 // ── REYON KAYDI butonu ── (fiyat kontrol + reyon es zamanli)
                 IconButton(
                   tooltip: 'Reyon kaydı',
@@ -1357,6 +1474,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         // degismez.
         child: Column(
           children: [
+            _noticeBar(), // ust durum seridi — SnackBar yerine
             if (smallWindow) _smallWindowBar(),
             if (_reyonMode) _reyonBar(),
             if (!_serviceOn) _serviceWarning(),

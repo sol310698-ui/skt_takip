@@ -7,6 +7,7 @@ import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
 import '../../core/theme/app_theme.dart';
+import 'add_product_screen.dart' show BarcodeScanPage;
 
 /// ════════════════════════════════════════════════════════════════════
 ///  DEPO ASISTANI — SOHBET EKRANI
@@ -367,6 +368,23 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     );
   }
 
+  /// Barkod tara ve soruya ekle: kullanici bir urunun barkodunu okutup
+  /// "bu nerede / bu ne / SKT'si var mi" diye sorabilsin. Taranan barkod
+  /// giris kutusuna yazilir; kullanici ister sorusunu ekleyip gonderir,
+  /// isterse direkt gonderir (asistan barkodu yerel veride arar).
+  Future<void> _scanBarcode() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
+    );
+    if (code == null || code.isEmpty || !mounted) return;
+    final existing = _input.text.trim();
+    setState(() {
+      _input.text = existing.isEmpty
+          ? 'Bu barkod hakkında bilgi ver: $code'
+          : '$existing $code';
+    });
+  }
+
   Widget _composer() {
     return SafeArea(
       top: false,
@@ -378,6 +396,21 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         ),
         child: Row(
           children: [
+            // ── BARKOD TARA: barkodu asistana gonder ──
+            Material(
+              color: AppTheme.primary.withOpacity(0.12),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _scanBarcode,
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Icon(Icons.qr_code_scanner_rounded,
+                      color: AppTheme.primary),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             // ── MIKROFON: sesli soru ──
             Material(
               color: _listening
