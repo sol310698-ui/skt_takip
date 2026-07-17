@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/services/gemini_ocr_service.dart';
+import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -32,14 +35,87 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   bool _sending = false;
   bool _hasKey = true;
 
+  // ── SESLI MOD ──
+  // Mikrofonla soru sor, cevabi sesli dinle. Acikken her cevap TTS ile
+  // okunur; mikrofon butonu basili tutmadan tek dokunusla dinler.
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechReady = false;
+  bool _listening = false;
+  bool _voiceMode = false; // cevaplar sesli okunsun mu
+  String _partial = ''; // dinlerken canli metin
+
   @override
   void initState() {
     super.initState();
     _checkKey();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      final mic = await Permission.microphone.request();
+      if (!mic.isGranted) return;
+      final ok = await _speech.initialize(
+        onStatus: (s) {
+          if (s == 'done' || s == 'notListening') {
+            if (mounted) setState(() => _listening = false);
+          }
+        },
+        onError: (_) {
+          if (mounted) setState(() => _listening = false);
+        },
+      );
+      if (mounted) setState(() => _speechReady = ok);
+    } catch (_) {}
+  }
+
+  /// Mikrofon: dinlemeyi baslat/durdur. Konusma bitince metin kutuya yazilir
+  /// ve OTOMATIK gonderilir (eller serbest akis).
+  Future<void> _toggleListen() async {
+    if (!_speechReady) {
+      await _initSpeech();
+      if (!_speechReady) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Mikrofon kullanılamıyor. İzinleri kontrol edin.')));
+        }
+        return;
+      }
+    }
+    if (_listening) {
+      await _speech.stop();
+      setState(() => _listening = false);
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _listening = true;
+      _voiceMode = true; // sesle soruldu -> sesle cevapla
+      _partial = '';
+    });
+    await _speech.listen(
+      localeId: 'tr_TR',
+      listenOptions: stt.SpeechListenOptions(
+        partialResults: true,
+        listenMode: stt.ListenMode.confirmation,
+      ),
+      pauseFor: const Duration(seconds: 2),
+      onResult: (r) {
+        if (!mounted) return;
+        setState(() => _partial = r.recognizedWords);
+        if (r.finalResult && r.recognizedWords.trim().isNotEmpty) {
+          _input.text = r.recognizedWords.trim();
+          _listening = false;
+          _send();
+        }
+      },
+    );
   }
 
   @override
   void dispose() {
+    _speech.stop();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -76,6 +152,14 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
           .ask(history: history, question: q);
       if (!mounted) return;
       setState(() => _messages.add(_ChatMsg(false, answer.trim())));
+      // Sesli moddaysa cevabi oku (mevcut native TTS ile).
+      if (_voiceMode) {
+        // Cok uzun cevaplari kirpmadan okumak sikici olur; ilk ~300 karakter.
+        final speakText = answer.trim().length > 300
+            ? '${answer.trim().substring(0, 300)}…'
+            : answer.trim();
+        await PriceCheckChannel.speak(speakText);
+      }
     } on GeminiOcrException catch (e) {
       if (!mounted) return;
       setState(() => _messages.add(_ChatMsg(
@@ -112,10 +196,21 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.white,
         systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
+        actions: [
+          // Sesli mod: acikken cevaplar TTS ile okunur.
+          IconButton(
+            tooltip: _voiceMode ? 'Sesli yanıt açık' : 'Sesli yanıt kapalı',
+            onPressed: () => setState(() => _voiceMode = !_voiceMode),
+            icon: Icon(_voiceMode
+                ? Icons.volume_up_rounded
+                : Icons.volume_off_rounded),
+          ),
+        ],
       ),
       body: Column(
         children: [
           if (!_hasKey) _keyWarning(),
+          if (_listening) _listeningBar(),
           Expanded(
             child: _messages.isEmpty
                 ? _emptyState()
@@ -149,9 +244,10 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   Widget _emptyState() {
     final examples = [
       'Pilavlık bulgur nerede?',
+      'Bu hafta SKT\'si dolan var mı?',
+      'Etiket kuyruğunda kaç ürün var?',
       'Ketçaplar hangi reyonda?',
-      'Şehriyeli bulgur var mı, nerede?',
-      'Salça hangi sütunda?',
+      'Vardiyam açık mı?',
     ];
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -243,6 +339,34 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         ),
       );
 
+  /// Dinlerken ustte gorunen canli serit: yanip sonen mikrofon + canli metin.
+  Widget _listeningBar() {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.accent.withOpacity(0.15),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.mic_rounded, color: AppTheme.accent, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _partial.isEmpty ? 'Dinliyorum… konuşun' : _partial,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: _toggleListen,
+            child: const Text('Durdur'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _composer() {
     return SafeArea(
       top: false,
@@ -254,6 +378,25 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         ),
         child: Row(
           children: [
+            // ── MIKROFON: sesli soru ──
+            Material(
+              color: _listening
+                  ? AppTheme.statusExpired
+                  : AppTheme.accent.withOpacity(0.15),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _toggleListen,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Icon(
+                    _listening ? Icons.stop_rounded : Icons.mic_rounded,
+                    color: _listening ? Colors.white : AppTheme.accent,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 controller: _input,

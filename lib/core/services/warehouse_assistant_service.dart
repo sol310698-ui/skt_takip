@@ -1,6 +1,9 @@
 import '../../data/datasources/barcode_directory_datasource.dart';
+import '../../data/datasources/product_local_datasource.dart';
+import '../../data/datasources/shift_local_datasource.dart';
 import 'database_service.dart';
 import 'gemini_ocr_service.dart';
+import 'label_pending_queue_service.dart';
 import 'shelf_layout_service.dart';
 
 /// ════════════════════════════════════════════════════════════════════
@@ -87,6 +90,57 @@ class WarehouseAssistantService {
           c++;
         }
       }
+    } catch (_) {}
+
+    // ── 3) SKT TAKIBI (yaklasan son kullanma tarihleri) ──
+    // "Bu hafta SKT'si dolan var mi?" gibi sorular icin.
+    try {
+      final products =
+          await ProductLocalDataSource(DatabaseService.instance).getActive();
+      if (products.isNotEmpty) {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        // En yakin tarihli 120 urun yeterli; tamami baglami sisirir.
+        final sorted = [...products]
+          ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+        buf.writeln();
+        buf.writeln(
+            '=== SKT TAKİBİ (son kullanma tarihleri, en yakın önce) ===');
+        int c = 0;
+        for (final p in sorted) {
+          if (c >= 120) {
+            buf.writeln('  ... (kısaltıldı)');
+            break;
+          }
+          final d = DateTime(
+              p.expiryDate.year, p.expiryDate.month, p.expiryDate.day);
+          final diff = d.difference(today).inDays;
+          final durum = diff < 0
+              ? 'SÜRESİ GEÇTİ (${-diff} gün önce)'
+              : diff == 0
+                  ? 'BUGÜN DOLUYOR'
+                  : '$diff gün kaldı';
+          buf.writeln(
+              '  - ${p.name}${p.barcode != null ? ' [${p.barcode}]' : ''} — '
+              '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} '
+              '($durum, ${p.quantity} adet'
+              '${p.location != null ? ', konum: ${p.location}' : ''})');
+          c++;
+        }
+      }
+    } catch (_) {}
+
+    // ── 4) VARDIYA + ETIKET KUYRUGU (kisa durum) ──
+    try {
+      final open =
+          await ShiftLocalDataSource(DatabaseService.instance).getOpenShift();
+      final pending = await LabelPendingQueueService.instance.pendingCount();
+      buf.writeln();
+      buf.writeln('=== DURUM ===');
+      buf.writeln(open != null
+          ? '  - Vardiya: AÇIK (giriş ${open.clockIn})'
+          : '  - Vardiya: kapalı / giriş yapılmamış');
+      buf.writeln('  - Etiket basım kuyruğu: $pending ürün bekliyor');
     } catch (_) {}
 
     final out = buf.toString().trim();

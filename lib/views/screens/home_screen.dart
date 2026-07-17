@@ -15,6 +15,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
+import '../widgets/smart_day_strip.dart';
 import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
@@ -107,6 +108,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Column(
             children: [
               _buildBanner(),
+              // AKILLI GUN: bugunku isler tek bakista (SKT/etiket/vardiya).
+              const SmartDayStrip(),
               Expanded(
                 child: productsAsync.when(
                   loading: () => const LoadingState(),

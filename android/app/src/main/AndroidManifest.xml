@@ -5,6 +5,7 @@
 
     <!-- Titreşim -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Kamera (OCR + barkod tarama) -->
     <uses-permission android:name="android.permission.CAMERA" />
