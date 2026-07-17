@@ -22,19 +22,23 @@ class AppTheme {
   // ════════════════════════════════════════════════════════════════════
   //  IMZA PALETI — pastel gradyan ailesi (Soft Glass'in kalbi)
   // ════════════════════════════════════════════════════════════════════
-  // Kirmizi-Mavi tema: ana renk MAVI (butonlar), vurgu BORDO/KIRMIZI.
-  // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ; onlar
-  // SKT anlamlarini (guvenli/kritik/doldu) tasir.
+  // MAVI + TURKUAZ kimlik: ana renk MAVI (butonlar/basliklar), vurgu
+  // TURKUAZ (ikincil basliklar, depo/reyon ailesi). KIRMIZI marka rengi
+  // DEGILDIR — yalnizca hata/doldu anlamindadir (statusExpired). Boylece
+  // "yanlis etiket" alarmi ile marka rengi asla karismaz.
+  // Turkuaz ACIK bir renktir: ustunde SIYAH metin dogru kontrasti verir
+  // (uygulamadaki accent-ustu-siyah kullanimlarla uyumludur).
+  // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
   static const Color primary = Color(0xFF2563EB);      // canli mavi (butonlar)
   static const Color primaryLight = Color(0xFF60A5FA); // acik mavi
   static const Color primaryDark = Color(0xFF1D4ED8);  // koyu mavi
-  static const Color accent = Color(0xFFB91C1C);        // bordo/kirmizi (vurgu)
+  static const Color accent = Color(0xFF2DD4BF);        // turkuaz (vurgu, ustu SIYAH)
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
   // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
   static const Color orchid = Color(0xFF3B82F6);  // mavi
-  static const Color blush = Color(0xFFDC2626);   // kirmizi
+  static const Color blush = Color(0xFF14B8A6);   // koyu turkuaz
   static const Color sky = Color(0xFF60A5FA);     // acik mavi
 
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
@@ -125,13 +129,13 @@ class AppTheme {
 
   // ─── Imza gradyanlar — kirmizi-mavi ────────────────────────────────
   static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6), Color(0xFFDC2626)],
+    colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6), Color(0xFF14B8A6)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFFDC2626), Color(0xFF60A5FA)],
+    colors: [Color(0xFF14B8A6), Color(0xFF60A5FA)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -147,8 +151,8 @@ class AppTheme {
   static const List<Color> auroraColors = [
     Color(0xFF1D4ED8), // canli mavi
     Color(0xFF3B82F6), // parlak mavi
-    Color(0xFFDC2626), // canli kirmizi
-    Color(0xFF3B82F6), // parlak mavi (donguyu mor olmadan kapatir)
+    Color(0xFF14B8A6), // turkuaz
+    Color(0xFF3B82F6), // parlak mavi (donguyu kapatir)
   ];
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
@@ -548,7 +552,7 @@ class _AuroraBackgroundState extends State<AuroraBackground>
         final t = _AuroraSync.instance.value * 2 * math.pi;
         final mid = 0.5 + 0.12 * math.sin(t); // 0.38 ↔ 0.62 arasi salinim
         const blue = Color(0xFF1D4ED8);
-        const red = Color(0xFFDC2626);
+        const red = Color(0xFF14B8A6); // artik turkuaz (isim eski API)
         return Container(
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,

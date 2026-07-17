@@ -762,7 +762,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
             color: AppTheme.accent,
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Icon(icon, size: 16, color: Colors.white),
+          child: Icon(icon, size: 16, color: Colors.black),
         ),
       ),
     );
@@ -885,7 +885,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     final added = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF14181E),
+      backgroundColor: AppTheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
@@ -909,7 +909,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 14),
                       decoration: BoxDecoration(
-                        color: Colors.white24,
+                        color: AppTheme.hairline,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -922,8 +922,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                       Expanded(
                         child: Text(
                           'Etiket basım sayfasına eklensin mi?',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
                           ),
@@ -934,7 +934,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                   const SizedBox(height: 6),
                   Text(
                     _labelReasonText(result),
-                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                    style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
                   ),
                   const SizedBox(height: 14),
 
@@ -943,7 +943,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
+                      color: AppTheme.surfaceAlt,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -957,7 +957,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                           style: TextStyle(
                             color: productName?.isNotEmpty == true
                                 ? Colors.white
-                                : Colors.white54,
+                                : AppTheme.textTertiary,
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
@@ -967,8 +967,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                           'Barkod: $barcode'
                           '${_systemStockCode != null ? '  •  Stok: $_systemStockCode' : ''}'
                           '${_systemPrice != null ? '  •  ${_systemPrice!.toStringAsFixed(2)} ₺' : ''}',
-                          style: const TextStyle(
-                              color: Colors.white54, fontSize: 12),
+                          style: TextStyle(
+                              color: AppTheme.textTertiary, fontSize: 12),
                         ),
                       ],
                     ),
@@ -976,9 +976,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                   const SizedBox(height: 16),
 
                   // ── ETIKET TIPI ──
-                  const Text('Etiket tipi',
+                  Text('Etiket tipi',
                       style: TextStyle(
-                          color: Colors.white70,
+                          color: AppTheme.textSecondary,
                           fontSize: 13,
                           fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
@@ -992,15 +992,15 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                         selected: selected,
                         showCheckmark: false,
                         onSelected: (_) => setSheet(() => group = g),
-                        backgroundColor: Colors.white.withOpacity(0.06),
+                        backgroundColor: AppTheme.surfaceAlt,
                         selectedColor: AppTheme.primary,
                         labelStyle: TextStyle(
-                          color: selected ? Colors.white : Colors.white70,
+                          color: selected ? Colors.white : AppTheme.textSecondary,
                           fontWeight:
                               selected ? FontWeight.w800 : FontWeight.w500,
                         ),
                         side: BorderSide(
-                          color: selected ? AppTheme.primary : Colors.white24,
+                          color: selected ? AppTheme.primary : AppTheme.hairline,
                         ),
                       );
                     }).toList(),
@@ -1008,9 +1008,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                   const SizedBox(height: 16),
 
                   // ── ADET ──
-                  const Text('Adet',
+                  Text('Adet',
                       style: TextStyle(
-                          color: Colors.white70,
+                          color: AppTheme.textSecondary,
                           fontSize: 13,
                           fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
@@ -1028,13 +1028,13 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.06),
+                          color: AppTheme.surfaceAlt,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.white24),
+                          border: Border.all(color: AppTheme.hairline),
                         ),
                         child: Text('$qty',
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: AppTheme.textPrimary,
                                 fontSize: 20,
                                 fontWeight: FontWeight.w900)),
                       ),
@@ -1054,10 +1054,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                               onPressed: () => setSheet(() => qty = n),
                               backgroundColor: qty == n
                                   ? AppTheme.primary.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.06),
-                              labelStyle: const TextStyle(
-                                  color: Colors.white70, fontSize: 12),
-                              side: const BorderSide(color: Colors.white24),
+                                  : AppTheme.surfaceAlt,
+                              labelStyle: TextStyle(
+                                  color: AppTheme.textSecondary, fontSize: 12),
+                              side: BorderSide(color: AppTheme.hairline),
                               padding: EdgeInsets.zero,
                               visualDensity: VisualDensity.compact,
                             );
@@ -1077,8 +1077,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                           child: OutlinedButton(
                             onPressed: () => Navigator.of(sheetCtx).pop(false),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white70,
-                              side: const BorderSide(color: Colors.white24),
+                              foregroundColor: AppTheme.textSecondary,
+                              side: BorderSide(color: AppTheme.hairline),
                             ),
                             child: const Text('Vazgeç',
                                 style: TextStyle(
@@ -1163,10 +1163,10 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(onTap == null ? 0.03 : 0.08),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.white24),
+          border: Border.all(color: AppTheme.hairline),
         ),
         child: Icon(icon,
-            color: onTap == null ? Colors.white24 : Colors.white, size: 24),
+            color: onTap == null ? AppTheme.hairline : Colors.white, size: 24),
       ),
     );
   }
@@ -1422,12 +1422,12 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF14181E),
+        color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: hasData
               ? AppTheme.primaryLight.withOpacity(0.5)
-              : Colors.white24,
+              : AppTheme.hairline,
         ),
       ),
       child: Row(
@@ -1448,8 +1448,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                       : 'Sistemde ürün bekleniyor',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1460,7 +1460,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
                     '${_liveStockCode != null ? '  •  Stok: $_liveStockCode' : ''}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    style: TextStyle(color: AppTheme.textTertiary, fontSize: 11),
                   ),
               ],
             ),

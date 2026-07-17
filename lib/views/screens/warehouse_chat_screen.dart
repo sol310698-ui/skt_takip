@@ -194,7 +194,7 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       appBar: AppBar(
         title: const Text('Depo Asistanı'),
         backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.white,
+        foregroundColor: Colors.black,
         systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
         actions: [
           // Sesli mod: acikken cevaplar TTS ile okunur.
