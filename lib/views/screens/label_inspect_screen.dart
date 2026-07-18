@@ -10,6 +10,7 @@ import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/shelf_layout_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/location_reveal.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
@@ -127,10 +128,19 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               await ShelfLayoutService.instance.getSlots(u.unit.id!);
           for (final s in slots) {
             if (s.barcode == code) {
+              // Canlandirma izgarasi icin reyonun boyutlari:
+              int maxRow = s.rowNo;
+              for (final o in slots) {
+                if (o.rowNo > maxRow) maxRow = o.rowNo;
+              }
               shelfLoc = _ShelfLocation(
-                  unitName: u.unit.name,
-                  section: s.sectionNo,
-                  row: s.rowNo);
+                unitName: u.unit.name,
+                section: s.sectionNo,
+                row: s.rowNo,
+                cols: u.unit.sections,
+                rows: maxRow,
+                photoPath: s.photoPath,
+              );
               break outer;
             }
           }
@@ -143,6 +153,17 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
         for (final w in whs) {
           final locs =
               await WarehouseService.instance.findProduct(w.id!, code);
+          if (locs.isEmpty) continue;
+          // Deponun izgara boyutu (canlandirma icin): raflarin max sutun/raf'i.
+          int gc = 1, gr = 1;
+          try {
+            final shelves =
+                await WarehouseService.instance.getShelves(w.id!);
+            for (final sh in shelves) {
+              if (sh.columnNo > gc) gc = sh.columnNo;
+              if (sh.shelfNo > gr) gr = sh.shelfNo;
+            }
+          } catch (_) {}
           for (final l in locs) {
             palletLocs.add(_PalletLocation(
               warehouseName: w.name,
@@ -151,6 +172,10 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                   ? 'Sütun ${l.shelf!.columnNo} · Raf ${l.shelf!.shelfNo}'
                   : 'Zemin',
               quantity: l.item.quantity,
+              colNo: l.shelf?.columnNo,
+              shelfNo: l.shelf?.shelfNo,
+              gridCols: gc,
+              gridRows: gr,
             ));
           }
         }
@@ -181,6 +206,27 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _appBarColor = barColor;
       if (code != null) _lastBarcode = code; // sonraki karsilastirma icin
     });
+
+    // KONUM CANLANDIRMASI: urunun reyondaki yeri bulunduysa "kamera inisi"
+    // gosterisi OTOMATIK oynar (kullanici istegi). Karta dokununca da
+    // yeniden oynatilabilir.
+    if (shelfLoc != null && mounted) {
+      _playLocationReveal(shelfLoc);
+    }
+  }
+
+  void _playLocationReveal(_ShelfLocation loc) {
+    showLocationReveal(
+      context,
+      title: loc.unitName,
+      cols: loc.cols,
+      rows: loc.rows,
+      targetCol: loc.section,
+      targetRow: loc.row,
+      subtitle: 'Sütun ${loc.section} · Raf ${loc.row}',
+      productName: _localName ?? _off?.name,
+      photoPath: loc.photoPath,
+    );
   }
 
   Future<void> _rescan() async {
@@ -338,7 +384,11 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               // Barkod bir reyonda kayitliysa "nerede" bilgisi dikkat
               // cekecek sekilde gosterilir: karta yay ile giris + konum
               // pinine surekli nabiz (pulse) animasyonu.
-              if (_shelfLoc != null) _locationCard(_shelfLoc!),
+              if (_shelfLoc != null)
+                GestureDetector(
+                  onTap: () => _playLocationReveal(_shelfLoc!),
+                  child: _locationCard(_shelfLoc!),
+                ),
               if (_shelfLoc != null) const SizedBox(height: 12),
               // Depodaki palet konumlari — reyon karti olmasa da gorunur.
               if (_palletLocs.isNotEmpty) _palletCard(),
@@ -538,15 +588,47 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          ..._palletLocs.take(4).map((l) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  '${l.warehouseName} · ${l.palletName} — ${l.shelfLabel}'
-                  '  (${l.quantity} adet)',
-                  style: TextStyle(
-                      fontSize: 13, color: AppTheme.textSecondary),
+          ..._palletLocs.take(4).map((l) {
+            final canPlay = l.colNo != null && l.shelfNo != null;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: InkWell(
+                // Raftaki palete dokun -> DEPO icin ayni kamera-inisi
+                // canlandirmasi (ortak servis). Zemindekilerde izgara
+                // konumu olmadigi icin oynatilmaz.
+                onTap: canPlay
+                    ? () => showLocationReveal(
+                          context,
+                          title: l.warehouseName,
+                          cols: l.gridCols,
+                          rows: l.gridRows,
+                          targetCol: l.colNo!,
+                          targetRow: l.shelfNo!,
+                          subtitle:
+                              '${l.palletName} · ${l.shelfLabel}',
+                          productName: _localName ?? _off?.name,
+                          accent: AppTheme.primary,
+                        )
+                    : null,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${l.warehouseName} · ${l.palletName} — '
+                        '${l.shelfLabel}  (${l.quantity} adet)',
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textSecondary),
+                      ),
+                    ),
+                    if (canPlay)
+                      const Icon(Icons.play_circle_outline_rounded,
+                          size: 18, color: AppTheme.primary),
+                  ],
                 ),
-              )),
+              ),
+            );
+          }),
           if (_palletLocs.length > 4)
             Text('… ve ${_palletLocs.length - 4} palet daha',
                 style: TextStyle(
@@ -621,28 +703,43 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   }
 }
 
-/// Taranan barkodun reyon konumu (reyon adi + sutun + raf).
+/// Taranan barkodun reyon konumu (reyon adi + sutun + raf) + canlandirma
+/// icin izgara boyutlari ve urun fotografi.
 class _ShelfLocation {
   final String unitName;
   final int section;
   final int row;
+  final int cols; // reyonun sutun sayisi
+  final int rows; // reyondaki en buyuk raf numarasi
+  final String? photoPath;
   const _ShelfLocation({
     required this.unitName,
     required this.section,
     required this.row,
+    required this.cols,
+    required this.rows,
+    this.photoPath,
   });
 }
 
-/// Urunun depodaki bir palet konumu.
+/// Urunun depodaki bir palet konumu (+ canlandirma icin izgara bilgisi).
 class _PalletLocation {
   final String warehouseName;
   final String palletName;
   final String shelfLabel;
   final int quantity;
+  final int? colNo; // raftaysa sutun (canlandirma icin); zeminde null
+  final int? shelfNo; // raftaysa raf
+  final int gridCols; // deponun izgara boyutu (max sutun)
+  final int gridRows; // deponun izgara boyutu (max raf)
   const _PalletLocation({
     required this.warehouseName,
     required this.palletName,
     required this.shelfLabel,
     required this.quantity,
+    this.colNo,
+    this.shelfNo,
+    this.gridCols = 1,
+    this.gridRows = 1,
   });
 }
