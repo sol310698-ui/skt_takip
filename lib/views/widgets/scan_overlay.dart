@@ -49,6 +49,12 @@ class ScanOverlay extends StatefulWidget {
 class _ScanOverlayState extends State<ScanOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  // Cizgi kenarlara (yukari/asagi) yaklasirken yavaslayip hizlansin diye
+  // ham controller degeri yerine bunu kullaniyoruz. Duz (linear) deger,
+  // cizginin pencere kenarlarinda sert bir sekilde "ziplamasina" yol
+  // aciyordu; gercek bir tarayici/lazer gibi yumusak gorunmesi icin
+  // easeInOut egrisi kullaniyoruz (bkz. flutter.dev CurvedAnimation).
+  late final Animation<double> _lineAnim;
 
   @override
   void initState() {
@@ -57,6 +63,7 @@ class _ScanOverlayState extends State<ScanOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
+    _lineAnim = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
   }
 
   @override
@@ -129,10 +136,10 @@ class _ScanOverlayState extends State<ScanOverlay>
                 width: winW,
                 height: winH,
                 child: AnimatedBuilder(
-                  animation: _controller,
+                  animation: _lineAnim,
                   builder: (context, _) {
                     return Align(
-                      alignment: Alignment(0, (_controller.value * 2) - 1),
+                      alignment: Alignment(0, (_lineAnim.value * 2) - 1),
                       child: Container(
                         height: 2.5,
                         width: winW - 28,
