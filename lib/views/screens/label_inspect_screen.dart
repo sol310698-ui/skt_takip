@@ -140,6 +140,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                 cols: u.unit.sections,
                 rows: maxRow,
                 photoPath: s.photoPath,
+                allUnits: units.map((x) => x.unit.name).toList(),
+                unitIndex: units.indexOf(u),
               );
               break outer;
             }
@@ -176,6 +178,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               shelfNo: l.shelf?.shelfNo,
               gridCols: gc,
               gridRows: gr,
+              allWarehouses: whs.map((x) => x.name).toList(),
+              warehouseIndex: whs.indexOf(w),
             ));
           }
         }
@@ -226,6 +230,9 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       subtitle: 'Sütun ${loc.section} · Raf ${loc.row}',
       productName: _localName ?? _off?.name,
       photoPath: loc.photoPath,
+      // MAGAZA kus bakisi: kamera once TUM reyonlari gorur, hedefe ucar.
+      overviewItems: loc.allUnits,
+      overviewTargetIndex: loc.unitIndex,
     );
   }
 
@@ -608,6 +615,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                               '${l.palletName} · ${l.shelfLabel}',
                           productName: _localName ?? _off?.name,
                           accent: AppTheme.primary,
+                          overviewItems: l.allWarehouses,
+                          overviewTargetIndex: l.warehouseIndex,
                         )
                     : null,
                 child: Row(
@@ -712,6 +721,8 @@ class _ShelfLocation {
   final int cols; // reyonun sutun sayisi
   final int rows; // reyondaki en buyuk raf numarasi
   final String? photoPath;
+  final List<String> allUnits; // MAGAZA gorunumu: tum reyon adlari
+  final int unitIndex; // hedef reyonun listedeki sirasi
   const _ShelfLocation({
     required this.unitName,
     required this.section,
@@ -719,6 +730,8 @@ class _ShelfLocation {
     required this.cols,
     required this.rows,
     this.photoPath,
+    this.allUnits = const [],
+    this.unitIndex = 0,
   });
 }
 
@@ -732,6 +745,8 @@ class _PalletLocation {
   final int? shelfNo; // raftaysa raf
   final int gridCols; // deponun izgara boyutu (max sutun)
   final int gridRows; // deponun izgara boyutu (max raf)
+  final List<String> allWarehouses; // magaza gorunumu: tum depo adlari
+  final int warehouseIndex;
   const _PalletLocation({
     required this.warehouseName,
     required this.palletName,
@@ -741,5 +756,7 @@ class _PalletLocation {
     this.shelfNo,
     this.gridCols = 1,
     this.gridRows = 1,
+    this.allWarehouses = const [],
+    this.warehouseIndex = 0,
   });
 }

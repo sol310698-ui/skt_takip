@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -32,6 +31,12 @@ Future<void> showLocationReveal(
   String? productName,
   String? photoPath,
   Color? accent,
+  /// MAGAZA GENEL GORUNUMU: tum reyon/depo ADLARI. Verilirse canlandirma
+  /// once MAGAZANIN KUS BAKISI haritasiyla baslar (tum reyonlar blok blok),
+  /// kamera hedef reyona UCAR, sonra reyonun icine iner. Bos birakilirsa
+  /// dogrudan reyon icinden baslar.
+  List<String> overviewItems = const [],
+  int overviewTargetIndex = 0,
 }) {
   return Navigator.of(context).push(
     PageRouteBuilder(
@@ -50,6 +55,9 @@ Future<void> showLocationReveal(
           productName: productName,
           photoPath: photoPath,
           accent: accent ?? AppTheme.accent,
+          overviewItems: overviewItems,
+          overviewTargetIndex:
+              overviewTargetIndex.clamp(0, overviewItems.isEmpty ? 0 : overviewItems.length - 1),
         ),
       ),
     ),
@@ -61,6 +69,8 @@ class _LocationRevealScreen extends StatefulWidget {
   final int cols, rows, targetCol, targetRow;
   final String? subtitle, productName, photoPath;
   final Color accent;
+  final List<String> overviewItems;
+  final int overviewTargetIndex;
   const _LocationRevealScreen({
     required this.title,
     required this.cols,
@@ -71,6 +81,8 @@ class _LocationRevealScreen extends StatefulWidget {
     this.subtitle,
     this.productName,
     this.photoPath,
+    this.overviewItems = const [],
+    this.overviewTargetIndex = 0,
   });
 
   @override
@@ -79,18 +91,27 @@ class _LocationRevealScreen extends StatefulWidget {
 
 class _LocationRevealScreenState extends State<_LocationRevealScreen>
     with TickerProviderStateMixin {
-  // Ana zaman cizelgesi (~3.4 sn): baslik -> izgara -> inis -> pin.
+  // Ana zaman cizelgesi: magaza gorunumu varsa ~4.8 sn (baslik -> MAGAZA
+  // kus bakisi -> hedef reyona ucus -> reyon icine gecis -> hucreye inis ->
+  // pin), yoksa ~3.4 sn (dogrudan reyon ici).
   late final AnimationController _main = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 3400));
+      vsync: this,
+      duration: Duration(
+          milliseconds: (widget.overviewItems.isNotEmpty) ? 4800 : 3400));
+
+  bool get _hasOverview => widget.overviewItems.isNotEmpty;
   // Pin nabzi (inis bittikten sonra surekli).
   late final AnimationController _pulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 800));
 
-  // Faz araliklari (0..1)
-  static const _tTitleIn = 0.12; // baslik belirir
-  static const _tGridIn = 0.30; // izgara uzaktan gorunur
-  static const _tFlyEnd = 0.80; // kamera inisi biter
-  static const _tPinEnd = 0.95; // pin duser + ziplar
+  // Faz araliklari (0..1) — magaza gorunumu varsa kaydirilir.
+  double get _tTitleIn => _hasOverview ? 0.08 : 0.12;
+  double get _tMapIn => 0.20; // magaza haritasi belirir
+  double get _tMapFlyEnd => 0.42; // hedef reyona ucus biter
+  double get _tCross => 0.50; // harita -> reyon ici gecisi
+  double get _tGridIn => _hasOverview ? 0.50 : 0.30;
+  double get _tFlyEnd => _hasOverview ? 0.86 : 0.80;
+  double get _tPinEnd => 0.96;
 
   @override
   void initState() {
@@ -136,7 +157,20 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
               final titleIn = _seg(t, 0.0, _tTitleIn, Curves.easeOutBack);
               // Baslik, inis baslarken yukari cekilip kuculur.
               final titleUp = _seg(t, _tGridIn, _tFlyEnd);
-              final gridIn = _seg(t, _tTitleIn, _tGridIn);
+              // MAGAZA fazi (varsa): harita belirir -> hedef reyona ucus ->
+              // reyon icine cross-fade.
+              final mapIn = _hasOverview
+                  ? _seg(t, _tTitleIn, _tMapIn)
+                  : 0.0;
+              final mapFly = _hasOverview
+                  ? _seg(t, _tMapIn, _tMapFlyEnd, Curves.easeInOutCubic)
+                  : 0.0;
+              final cross = _hasOverview
+                  ? _seg(t, _tMapFlyEnd, _tCross)
+                  : 1.0;
+              final gridIn = _hasOverview
+                  ? cross
+                  : _seg(t, _tTitleIn, _tGridIn);
               final fly = _seg(t, _tGridIn, _tFlyEnd, Curves.easeInOutCubic);
               final pinDrop = _seg(t, _tFlyEnd, _tPinEnd, Curves.bounceOut);
 
@@ -193,21 +227,42 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
                   ),
                   const SizedBox(height: 8),
 
-                  // ── IZGARA + KAMERA ──
+                  // ── SAHNE: (varsa) MAGAZA HARITASI + REYON ICI ──
                   Expanded(
                     child: ClipRect(
-                      child: Opacity(
-                        opacity: gridIn,
-                        child: Transform(
-                          alignment: Alignment(ax, ay),
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.0012) // perspektif
-                            ..rotateX(tilt)
-                            ..scale(scale),
-                          child: Center(
-                            child: _grid(acc, pinDrop),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // KATMAN 1 — MAGAZA KUS BAKISI: tum reyonlar blok
+                          // blok; kamera hedef bloga ucar, sonra kaybolur.
+                          if (_hasOverview && cross < 1.0)
+                            Opacity(
+                              opacity: mapIn * (1.0 - cross),
+                              child: Transform(
+                                alignment: _mapTargetAlignment(),
+                                transform: Matrix4.identity()
+                                  ..setEntry(3, 2, 0.0012)
+                                  ..rotateX(0.55 * (1 - mapFly * 0.4))
+                                  ..scale(0.9 + mapFly * 2.2),
+                                child: Center(child: _storeMap(acc, mapFly)),
+                              ),
+                            ),
+                          // KATMAN 2 — REYON ICI: haritadan cross-fade ile
+                          // devralir, hucreye inis burada surer.
+                          Opacity(
+                            opacity: gridIn,
+                            child: Transform(
+                              alignment: Alignment(ax, ay),
+                              transform: Matrix4.identity()
+                                ..setEntry(3, 2, 0.0012) // perspektif
+                                ..rotateX(tilt)
+                                ..scale(scale),
+                              child: Center(
+                                child: _grid(acc, pinDrop),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
                   ),
@@ -266,6 +321,96 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
             },
           ),
         ),
+      ),
+    );
+  }
+
+  // ── MAGAZA KUS BAKISI HARITASI ──
+  // Tum reyonlar 2 sutunluk blok duzeninde; hedef reyon renkli ve adiyla
+  // one cikar, digerleri soluk. Ucus sirasinda hedef blok hafif nabiz atar.
+  static const int _mapCols = 2;
+
+  Alignment _mapTargetAlignment() {
+    final n = widget.overviewItems.length;
+    if (n <= 1) return Alignment.center;
+    final idx = widget.overviewTargetIndex;
+    final rows = (n / _mapCols).ceil();
+    final c = idx % _mapCols, r = idx ~/ _mapCols;
+    final ax = _mapCols == 1 ? 0.0 : ((c + 0.5) / _mapCols) * 2 - 1;
+    final ay = rows == 1 ? 0.0 : ((r + 0.5) / rows) * 2 - 1;
+    return Alignment(ax, ay);
+  }
+
+  Widget _storeMap(Color acc, double mapFly) {
+    final items = widget.overviewItems;
+    final rows = (items.length / _mapCols).ceil();
+    return SizedBox(
+      width: 300,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(rows, (r) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(_mapCols, (c) {
+                final idx = r * _mapCols + c;
+                if (idx >= items.length) {
+                  return const SizedBox(width: 140, height: 54);
+                }
+                final isTarget = idx == widget.overviewTargetIndex;
+                final glow = isTarget ? (0.35 + 0.4 * mapFly) : 0.0;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: Container(
+                    width: 130,
+                    height: 54,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isTarget
+                          ? acc.withOpacity(0.85)
+                          : Colors.white.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color:
+                            isTarget ? Colors.white : Colors.white24,
+                        width: isTarget ? 1.6 : 0.8,
+                      ),
+                      boxShadow: isTarget
+                          ? [
+                              BoxShadow(
+                                color: acc.withOpacity(glow),
+                                blurRadius: 22,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6),
+                      child: Text(
+                        items[idx],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: isTarget
+                              ? Colors.black
+                              : Colors.white60,
+                          fontSize: 13,
+                          fontWeight: isTarget
+                              ? FontWeight.w900
+                              : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          );
+        }),
       ),
     );
   }
