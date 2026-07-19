@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,48 +7,47 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_theme.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  KONUM CANLANDIRMA — "KAMERA İNİŞİ" (cinematic fly-to)
+///  KONUM CANLANDIRMA — "CINEMATIC FLY-THROUGH" (Oyun Kamerası)
 /// ────────────────────────────────────────────────────────────────────
-///  Google Haritalar'ın bir noktaya "uçarak inmesi" gibi: önce mekanın
-///  adı DEV harflerle belirir, ardından raf/depo ızgarasına TEPEDEN bakan
-///  kamera, hedef hücreye doğru süzülerek YAKINLAŞIR (ölçek + perspektif
-///  eğimi aynı anda değişir — oyun kamerası hissi). İniş bitince hedefe
-///  yukarıdan bir konum pini düşer, zıplar ve nabız atmaya başlar.
+///  1. MAĞAZA KUŞ BAKIŞI: Reyonlar dikey şeritler halinde uzun sütunlar
+///  2. REYONA UÇUŞ: Kamera hedef reyona doğru yaklaşır (zoom + pan)
+///  3. REYON İÇİ — 1. SÜTUN: Kamera reyon içine girer, 1. sütun gösterilir
+///  4. SÜTUN KAYMASI: Kamera yatayda hedef sütuna kayar (slide)
+///  5. HEDEF RAF: Hedef hücre parlar, pin düşer, nabız atar
 ///
-///  ORTAK SERVİSTİR: hem REYON (etiket tarama) hem DEPO (palet) konumları
-///  aynı fonksiyonla canlandırılır:
-///    showLocationReveal(context,
+///  Kullanım:
+///    showLocationFlythrough(context,
 ///      title: 'BAKLİYAT', cols: 5, rows: 6,
-///      targetCol: 2, targetRow: 3,
-///      subtitle: 'Sütun 2 · Raf 3', productName: ..., photoPath: ...);
+///      targetCol: 3, targetRow: 4,
+///      subtitle: 'Sütun 3 · Raf 4',
+///      allAisles: ['İÇECEK','BAKLİYAT','TEMİZLİK','ŞARKÜTERİ'],
+///      targetAisleIndex: 1,
+///    );
 /// ════════════════════════════════════════════════════════════════════
-Future<void> showLocationReveal(
+Future<void> showLocationFlythrough(
   BuildContext context, {
   required String title,
   required int cols,
   required int rows,
-  required int targetCol, // 1-based
-  required int targetRow, // 1-based (1 = EN ÜST raf)
+  required int targetCol,
+  required int targetRow,
   String? subtitle,
   String? productName,
   String? photoPath,
   Color? accent,
-  /// MAĞAZA GENEL GÖRÜNÜMÜ: tüm reyon/depo ADLARI. Verilirse canlandırma
-  /// önce MAĞAZANIN KUŞ BAKIŞI haritasıyla başlar (tüm reyonlar blok blok),
-  /// kamera hedef reyona UÇAR, sonra reyonun içine iner. Boş bırakılırsa
-  /// doğrudan reyon içinden başlar.
-  List<String> overviewItems = const [],
-  int overviewTargetIndex = 0,
+  /// Tüm reyon isimleri (dikey şeritler). Boşsa doğrudan reyon içi başlar.
+  List<String> allAisles = const [],
+  int targetAisleIndex = 0,
 }) {
   return Navigator.of(context).push(
     PageRouteBuilder(
       opaque: false,
-      barrierColor: Colors.black.withOpacity(0.92),
-      transitionDuration: const Duration(milliseconds: 350),
-      reverseTransitionDuration: const Duration(milliseconds: 200),
+      barrierColor: Colors.black.withOpacity(0.95),
+      transitionDuration: const Duration(milliseconds: 400),
+      reverseTransitionDuration: const Duration(milliseconds: 250),
       pageBuilder: (_, anim, __) => FadeTransition(
         opacity: anim,
-        child: _LocationRevealScreen(
+        child: _LocationFlythroughScreen(
           title: title,
           cols: cols.clamp(1, 30),
           rows: rows.clamp(1, 30),
@@ -57,24 +57,24 @@ Future<void> showLocationReveal(
           productName: productName,
           photoPath: photoPath,
           accent: accent ?? AppTheme.accent,
-          overviewItems: overviewItems,
-          overviewTargetIndex: overviewTargetIndex.clamp(
-              0, overviewItems.isEmpty ? 0 : overviewItems.length - 1),
+          allAisles: allAisles,
+          targetAisleIndex: targetAisleIndex.clamp(
+              0, allAisles.isEmpty ? 0 : allAisles.length - 1),
         ),
       ),
     ),
   );
 }
 
-class _LocationRevealScreen extends StatefulWidget {
+class _LocationFlythroughScreen extends StatefulWidget {
   final String title;
   final int cols, rows, targetCol, targetRow;
   final String? subtitle, productName, photoPath;
   final Color accent;
-  final List<String> overviewItems;
-  final int overviewTargetIndex;
+  final List<String> allAisles;
+  final int targetAisleIndex;
 
-  const _LocationRevealScreen({
+  const _LocationFlythroughScreen({
     required this.title,
     required this.cols,
     required this.rows,
@@ -84,35 +84,46 @@ class _LocationRevealScreen extends StatefulWidget {
     this.subtitle,
     this.productName,
     this.photoPath,
-    this.overviewItems = const [],
-    this.overviewTargetIndex = 0,
+    required this.allAisles,
+    required this.targetAisleIndex,
   });
 
   @override
-  State<_LocationRevealScreen> createState() => _LocationRevealScreenState();
+  State<_LocationFlythroughScreen> createState() => _LocationFlythroughScreenState();
 }
 
-class _LocationRevealScreenState extends State<_LocationRevealScreen>
+class _LocationFlythroughScreenState extends State<_LocationFlythroughScreen>
     with TickerProviderStateMixin {
   // ── Animasyon Kontrolleri ──
   late final AnimationController _main;
   late final AnimationController _pulse;
   late final AnimationController _glow;
   late final AnimationController _float;
+  late final AnimationController _scanLine;
 
   // ── Değerler ──
-  bool get _hasOverview => widget.overviewItems.isNotEmpty;
+  bool get _hasOverview => widget.allAisles.isNotEmpty;
   bool _photoExists = false;
   bool _photoChecked = false;
 
   // ── Faz Zamanlamaları (0..1) ──
-  double get _tTitleIn => _hasOverview ? 0.08 : 0.12;
-  double get _tMapIn => 0.20;
-  double get _tMapFlyEnd => 0.42;
-  double get _tCross => 0.50;
-  double get _tGridIn => _hasOverview ? 0.50 : 0.30;
-  double get _tFlyEnd => _hasOverview ? 0.86 : 0.80;
-  double get _tPinEnd => 0.96;
+  // Faz 1: Başlık belirir (0.00 - 0.10)
+  // Faz 2: Mağaza kuş bakışı — dikey reyonlar (0.10 - 0.25)
+  // Faz 3: Reyona uçuş (0.25 - 0.45)
+  // Faz 4: Reyon içi — 1. sütun gösterilir (0.45 - 0.60)
+  // Faz 5: Sütun kayması — hedef sütuna (0.60 - 0.80)
+  // Faz 6: Hedef raf vurgusu + pin (0.80 - 1.00)
+  double get _tTitleEnd => _hasOverview ? 0.10 : 0.14;
+  double get _tAisleViewStart => _tTitleEnd;
+  double get _tAisleViewEnd => _hasOverview ? 0.28 : 0.0;
+  double get _tFlyStart => _hasOverview ? 0.28 : 0.14;
+  double get _tFlyEnd => _hasOverview ? 0.48 : 0.38;
+  double get _tEnterStart => _hasOverview ? 0.48 : 0.38;
+  double get _tEnterEnd => _hasOverview ? 0.62 : 0.52;
+  double get _tSlideStart => _hasOverview ? 0.62 : 0.52;
+  double get _tSlideEnd => _hasOverview ? 0.82 : 0.72;
+  double get _tTargetStart => _hasOverview ? 0.82 : 0.72;
+  double get _tTargetEnd => 1.0;
 
   @override
   void initState() {
@@ -120,32 +131,33 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     _main = AnimationController(
       vsync: this,
       duration: Duration(
-        milliseconds: _hasOverview ? 5200 : 3800,
+        milliseconds: _hasOverview ? 6000 : 4500,
       ),
     );
 
     _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 600),
     );
 
     _glow = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1000),
     );
 
     _float = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2000),
+      duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
 
-    // Fotoğraf kontrolü (asenkron)
-    _checkPhoto();
+    _scanLine = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
 
-    // Ana animasyonu başlat
+    _checkPhoto();
     _main.forward();
 
-    // Durum dinleyicisi — pulse ve glow başlatma
     _main.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
         _pulse.repeat(reverse: true);
@@ -153,7 +165,6 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
       }
     });
 
-    // Haptic feedback — başlangıçta hafif titreşim
     HapticFeedback.lightImpact();
   }
 
@@ -169,9 +180,7 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
           });
         }
       } catch (e) {
-        if (mounted) {
-          setState(() => _photoChecked = true);
-        }
+        if (mounted) setState(() => _photoChecked = true);
       }
     } else {
       setState(() => _photoChecked = true);
@@ -184,6 +193,7 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     _pulse.dispose();
     _glow.dispose();
     _float.dispose();
+    _scanLine.dispose();
     super.dispose();
   }
 
@@ -201,7 +211,6 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     Navigator.of(context).pop();
   }
 
-  /// Segment interpolasyonu (clamp'li, güvenli)
   double _seg(double t, double a, double b, [Curve c = Curves.easeInOut]) {
     if (a >= b) return t >= b ? 1.0 : 0.0;
     if (t <= a) return 0.0;
@@ -212,168 +221,220 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
   @override
   Widget build(BuildContext context) {
     final acc = widget.accent;
-    final size = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Arka plan karartma (dokunulabilir) ──
+          // Arka plan — dokunulabilir alan
           GestureDetector(
             onTap: _dismiss,
-            child: Container(
-              color: Colors.black.withOpacity(0.01), // Hedef dışı tıklama
-            ),
+            child: Container(color: Colors.black.withOpacity(0.01)),
           ),
 
-          // ── Ana içerik ──
           SafeArea(
             child: AnimatedBuilder(
-              animation: Listenable.merge([_main, _pulse, _glow, _float]),
+              animation: Listenable.merge([_main, _pulse, _glow, _float, _scanLine]),
               builder: (context, _) {
                 final t = _main.value;
 
-                // ── Faz Değerleri ──
-                final titleIn = _seg(t, 0.0, _tTitleIn, Curves.easeOutBack);
-                final titleUp = _seg(t, _tGridIn, _tFlyEnd);
+                // ── FAZ HESAPLAMALARI ──
+                final titleIn = _seg(t, 0.0, _tTitleEnd, Curves.easeOutBack);
+                final titleUp = _seg(t, _tEnterStart, _tSlideEnd);
 
-                final mapIn = _hasOverview
-                    ? _seg(t, _tTitleIn, _tMapIn)
+                // Faz 2: Dikey reyonlar kuş bakışı
+                final aisleView = _hasOverview
+                    ? _seg(t, _tAisleViewStart, _tAisleViewEnd, Curves.easeOutCubic)
                     : 0.0;
-                final mapFly = _hasOverview
-                    ? _seg(t, _tMapIn, _tMapFlyEnd, Curves.easeInOutCubic)
+                final aisleFly = _hasOverview
+                    ? _seg(t, _tAisleViewStart, _tFlyEnd, Curves.easeInOutCubic)
                     : 0.0;
-                final cross = _hasOverview
-                    ? _seg(t, _tMapFlyEnd, _tCross)
-                    : 1.0;
-                final gridIn = _hasOverview
-                    ? cross
-                    : _seg(t, _tTitleIn, _tGridIn);
-                final fly = _seg(t, _tGridIn, _tFlyEnd, Curves.easeInOutCubic);
-                final pinDrop = _seg(t, _tFlyEnd, _tPinEnd, Curves.bounceOut);
 
-                // Kamera: uzak tepeden -> yakın önden
-                final scale = 0.65 + fly * 2.0;
-                final tilt = (1 - fly) * 0.75;
+                // Faz 3: Reyona uçuş
+                final flyProgress = _hasOverview
+                    ? _seg(t, _tFlyStart, _tFlyEnd, Curves.easeInOutCubic)
+                    : _seg(t, _tFlyStart, _tFlyEnd, Curves.easeInOutCubic);
 
-                // Hedef hücrenin göreli konumu (-1..1)
-                final ax = widget.cols == 1
-                    ? 0.0
-                    : ((widget.targetCol - 0.5) / widget.cols) * 2 - 1;
-                final ay = widget.rows == 1
-                    ? 0.0
-                    : ((widget.targetRow - 0.5) / widget.rows) * 2 - 1;
+                // Faz 4: Reyon içine giriş (1. sütun)
+                final enterProgress = _seg(t, _tEnterStart, _tEnterEnd, Curves.easeOutCubic);
+
+                // Faz 5: Sütun kayması
+                final slideProgress = _seg(t, _tSlideStart, _tSlideEnd, Curves.easeInOutCubic);
+
+                // Faz 6: Hedef vurgusu
+                final targetReveal = _seg(t, _tTargetStart, _tTargetEnd, Curves.easeOutBack);
+                final pinDrop = _seg(t, _tTargetStart + 0.08, _tTargetEnd, Curves.bounceOut);
+
+                // Kamera transform değerleri
+                // Başlangıç: Uzak, tepeden, tüm reyonları gör
+                // Uçuş: Hedef reyona yaklaş
+                // Giriş: Reyon içine gir, 1. sütun merkezde
+                // Kayma: Hedef sütuna yatay kay
+                final cameraZoom = 0.3 + flyProgress * 1.5 + enterProgress * 1.2 + slideProgress * 0.5;
+                final cameraTilt = (1 - enterProgress) * 0.9; // Tepeden bakış -> önden bakış
+                final cameraPanY = -0.3 * flyProgress; // Yukarı kayma
+                final cameraPanX = _hasOverview
+                    ? _aislePanX(flyProgress) + _columnSlideX(slideProgress)
+                    : _columnSlideX(slideProgress);
 
                 return Column(
                   children: [
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
 
-                    // ── DEV BAŞLIK (gölge + glow efekti) ──
+                    // ── DEV BAŞLIK ──
                     Transform.scale(
-                      scale: (0.5 + 0.5 * titleIn) * (1 - 0.4 * titleUp),
+                      scale: (0.4 + 0.6 * titleIn) * (1 - 0.5 * titleUp),
                       child: Opacity(
                         opacity: titleIn,
-                        child: ShaderMask(
-                          shaderCallback: (bounds) => LinearGradient(
-                            colors: [
-                              Colors.white,
-                              acc.withOpacity(0.9),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ).createShader(bounds),
-                          child: Column(
-                            children: [
-                              Text(
-                                widget.title.toUpperCase(),
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 42,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 3,
-                                  height: 1.1,
-                                ),
+                        child: Column(
+                          children: [
+                            Text(
+                              widget.title.toUpperCase(),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 4,
+                                height: 1.0,
+                                shadows: [
+                                  Shadow(color: acc, blurRadius: 30),
+                                  Shadow(color: acc.withOpacity(0.5), blurRadius: 60),
+                                ],
                               ),
-                              if (widget.subtitle != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
+                            ),
+                            if (widget.subtitle != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: AnimatedOpacity(
+                                  opacity: targetReveal,
+                                  duration: const Duration(milliseconds: 200),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 4),
+                                        horizontal: 18, vertical: 6),
                                     decoration: BoxDecoration(
-                                      color: acc.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(20),
+                                      color: acc.withOpacity(0.25),
+                                      borderRadius: BorderRadius.circular(24),
                                       border: Border.all(
-                                        color: acc.withOpacity(0.5),
-                                        width: 1,
+                                        color: acc.withOpacity(0.6),
+                                        width: 1.5,
                                       ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: acc.withOpacity(0.2),
+                                          blurRadius: 20,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
                                     ),
                                     child: Text(
                                       widget.subtitle!,
                                       style: TextStyle(
                                         color: acc,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 1.5,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 2,
                                       ),
                                     ),
                                   ),
                                 ),
-                            ],
-                          ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
 
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
 
-                    // ── SAHNE: Mağaza Haritası + Reyon İçi ──
+                    // ── ANA SAHNE (Oyun Kamerası) ──
                     Expanded(
                       child: ClipRect(
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            // KATMAN 1 — MAĞAZA KUŞ BAKIŞI
-                            if (_hasOverview && cross < 1.0)
+                            // KATMAN 1: Diş kenar karartma (vignette)
+                            CustomPaint(
+                              painter: _VignettePainter(intensity: 0.6),
+                              size: Size.infinite,
+                            ),
+
+                            // KATMAN 2: Dikey reyonlar kuş bakışı
+                            if (_hasOverview && aisleView < 1.0)
                               Opacity(
-                                opacity: mapIn * (1.0 - cross).clamp(0, 1),
+                                opacity: (1.0 - flyProgress * 1.5).clamp(0, 1),
                                 child: Transform(
-                                  alignment: _mapTargetAlignment(),
+                                  alignment: Alignment.center,
                                   transform: Matrix4.identity()
-                                    ..setEntry(3, 2, 0.002)
-                                    ..rotateX(0.5 * (1 - mapFly * 0.35))
-                                    ..scale(0.85 + mapFly * 2.0),
+                                    ..setEntry(3, 2, 0.0015)
+                                    ..rotateX(0.7 * (1 - aisleFly * 0.5))
+                                    ..scale(0.4 + aisleFly * 1.5)
+                                    ..translate(0.0, -50.0 * aisleFly),
                                   child: Center(
-                                    child: _storeMap(acc, mapFly),
+                                    child: _aislesOverview(acc, aisleFly),
                                   ),
                                 ),
                               ),
 
-                            // KATMAN 2 — REYON İÇİ
+                            // KATMAN 3: Reyon içi (kamera transformlu)
                             Opacity(
-                              opacity: gridIn.clamp(0, 1),
+                              opacity: enterProgress.clamp(0, 1),
                               child: Transform(
-                                alignment: Alignment(ax, ay),
+                                alignment: Alignment.center,
                                 transform: Matrix4.identity()
                                   ..setEntry(3, 2, 0.002)
-                                  ..rotateX(tilt)
-                                  ..scale(scale),
+                                  ..rotateX(cameraTilt)
+                                  ..scale(cameraZoom.clamp(0.5, 4.0))
+                                  ..translate(cameraPanX * 200, cameraPanY * 100),
                                 child: Center(
-                                  child: _grid(acc, pinDrop),
+                                  child: _aisleInterior(
+                                    acc,
+                                    slideProgress,
+                                    targetReveal,
+                                    pinDrop,
+                                  ),
                                 ),
                               ),
                             ),
 
-                            // KATMAN 3 — Işık parlaması (hedef hücreye)
-                            if (fly > 0.7)
+                            // KATMAN 4: Tarama çizgisi (scanner line)
+                            if (slideProgress > 0.1 && slideProgress < 0.9)
                               Positioned.fill(
                                 child: CustomPaint(
-                                  painter: _LightBurstPainter(
+                                  painter: _ScannerLinePainter(
+                                    progress: _scanLine.value,
                                     color: acc,
-                                    intensity: (fly - 0.7) / 0.3,
+                                  ),
+                                ),
+                              ),
+
+                            // KATMAN 5: Hedef vurgusu (ışık halkası)
+                            if (targetReveal > 0.3)
+                              Positioned.fill(
+                                child: CustomPaint(
+                                  painter: _TargetGlowPainter(
+                                    color: acc,
+                                    intensity: targetReveal,
                                     pulse: _pulse.value,
+                                  ),
+                                ),
+                              ),
+
+                            // KATMAN 6: HUD overlay (oyun UI tarzı)
+                            if (enterProgress > 0.5)
+                              Positioned(
+                                top: 8,
+                                left: 20,
+                                right: 20,
+                                child: Opacity(
+                                  opacity: (enterProgress - 0.5) * 2,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      _hudText('SÜTUN ${widget.targetCol}/${widget.cols}'),
+                                      _hudText('RAF ${widget.targetRow}/${widget.rows}'),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -388,24 +449,23 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Ürün fotoğrafı (varsa)
                           if (widget.photoPath != null && _photoExists)
                             AnimatedOpacity(
-                              opacity: pinDrop,
+                              opacity: targetReveal,
                               duration: const Duration(milliseconds: 300),
                               child: Container(
-                                width: 80,
-                                height: 80,
-                                margin: const EdgeInsets.only(bottom: 12),
+                                width: 70,
+                                height: 70,
+                                margin: const EdgeInsets.only(bottom: 10),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.3),
+                                    color: Colors.white.withOpacity(0.4),
                                     width: 2,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: acc.withOpacity(0.3),
+                                      color: acc.withOpacity(0.4),
                                       blurRadius: 20,
                                       spreadRadius: 2,
                                     ),
@@ -418,8 +478,10 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
                                   errorBuilder: (ctx, err, stack) =>
                                       Container(
                                     color: Colors.white.withOpacity(0.1),
-                                    child: const Icon(Icons.image_not_supported,
-                                        color: Colors.white38),
+                                    child: const Icon(
+                                      Icons.image_not_supported,
+                                      color: Colors.white38,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -427,22 +489,19 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
 
                           if (widget.productName != null)
                             Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.only(bottom: 6),
                               child: Text(
                                 widget.productName!,
-                                maxLines: 2,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white70,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  height: 1.3,
                                 ),
                               ),
                             ),
-
-                          const SizedBox(height: 6),
 
                           Row(
                             children: [
@@ -478,283 +537,388 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     );
   }
 
-  // ── MAĞAZA KUŞ BAKIŞI HARİTASI ──
-  static const int _mapCols = 2;
-
-  Alignment _mapTargetAlignment() {
-    final n = widget.overviewItems.length;
-    if (n <= 1) return Alignment.center;
-    final idx = widget.overviewTargetIndex.clamp(0, n - 1);
-    final rows = (n / _mapCols).ceil();
-    final c = idx % _mapCols;
-    final r = idx ~/ _mapCols;
-    final ax = _mapCols == 1 ? 0.0 : ((c + 0.5) / _mapCols) * 2 - 1;
-    final ay = rows == 1 ? 0.0 : ((r + 0.5) / rows) * 2 - 1;
-    return Alignment(ax, ay);
-  }
-
-  Widget _storeMap(Color acc, double mapFly) {
-    final items = widget.overviewItems;
-    final rows = (items.length / _mapCols).ceil();
+  // ════════════════════════════════════════════════════════════════════
+  //  KATMAN 2: DİKEY REYONLAR KUŞ BAKIŞI
+  // ════════════════════════════════════════════════════════════════════
+  Widget _aislesOverview(Color acc, double flyProgress) {
+    final aisles = widget.allAisles;
+    final targetIdx = widget.targetAisleIndex;
 
     return SizedBox(
-      width: 320,
+      width: 340,
+      height: 500,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Mağaza etiketi
+          // Üst etiket
           Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white24, width: 1),
+              border: Border.all(color: Colors.white30, width: 1),
             ),
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.storefront_rounded, color: Colors.white60, size: 16),
-                SizedBox(width: 6),
+                Icon(Icons.map_rounded, color: Colors.white60, size: 18),
+                SizedBox(width: 8),
                 Text(
-                  'MAĞAZA GÖRÜNÜMÜ',
+                  'MAĞAZA PLANI',
                   style: TextStyle(
                     color: Colors.white60,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
                   ),
                 ),
               ],
             ),
           ),
-          ...List.generate(rows, (r) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_mapCols, (c) {
-                  final idx = r * _mapCols + c;
-                  if (idx >= items.length) {
-                    return const SizedBox(width: 148, height: 60);
-                  }
-                  final isTarget = idx == widget.overviewTargetIndex;
-                  final pulseVal = isTarget ? _pulse.value : 0.0;
-                  final glowIntensity = isTarget
-                      ? (0.3 + 0.5 * mapFly + 0.2 * pulseVal).clamp(0.0, 1.0)
-                      : 0.0;
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: 140,
-                      height: 58,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: isTarget
-                            ? acc.withOpacity(0.85)
-                            : Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isTarget
-                              ? Colors.white.withOpacity(0.8 + 0.2 * pulseVal)
-                              : Colors.white.withOpacity(0.15),
-                          width: isTarget ? 2.0 : 1.0,
-                        ),
-                        boxShadow: isTarget
-                            ? [
-                                BoxShadow(
-                                  color: acc.withOpacity(glowIntensity * 0.6),
-                                  blurRadius: 24 + 8 * pulseVal,
-                                  spreadRadius: 3 + 2 * pulseVal,
-                                ),
-                                BoxShadow(
-                                  color: Colors.white.withOpacity(0.1 * pulseVal),
-                                  blurRadius: 40,
-                                  spreadRadius: 10,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            if (isTarget)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: Icon(
-                                  Icons.location_searching_rounded,
-                                  color: Colors.black.withOpacity(0.7),
-                                  size: 16,
-                                ),
-                              ),
-                            Flexible(
-                              child: Text(
-                                items[idx],
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isTarget
-                                      ? Colors.black.withOpacity(0.9)
-                                      : Colors.white.withOpacity(0.5),
-                                  fontSize: 14,
-                                  fontWeight: isTarget
-                                      ? FontWeight.w900
-                                      : FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
+          // Dikey reyon şeritleri
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: List.generate(aisles.length, (i) {
+                final isTarget = i == targetIdx;
+                final distance = (i - targetIdx).abs();
+                final opacity = isTarget
+                    ? 1.0
+                    : (0.3 - distance * 0.08).clamp(0.1, 0.3);
+                final pulseVal = isTarget ? _pulse.value : 0.0;
+
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 400),
+                  width: 50 + (isTarget ? 20 * flyProgress : 0),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: isTarget
+                        ? acc.withOpacity(0.7 + 0.2 * pulseVal)
+                        : Colors.white.withOpacity(opacity),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isTarget
+                          ? Colors.white.withOpacity(0.8 + 0.2 * pulseVal)
+                          : Colors.white.withOpacity(0.1),
+                      width: isTarget ? 2.5 : 1,
+                    ),
+                    boxShadow: isTarget
+                        ? [
+                            BoxShadow(
+                              color: acc.withOpacity(0.4 + 0.3 * pulseVal),
+                              blurRadius: 25 + 10 * pulseVal,
+                              spreadRadius: 4 + 2 * pulseVal,
                             ),
-                          ],
+                          ]
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (isTarget)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Icon(
+                            Icons.location_searching_rounded,
+                            color: Colors.black.withOpacity(0.7),
+                            size: 20,
+                          ),
                         ),
+                      RotatedBox(
+                        quarterTurns: 3,
+                        child: Text(
+                          aisles[i].toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isTarget
+                                ? Colors.black.withOpacity(0.9)
+                                : Colors.white.withOpacity(0.6),
+                            fontSize: 12,
+                            fontWeight: isTarget ? FontWeight.w900 : FontWeight.w600,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                      if (isTarget)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: acc.withOpacity(0.8),
+                                blurRadius: 10,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ),
+
+          // Alt ok (hedef yönü)
+          if (flyProgress < 0.5)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: AnimatedOpacity(
+                opacity: (0.5 - flyProgress) * 2,
+                duration: Duration.zero,
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.arrow_downward_rounded,
+                      color: acc.withOpacity(0.8),
+                      size: 28,
+                    ),
+                    Text(
+                      'HEDEF REYONA İNİYOR',
+                      style: TextStyle(
+                        color: acc.withOpacity(0.8),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
                       ),
                     ),
-                  );
-                }),
+                  ],
+                ),
               ),
-            );
-          }),
+            ),
         ],
       ),
     );
   }
 
-  // ── REYON/DEPO IZGARASI ──
-  Widget _grid(Color acc, double pinDrop) {
-    const cellW = 48.0, cellH = 44.0, gap = 6.0;
+  // ════════════════════════════════════════════════════════════════════
+  //  KATMAN 3: REYON İÇİ (1. Sütun -> Hedef Sütun Kayması)
+  // ════════════════════════════════════════════════════════════════════
+  Widget _aisleInterior(
+    Color acc,
+    double slideProgress,
+    double targetReveal,
+    double pinDrop,
+  ) {
+    const cellW = 52.0, cellH = 48.0, gap = 8.0;
     final totalW = widget.cols * (cellW + gap) + gap;
-    final screenW = MediaQuery.of(context).size.width;
-    final scaleFactor = totalW > screenW * 0.85
-        ? (screenW * 0.85) / totalW
-        : 1.0;
 
-    return Transform.scale(
-      scale: scaleFactor,
+    // Sütun kayması: 1. sütun merkezde -> hedef sütun merkezde
+    // slideProgress: 0 = 1. sütun, 1 = hedef sütun
+    final startCol = 0; // 0-based (1. sütun)
+    final endCol = widget.targetCol - 1; // 0-based hedef
+    final currentCol = startCol + (endCol - startCol) * slideProgress;
+    final colOffset = (currentCol - (widget.cols - 1) / 2) * (cellW + gap);
+
+    return Transform.translate(
+      offset: Offset(-colOffset, 0),
       child: SizedBox(
         width: totalW,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Reyon etiketi
+            // Reyon başlığı
             Container(
-              margin: const EdgeInsets.only(bottom: 14),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
               decoration: BoxDecoration(
-                color: acc.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: acc.withOpacity(0.4), width: 1),
+                gradient: LinearGradient(
+                  colors: [
+                    acc.withOpacity(0.3),
+                    acc.withOpacity(0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: acc.withOpacity(0.5), width: 1.5),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.grid_view_rounded,
-                      color: acc.withOpacity(0.8), size: 14),
-                  const SizedBox(width: 6),
+                  Icon(
+                    Icons.view_column_rounded,
+                    color: acc.withOpacity(0.9),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    'REYON İÇİ',
+                    widget.title.toUpperCase(),
                     style: TextStyle(
-                      color: acc.withOpacity(0.9),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
+                      color: acc.withOpacity(0.95),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.5,
                     ),
                   ),
                 ],
               ),
             ),
+
+            // Sütun numaraları
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(widget.cols, (c) {
+                final isTarget = c + 1 == widget.targetCol;
+                final isVisible = (c - currentCol).abs() < 3; // Yakın sütunlar
+
+                return Opacity(
+                  opacity: isVisible ? 1.0 : 0.2,
+                  child: Container(
+                    width: cellW + gap,
+                    alignment: Alignment.center,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isTarget
+                            ? acc.withOpacity(0.3 + 0.2 * _pulse.value)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${c + 1}',
+                        style: TextStyle(
+                          color: isTarget
+                              ? acc
+                              : Colors.white.withOpacity(0.4),
+                          fontSize: 12,
+                          fontWeight: isTarget ? FontWeight.w900 : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 8),
+
+            // Raf satırları
             ...List.generate(widget.rows, (r) {
               final rowNo = r + 1;
               final isTargetRow = rowNo == widget.targetRow;
 
               return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Satır numarası
-                        Container(
-                          width: 28,
-                          height: cellH,
-                          alignment: Alignment.center,
-                          margin: const EdgeInsets.only(right: 6),
-                          decoration: BoxDecoration(
-                            color: isTargetRow
-                                ? acc.withOpacity(0.2)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '$rowNo',
-                            style: TextStyle(
-                              color: isTargetRow
-                                  ? acc
-                                  : Colors.white.withOpacity(0.3),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        ...List.generate(widget.cols, (c) {
-                          final colNo = c + 1;
-                          final isTarget = colNo == widget.targetCol &&
-                              rowNo == widget.targetRow;
-
-                          return Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: gap / 2),
-                            child: _cellBox(isTarget, acc, pinDrop, colNo),
-                          );
-                        }),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    // Raf tahtası
+                    // Raf numarası
                     Container(
-                      width: totalW - gap - 34,
-                      height: 3,
-                      margin: const EdgeInsets.only(left: 34),
+                      width: 32,
+                      height: cellH,
+                      alignment: Alignment.center,
+                      margin: const EdgeInsets.only(right: 8),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.white.withOpacity(isTargetRow ? 0.3 : 0.1),
-                            Colors.white.withOpacity(isTargetRow ? 0.15 : 0.05),
-                          ],
+                        color: isTargetRow
+                            ? acc.withOpacity(0.25)
+                            : Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isTargetRow
+                              ? acc.withOpacity(0.5)
+                              : Colors.white.withOpacity(0.1),
+                          width: 1,
                         ),
-                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Text(
+                        '$rowNo',
+                        style: TextStyle(
+                          color: isTargetRow
+                              ? acc
+                              : Colors.white.withOpacity(0.35),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
+
+                    // Hücreler
+                    ...List.generate(widget.cols, (c) {
+                      final colNo = c + 1;
+                      final isTarget = colNo == widget.targetCol && rowNo == widget.targetRow;
+                      final isVisible = (c - currentCol).abs() < 3;
+                      final pulseVal = _pulse.value;
+                      final glowVal = _glow.value;
+
+                      return Opacity(
+                        opacity: isVisible ? 1.0 : 0.15,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: gap / 2),
+                          child: _interiorCell(
+                            isTarget,
+                            acc,
+                            targetReveal,
+                            pinDrop,
+                            pulseVal,
+                            glowVal,
+                          ),
+                        ),
+                      );
+                    }),
                   ],
                 ),
               );
             }),
+
+            // Alt bilgi çubuğu
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    color: Colors.white.withOpacity(0.3),
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${widget.cols} SÜTUN · ${widget.rows} RAF',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.3),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _cellBox(bool isTarget, Color acc, double pinDrop, int colNo) {
-    const cellW = 48.0, cellH = 44.0;
-    final pulseVal = _pulse.value;
-    final glowVal = _glow.value;
-    final floatVal = _float.value;
-
-    // Nabız efekti
-    final pulseScale = isTarget ? (0.95 + 0.08 * pulseVal) : 1.0;
+  Widget _interiorCell(
+    bool isTarget,
+    Color acc,
+    double targetReveal,
+    double pinDrop,
+    double pulseVal,
+    double glowVal,
+  ) {
+    const cellW = 52.0, cellH = 48.0;
+    final pulseScale = isTarget ? (0.92 + 0.12 * pulseVal) : 1.0;
     final glowIntensity = isTarget
-        ? (0.4 + 0.4 * glowVal + 0.2 * pulseVal).clamp(0.0, 1.0)
+        ? (0.5 + 0.4 * glowVal + 0.2 * pulseVal).clamp(0.0, 1.0)
         : 0.0;
 
     return SizedBox(
       width: cellW,
-      height: cellH + 22, // pin için üst boşluk
+      height: cellH + 28,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.bottomCenter,
@@ -763,104 +927,91 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
           Transform.scale(
             scale: pulseScale,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
+              duration: const Duration(milliseconds: 150),
               width: cellW,
               height: cellH,
               decoration: BoxDecoration(
                 color: isTarget
-                    ? acc.withOpacity(0.85 + 0.1 * glowVal)
-                    : Colors.white.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
+                    ? acc.withOpacity(0.85 + 0.12 * glowVal)
+                    : Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isTarget
-                      ? Colors.white.withOpacity(0.8 + 0.2 * pulseVal)
-                      : Colors.white.withOpacity(0.15),
-                  width: isTarget ? 2.0 : 1.0,
+                      ? Colors.white.withOpacity(0.85 + 0.15 * pulseVal)
+                      : Colors.white.withOpacity(0.12),
+                  width: isTarget ? 2.5 : 1.0,
                 ),
                 boxShadow: isTarget
                     ? [
                         BoxShadow(
-                          color: acc.withOpacity(glowIntensity * 0.5),
-                          blurRadius: 18 + 8 * pulseVal,
-                          spreadRadius: 2 + 2 * pulseVal,
+                          color: acc.withOpacity(glowIntensity * 0.6),
+                          blurRadius: 20 + 10 * pulseVal,
+                          spreadRadius: 3 + 3 * pulseVal,
                         ),
                         BoxShadow(
-                          color: Colors.white.withOpacity(0.08 * pulseVal),
-                          blurRadius: 30,
-                          spreadRadius: 8,
+                          color: Colors.white.withOpacity(0.1 * pulseVal),
+                          blurRadius: 40,
+                          spreadRadius: 10,
                         ),
                       ]
                     : null,
               ),
               clipBehavior: Clip.antiAlias,
-              child: isTarget && _photoExists && _photoChecked
-                  ? Image.file(
-                      File(widget.photoPath!),
-                      fit: BoxFit.cover,
-                      errorBuilder: (ctx, err, stack) => _cellPlaceholder(acc),
-                    )
-                  : _cellPlaceholder(acc, isTarget: isTarget, colNo: colNo),
-            ),
-          ),
-
-          // Sütun numarası (üstte)
-          Positioned(
-            top: -16,
-            child: Opacity(
-              opacity: isTarget ? 0.9 : 0.3,
-              child: Text(
-                '$colNo',
-                style: TextStyle(
-                  color: isTarget ? acc : Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
+              child: Center(
+                child: isTarget
+                    ? Icon(
+                        Icons.check_circle_rounded,
+                        color: Colors.white.withOpacity(0.9),
+                        size: 22,
+                      )
+                    : null,
               ),
             ),
           ),
 
-          // Konum pini (yukarıdan düşer + nabız + salınım)
+          // Konum pini (hedef hücreye)
           if (isTarget && pinDrop > 0)
             Positioned(
-              top: -30 + (1 - pinDrop) * -50 + floatVal * -4,
+              top: -32 + (1 - pinDrop) * -60,
               child: Opacity(
                 opacity: pinDrop.clamp(0, 1),
                 child: Transform.scale(
-                  scale: 0.8 + 0.2 * pinDrop,
+                  scale: 0.7 + 0.3 * pinDrop,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       // Pin gölgesi
                       Container(
-                        width: 12,
-                        height: 4,
+                        width: 14,
+                        height: 5,
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.3 * pulseVal),
-                          borderRadius: BorderRadius.circular(2),
+                          color: Colors.black.withOpacity(0.4 * pulseVal),
+                          borderRadius: BorderRadius.circular(3),
                         ),
                       ),
                       const SizedBox(height: 2),
+                      // Pin ikonu
                       Icon(
                         Icons.location_on_rounded,
                         color: Colors.white,
-                        size: 32,
+                        size: 36,
                         shadows: [
-                          Shadow(color: acc, blurRadius: 18),
-                          Shadow(color: acc.withOpacity(0.5), blurRadius: 30),
+                          Shadow(color: acc, blurRadius: 20),
+                          Shadow(color: acc.withOpacity(0.6), blurRadius: 40),
                         ],
                       ),
-                      // Hedef noktası (nabız)
+                      // Hedef noktası (nabız atan)
                       Container(
-                        width: 6 + 4 * pulseVal,
-                        height: 6 + 4 * pulseVal,
+                        width: 8 + 5 * pulseVal,
+                        height: 8 + 5 * pulseVal,
                         decoration: BoxDecoration(
-                          color: acc.withOpacity(0.8 + 0.2 * pulseVal),
+                          color: acc.withOpacity(0.9 + 0.1 * pulseVal),
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: acc.withOpacity(0.5 * pulseVal),
-                              blurRadius: 10,
-                              spreadRadius: 2,
+                              color: acc.withOpacity(0.6 * pulseVal),
+                              blurRadius: 12,
+                              spreadRadius: 3,
                             ),
                           ],
                         ),
@@ -875,30 +1026,48 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     );
   }
 
-  Widget _cellPlaceholder(Color acc,
-      {bool isTarget = false, int? colNo}) {
+  // ════════════════════════════════════════════════════════════════════
+  //  KAMERA HESAPLAMALARI
+  // ════════════════════════════════════════════════════════════════════
+  double _aislePanX(double flyProgress) {
+    // Hedef reyona doğru yatay kayma
+    final n = widget.allAisles.length;
+    if (n <= 1) return 0.0;
+    final target = widget.targetAisleIndex;
+    final center = (n - 1) / 2;
+    return (target - center) * flyProgress * 0.8;
+  }
+
+  double _columnSlideX(double slideProgress) {
+    // Sütun kayması (1. sütundan hedef sütuna)
+    final startCol = 0;
+    final endCol = widget.targetCol - 1;
+    return (startCol - endCol) * slideProgress * 0.5;
+  }
+
+  Widget _hudText(String text) {
     return Container(
-      alignment: Alignment.center,
-      child: isTarget
-          ? Icon(
-              Icons.check_circle_rounded,
-              color: Colors.white.withOpacity(0.9),
-              size: 20,
-            )
-          : Text(
-              '${colNo ?? ''}',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.2),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white24, width: 1),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1,
+        ),
+      ),
     );
   }
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  ÖZEL BUTONLAR
+//  BUTONLAR
 // ════════════════════════════════════════════════════════════════════
 
 class _GlassButton extends StatelessWidget {
@@ -1014,15 +1183,86 @@ class _ActionButton extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  IŞIK PARLAMASI ÇİZİCİ (Hedef hücreye odaklanma efekti)
+//  ÖZEL ÇİZİCİLER
 // ════════════════════════════════════════════════════════════════════
 
-class _LightBurstPainter extends CustomPainter {
+/// Vignette efekti (kenar karartma)
+class _VignettePainter extends CustomPainter {
+  final double intensity;
+
+  _VignettePainter({this.intensity = 0.5});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final gradient = RadialGradient(
+      colors: [
+        Colors.transparent,
+        Colors.black.withOpacity(intensity),
+      ],
+      stops: const [0.5, 1.0],
+    );
+
+    final paint = Paint()
+      ..shader = gradient.createShader(rect);
+
+    canvas.drawRect(rect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VignettePainter oldDelegate) =>
+      oldDelegate.intensity != intensity;
+}
+
+/// Tarama çizgisi (sütun kayması sırasında)
+class _ScannerLinePainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  _ScannerLinePainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height * 0.3 + (size.height * 0.4) * progress;
+
+    final paint = Paint()
+      ..color = color.withOpacity(0.3)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    // Yatay tarama çizgisi
+    canvas.drawLine(
+      Offset(0, y),
+      Offset(size.width, y),
+      paint,
+    );
+
+    // Glow efekti
+    final glowPaint = Paint()
+      ..color = color.withOpacity(0.1)
+      ..strokeWidth = 20
+      ..style = PaintingStyle.stroke
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+
+    canvas.drawLine(
+      Offset(0, y),
+      Offset(size.width, y),
+      glowPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScannerLinePainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.color != color;
+}
+
+/// Hedef ışık halkası
+class _TargetGlowPainter extends CustomPainter {
   final Color color;
   final double intensity;
   final double pulse;
 
-  _LightBurstPainter({
+  _TargetGlowPainter({
     required this.color,
     required this.intensity,
     required this.pulse,
@@ -1030,44 +1270,44 @@ class _LightBurstPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final maxRadius = size.width * 0.6;
+    final center = Offset(size.width / 2, size.height * 0.45);
+    final maxRadius = size.width * 0.35;
 
-    // Dış halka (soluk)
+    // Dış halka
     final outerPaint = Paint()
-      ..color = color.withOpacity(0.03 * intensity)
+      ..color = color.withOpacity(0.04 * intensity)
       ..style = PaintingStyle.fill;
 
     canvas.drawCircle(
       center,
-      maxRadius * (0.8 + 0.2 * pulse),
+      maxRadius * (0.9 + 0.1 * pulse),
       outerPaint,
     );
 
-    // İç halka (daha yoğun)
-    final innerPaint = Paint()
-      ..color = color.withOpacity(0.06 * intensity * (0.7 + 0.3 * pulse))
+    // Orta halka
+    final midPaint = Paint()
+      ..color = color.withOpacity(0.08 * intensity * (0.7 + 0.3 * pulse))
       ..style = PaintingStyle.fill;
 
     canvas.drawCircle(
       center,
-      maxRadius * 0.4 * (0.9 + 0.1 * pulse),
-      innerPaint,
+      maxRadius * 0.5 * (0.95 + 0.05 * pulse),
+      midPaint,
     );
 
-    // Merkez nokta (parlak)
-    final corePaint = Paint()
-      ..color = Colors.white.withOpacity(0.1 * intensity * pulse)
+    // İç parlama
+    final innerPaint = Paint()
+      ..color = Colors.white.withOpacity(0.06 * intensity * pulse)
       ..style = PaintingStyle.fill;
 
     canvas.drawCircle(
       center,
-      maxRadius * 0.08 * (0.8 + 0.2 * pulse),
-      corePaint,
+      maxRadius * 0.15 * (0.85 + 0.15 * pulse),
+      innerPaint,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _LightBurstPainter oldDelegate) =>
+  bool shouldRepaint(covariant _TargetGlowPainter oldDelegate) =>
       oldDelegate.intensity != intensity || oldDelegate.pulse != pulse;
 }

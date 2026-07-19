@@ -220,7 +220,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   }
 
   void _playLocationReveal(_ShelfLocation loc) {
-    showLocationReveal(
+    showLocationFlythrough(
       context,
       title: loc.unitName,
       cols: loc.cols,
@@ -231,8 +231,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       productName: _localName ?? _off?.name,
       photoPath: loc.photoPath,
       // MAGAZA kus bakisi: kamera once TUM reyonlari gorur, hedefe ucar.
-      overviewItems: loc.allUnits,
-      overviewTargetIndex: loc.unitIndex,
+      allAisles: loc.allUnits,
+      targetAisleIndex: loc.unitIndex,
     );
   }
 
@@ -604,7 +604,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                 // canlandirmasi (ortak servis). Zemindekilerde izgara
                 // konumu olmadigi icin oynatilmaz.
                 onTap: canPlay
-                    ? () => showLocationReveal(
+                    ? () => showLocationFlythrough(
                           context,
                           title: l.warehouseName,
                           cols: l.gridCols,
@@ -615,8 +615,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                               '${l.palletName} · ${l.shelfLabel}',
                           productName: _localName ?? _off?.name,
                           accent: AppTheme.primary,
-                          overviewItems: l.allWarehouses,
-                          overviewTargetIndex: l.warehouseIndex,
+                          allAisles: l.allWarehouses,
+                          targetAisleIndex: l.warehouseIndex,
                         )
                     : null,
                 child: Row(
