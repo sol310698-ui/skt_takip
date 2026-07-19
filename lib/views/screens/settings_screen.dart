@@ -7,6 +7,7 @@ import '../../core/services/app_lock_service.dart';
 import '../../core/services/backup_service.dart';
 import '../../core/services/db_source_prefs.dart';
 import '../../core/services/export_service.dart';
+import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_prefs.dart';
@@ -375,6 +376,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           title: 'Tema',
           subtitle: _themeModeLabel(ThemePrefs.instance.mode),
           onTap: _openThemeMenu,
+        ),
+        AnimatedBuilder(
+          animation: LabelInspectButtonPrefs.instance,
+          builder: (_, __) => Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: AppTheme.card(),
+            child: SwitchListTile(
+              value: LabelInspectButtonPrefs.instance.animationEnabled,
+              onChanged: (v) =>
+                  LabelInspectButtonPrefs.instance.setAnimationEnabled(v),
+              activeColor: AppTheme.accent,
+              title: const Text('Etiket İncele Animasyonu',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text('Sol alttaki butonun nabız efektini aç/kapat',
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.textSecondary)),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         const SectionLabel('Çalışma'),

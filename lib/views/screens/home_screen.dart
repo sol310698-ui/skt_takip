@@ -16,6 +16,7 @@ import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
 import '../widgets/smart_day_strip.dart';
+import '../widgets/label_inspect_fab.dart';
 import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
@@ -200,18 +201,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   onTap: _openLabelPrint,
                 ),
                 SpeedDialAction(
-                  icon: Icons.document_scanner_rounded,
-                  label: 'Etiket Tara',
-                  color: AppTheme.accent,
-                  onTap: _openLabelInspect,
-                ),
-                SpeedDialAction(
                   icon: Icons.event_available_rounded,
                   label: 'SKT Tara',
                   color: AppTheme.primary,
                   onTap: _openScanner,
                 ),
               ],
+            ),
+            // Sol altta: Etiket İncele - Speed-Dial'dan ayrilip bagimsiz
+            // buton yapildi (sik kullanildigi icin menu acmadan erisim).
+            // Nabiz animasyonu Ayarlar > Gorunum'den ac/kapa yapilabilir.
+            LabelInspectFab(
+              onTap: _openLabelInspect,
             ),
             // Sol altta: yukari cik FAB. Cok kaydirinca belirir, nav bar
             // gizlenince (asagi kaydirinca) o da senkron asagi iner.

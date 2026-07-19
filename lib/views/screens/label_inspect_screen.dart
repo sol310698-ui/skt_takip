@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -7,11 +9,13 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/price_change_service.dart';
 import '../../core/services/shelf_layout_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/location_reveal.dart';
 import '../widgets/scan_overlay.dart';
+import '../widgets/warehouse_reveal.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
@@ -51,6 +55,9 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   _ShelfLocation? _shelfLoc;
   // Ayni urunun DEPO/palet konumlari (reyon bos olsa da depoda olabilir).
   List<_PalletLocation> _palletLocs = const [];
+  // Urune ait YEREL fotograflar (Fiyat Kontrol'de cekilmis etiket/kanit
+  // fotograflari). OFF'un ag gorseli yoksa/varsa bile once bunlar gosterilir.
+  List<String> _localPhotos = const [];
 
   @override
   void initState() {
@@ -148,6 +155,22 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
           }
         }
       } catch (_) {}
+      // YEREL FOTOGRAFLAR: Fiyat Kontrol'de bu barkod icin cekilmis
+      // etiket/kanit fotograflari varsa (dosyasi hala mevcutsa) topla.
+      // OFF'un ag gorseli yerine/yaninda oncelikli gosterilir.
+      final localPhotos = <String>[];
+      try {
+        final history =
+            await PriceChangeService.instance.lookupBarcodeHistory(code);
+        for (final h in history) {
+          final p = h.photoPath;
+          if (p == null) continue;
+          if (await File(p).exists()) {
+            localPhotos.add(p);
+            if (localPhotos.length >= 8) break;
+          }
+        }
+      } catch (_) {}
       // DEPO (PALET) KONUMLARI: ayni urun depoda hangi paletlerde?
       // Reyon bos oldugunda "depoya bakmadan" cevap verebilmek icin.
       try {
@@ -206,6 +229,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _off = off;
       _shelfLoc = shelfLoc;
       _palletLocs = palletLocs;
+      _localPhotos = localPhotos;
       _busy = false;
       _appBarColor = barColor;
       if (code != null) _lastBarcode = code; // sonraki karsilastirma icin
@@ -213,10 +237,32 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
 
     // KONUM CANLANDIRMASI: urunun reyondaki yeri bulunduysa "kamera inisi"
     // gosterisi OTOMATIK oynar (kullanici istegi). Karta dokununca da
-    // yeniden oynatilabilir.
+    // yeniden oynatilabilir. Reyonda yoksa ama DEPODA varsa, tam ekran
+    // depo canlandirmasi oynar (once genel bakis, sonra sola/saga kayma,
+    // sonra sutun/raf/palete yakinlasma).
     if (shelfLoc != null && mounted) {
       _playLocationReveal(shelfLoc);
+    } else if (palletLocs.isNotEmpty && mounted) {
+      _playWarehouseReveal(palletLocs.first);
     }
+  }
+
+  void _playWarehouseReveal(_PalletLocation loc) {
+    showWarehouseFlythrough(
+      context,
+      warehouseName: loc.warehouseName,
+      cols: loc.gridCols,
+      rows: loc.gridRows,
+      targetCol: loc.colNo,
+      targetRow: loc.shelfNo,
+      palletCode: loc.palletName,
+      shelfLabel: loc.shelfLabel,
+      quantity: loc.quantity,
+      productName: _localName ?? _off?.name,
+      localPhotos: _localPhotos,
+      allWarehouses: loc.allWarehouses,
+      targetWarehouseIndex: loc.warehouseIndex,
+    );
   }
 
   void _playLocationReveal(_ShelfLocation loc) {
@@ -243,6 +289,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _off = null;
       _shelfLoc = null;
       _palletLocs = const [];
+      _localPhotos = const [];
       _scanning = true;
     });
     await _controller.start();
@@ -324,7 +371,35 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                 decoration: AppTheme.card(accentColor: AppTheme.primary),
                 child: Row(
                   children: [
-                    if (off?.imageUrl != null)
+                    if (_localPhotos.isNotEmpty)
+                      GestureDetector(
+                        onTap: () => openPhotoGallery(
+                          context,
+                          items: _localPhotos
+                              .map((p) => PhotoItem(
+                                    filePath: p,
+                                    title: displayName ?? 'Ürün Görseli',
+                                  ))
+                              .toList(),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(AppTheme.rSm),
+                          child: Image.file(
+                            File(_localPhotos.first),
+                            width: 64,
+                            height: 64,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 64,
+                              height: 64,
+                              color: AppTheme.surfaceAlt,
+                              child: Icon(Icons.inventory_2_rounded,
+                                  color: AppTheme.textTertiary),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (off?.imageUrl != null)
                       GestureDetector(
                         onTap: () => openImageZoom(
                           context,
@@ -596,29 +671,13 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
           ),
           const SizedBox(height: 8),
           ..._palletLocs.take(4).map((l) {
-            final canPlay = l.colNo != null && l.shelfNo != null;
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: InkWell(
-                // Raftaki palete dokun -> DEPO icin ayni kamera-inisi
-                // canlandirmasi (ortak servis). Zemindekilerde izgara
-                // konumu olmadigi icin oynatilmaz.
-                onTap: canPlay
-                    ? () => showLocationFlythrough(
-                          context,
-                          title: l.warehouseName,
-                          cols: l.gridCols,
-                          rows: l.gridRows,
-                          targetCol: l.colNo!,
-                          targetRow: l.shelfNo!,
-                          subtitle:
-                              '${l.palletName} · ${l.shelfLabel}',
-                          productName: _localName ?? _off?.name,
-                          accent: AppTheme.primary,
-                          allAisles: l.allWarehouses,
-                          targetAisleIndex: l.warehouseIndex,
-                        )
-                    : null,
+                // Palete dokun -> tam ekran DEPO canlandirmasi (zemindeki
+                // paletler de artik oynatilabilir; izgara konumu yoksa
+                // dogrudan "Zemin" olarak gosterilir).
+                onTap: () => _playWarehouseReveal(l),
                 child: Row(
                   children: [
                     Expanded(
@@ -630,9 +689,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                             color: AppTheme.textSecondary),
                       ),
                     ),
-                    if (canPlay)
-                      const Icon(Icons.play_circle_outline_rounded,
-                          size: 18, color: AppTheme.primary),
+                    const Icon(Icons.play_circle_outline_rounded,
+                        size: 18, color: AppTheme.primary),
                   ],
                 ),
               ),
