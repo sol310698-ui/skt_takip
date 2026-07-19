@@ -110,6 +110,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     BarcodeLookupResult? off;
     _ShelfLocation? shelfLoc;
     final palletLocs = <_PalletLocation>[];
+    final localPhotos = <String>[];
 
     if (code != null) {
       // Yerel ad
@@ -158,7 +159,6 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       // YEREL FOTOGRAFLAR: Fiyat Kontrol'de bu barkod icin cekilmis
       // etiket/kanit fotograflari varsa (dosyasi hala mevcutsa) topla.
       // OFF'un ag gorseli yerine/yaninda oncelikli gosterilir.
-      final localPhotos = <String>[];
       try {
         final history =
             await PriceChangeService.instance.lookupBarcodeHistory(code);
