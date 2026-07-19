@@ -8,6 +8,7 @@ import '../../core/services/backup_service.dart';
 import '../../core/services/db_source_prefs.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/label_inspect_button_prefs.dart';
+import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_prefs.dart';
@@ -390,6 +391,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               title: const Text('Etiket İncele Animasyonu',
                   style: TextStyle(fontWeight: FontWeight.w700)),
               subtitle: Text('Sol alttaki butonun nabız efektini aç/kapat',
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.textSecondary)),
+            ),
+          ),
+        ),
+        AnimatedBuilder(
+          animation: LocationRevealPrefs.instance,
+          builder: (_, __) => Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: AppTheme.card(),
+            child: SwitchListTile(
+              value: LocationRevealPrefs.instance.enabled,
+              onChanged: (v) => LocationRevealPrefs.instance.setEnabled(v),
+              activeColor: AppTheme.accent,
+              title: const Text('Reyon Konum Animasyonu',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                  'Etiket İncele\'de ürünün reyondaki yeri bulununca oynayan kamera inişini aç/kapat',
                   style: TextStyle(
                       fontSize: 12, color: AppTheme.textSecondary)),
             ),

@@ -36,6 +36,7 @@ Future<void> showWarehouseFlythrough(
   int? quantity,
   String? productName,
   List<String> localPhotos = const [],
+  String? palletPhotoPath, // paletin GERCEK fotografi (varsa, son asamada buyutulup gosterilir)
   Color? accent,
   List<String> allWarehouses = const [],
   int targetWarehouseIndex = 0,
@@ -62,6 +63,7 @@ Future<void> showWarehouseFlythrough(
           quantity: quantity,
           productName: productName,
           localPhotos: localPhotos,
+          palletPhotoPath: palletPhotoPath,
           accent: accent ?? AppTheme.primary,
           allWarehouses: allWarehouses,
           targetWarehouseIndex: allWarehouses.isEmpty
@@ -82,6 +84,7 @@ class _WarehouseFlythroughScreen extends StatefulWidget {
   final int? quantity;
   final String? productName;
   final List<String> localPhotos;
+  final String? palletPhotoPath;
   final Color accent;
   final List<String> allWarehouses;
   final int targetWarehouseIndex;
@@ -99,6 +102,7 @@ class _WarehouseFlythroughScreen extends StatefulWidget {
     this.quantity,
     this.productName,
     this.localPhotos = const [],
+    this.palletPhotoPath,
     this.allWarehouses = const [],
     this.targetWarehouseIndex = 0,
   });
@@ -125,16 +129,17 @@ class _WarehouseFlythroughScreenState
   double get _tPanStart => 0.12;
   double get _tPanEnd => 0.42;
   double get _tZoomStart => 0.42;
-  double get _tZoomEnd => 0.78;
-  double get _tPalletEnd => 1.0;
-  double get _tInfoStart => 0.72;
+  double get _tZoomEnd => 0.70;
+  double get _tPalletEnd => 0.84;
+  double get _tPhotoEnd => 1.0;
+  double get _tInfoStart => 0.68;
 
   @override
   void initState() {
     super.initState();
     _main = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 3400),
     );
     _pulse = AnimationController(
       vsync: this,
@@ -190,8 +195,12 @@ class _WarehouseFlythroughScreenState
               : 'Sağ tarafa geçiliyor…');
     }
     if (t < _tZoomEnd) return widget.onFloor ? 'Zemin' : 'Sütun · Raf';
-    return 'Palet bulundu';
+    if (t < _tPalletEnd) return 'Palet bulundu';
+    return _hasPalletPhoto ? 'Palet fotoğrafı' : 'Palet bulundu';
   }
+
+  bool get _hasPalletPhoto =>
+      widget.palletPhotoPath != null && widget.palletPhotoPath!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -209,6 +218,8 @@ class _WarehouseFlythroughScreenState
                 _seg(t, _tZoomStart, _tZoomEnd, Curves.easeInOutCubic);
             final palletIn =
                 _seg(t, _tZoomEnd, _tPalletEnd, Curves.easeOutBack);
+            final photoReveal =
+                _seg(t, _tPalletEnd, _tPhotoEnd, Curves.easeOutCubic);
             final infoIn = _seg(t, _tInfoStart, 1.0, Curves.easeOutCubic);
 
             return Column(
@@ -217,7 +228,24 @@ class _WarehouseFlythroughScreenState
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                    child: _warehouseFloor(pan, zoom, palletIn, pulse),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _warehouseFloor(pan, zoom, palletIn, pulse),
+                        ),
+                        // ── Son asama: paleti ORTAYA al, GERCEK fotografini
+                        // buyuterek goster (varsa). Izgaranin ustune biner.
+                        if (_hasPalletPhoto && photoReveal > 0)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Opacity(
+                                opacity: photoReveal.clamp(0.0, 1.0),
+                                child: _palletPhotoReveal(photoReveal),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 Padding(
@@ -389,6 +417,47 @@ class _WarehouseFlythroughScreenState
           ),
         ),
       ),
+    );
+  }
+
+  Widget _palletPhotoReveal(double p) {
+    final acc = widget.accent;
+    // 0.85 -> 1.0 olceklenerek buyur, arka planı hafifçe karart.
+    final scale = 0.82 + p * 0.18;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Izgarayi hafifce karart ki foto one cıksin.
+        Container(color: Colors.black.withOpacity(0.45 * p)),
+        Transform.scale(
+          scale: scale,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 320, maxHeight: 320),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
+              border: Border.all(color: acc, width: 2),
+              boxShadow: AppTheme.glow(acc),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.rSm),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.file(
+                  File(widget.palletPhotoPath!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: AppTheme.surfaceAlt,
+                    child: Icon(Icons.inventory_2_rounded,
+                        size: 40, color: AppTheme.textTertiary),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

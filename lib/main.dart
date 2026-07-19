@@ -11,6 +11,7 @@ import 'core/services/alarm_service.dart';
 import 'core/services/db_source_prefs.dart';
 import 'core/services/flow_prefs.dart';
 import 'core/services/label_inspect_button_prefs.dart';
+import 'core/services/location_reveal_prefs.dart';
 import 'core/services/theme_prefs.dart';
 import 'core/services/app_lock_service.dart';
 import 'core/services/app_logger.dart';
@@ -115,6 +116,9 @@ Future<void> main() async {
 
   // 8) Etiket Incele butonu nabiz animasyonu tercihini yukle.
   await LabelInspectButtonPrefs.instance.load();
+
+  // 9) Reyon konum canlandirmasi (kamera inisi) tercihini yukle.
+  await LocationRevealPrefs.instance.load();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 

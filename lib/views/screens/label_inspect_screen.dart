@@ -9,6 +9,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/services/shelf_layout_service.dart';
 import '../../core/services/warehouse_service.dart';
@@ -203,6 +204,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               gridRows: gr,
               allWarehouses: whs.map((x) => x.name).toList(),
               warehouseIndex: whs.indexOf(w),
+              palletPhotoPath: l.pallet.imagePath,
             ));
           }
         }
@@ -260,12 +262,16 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       quantity: loc.quantity,
       productName: _localName ?? _off?.name,
       localPhotos: _localPhotos,
+      palletPhotoPath: loc.palletPhotoPath,
       allWarehouses: loc.allWarehouses,
       targetWarehouseIndex: loc.warehouseIndex,
     );
   }
 
   void _playLocationReveal(_ShelfLocation loc) {
+    // Ayarlar > Görünüm'den kapatılmışsa canlandırma atlanır; konum
+    // bilgisi yine de karttaki düz metinle gösterilmeye devam eder.
+    if (!LocationRevealPrefs.instance.enabled) return;
     showLocationFlythrough(
       context,
       title: loc.unitName,
@@ -805,6 +811,7 @@ class _PalletLocation {
   final int gridRows; // deponun izgara boyutu (max raf)
   final List<String> allWarehouses; // magaza gorunumu: tum depo adlari
   final int warehouseIndex;
+  final String? palletPhotoPath; // paletin GERCEK fotografi (varsa)
   const _PalletLocation({
     required this.warehouseName,
     required this.palletName,
@@ -816,5 +823,6 @@ class _PalletLocation {
     this.gridRows = 1,
     this.allWarehouses = const [],
     this.warehouseIndex = 0,
+    this.palletPhotoPath,
   });
 }

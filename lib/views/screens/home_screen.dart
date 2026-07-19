@@ -208,8 +208,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ],
             ),
-            // Sol altta: Etiket İncele - Speed-Dial'dan ayrilip bagimsiz
-            // buton yapildi (sik kullanildigi icin menu acmadan erisim).
+            // Sag altta, + butonunun TAM USTUNDE: Etiket İncele -
+            // Speed-Dial'dan ayrilip bagimsiz buton yapildi (sik
+            // kullanildigi icin menu acmadan erisim).
             // Nabiz animasyonu Ayarlar > Gorunum'den ac/kapa yapilabilir.
             LabelInspectFab(
               onTap: _openLabelInspect,

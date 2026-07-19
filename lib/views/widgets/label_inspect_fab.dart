@@ -5,12 +5,13 @@ import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/theme/app_theme.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  ETİKET İNCELE FAB — Speed-Dial menüsünden ayrılıp SOL ALTA alınan,
-///  bağımsız (tek başına) yuvarlak buton.
+///  ETİKET İNCELE FAB — Speed-Dial menüsünden ayrılıp, sağ altta ana (+)
+///  butonun TAM ÜSTÜNE sabitlenen, bağımsız (tek başına, menü açmadan
+///  her zaman görünür) yuvarlak buton.
 ///
 ///  Diğer ana aksiyonlar (Etiket Bas / SKT Tara) sağ alttaki Speed-Dial
 ///  içinde kalır; bu buton sık kullanıldığı için tek dokunuşla, menü
-///  açmadan erişilsin diye ayrı ve solda tutulur.
+///  açmadan erişilsin diye ayrı ve + butonunun hemen üstünde tutulur.
 ///
 ///  Dikkat çekmesi için hafif bir "nabız" (pulse) animasyonu oynatır.
 ///  Bu animasyon Ayarlar > Görünüm bölümünden açılıp kapatılabilir
@@ -25,7 +26,7 @@ class LabelInspectFab extends StatefulWidget {
   const LabelInspectFab({
     super.key,
     required this.onTap,
-    this.bottomOffset = 182,
+    this.bottomOffset = 178,
   });
 
   @override
@@ -70,7 +71,7 @@ class _LabelInspectFabState extends State<LabelInspectFab>
   Widget build(BuildContext context) {
     final color = AppTheme.accent;
     return Positioned(
-      left: 16,
+      right: 16,
       bottom: 16 + widget.bottomOffset,
       child: ValueListenableBuilder<bool>(
         valueListenable: navBarVisible,
