@@ -10,6 +10,7 @@ import '../../core/services/skt_alarm_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/datasources/product_local_datasource.dart';
 import '../../data/models/product.dart';
+import '../widgets/ui_kit.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  SKT İMHA ALARMI — aksam tetiklenir.
@@ -263,17 +264,18 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
       child: Icon(Icons.inventory_2_rounded,
           color: AppTheme.statusExpired, size: iconSize),
     );
-    if (url == null || url.isEmpty) return placeholder;
+    // ONCELIK: telefondaki (yerel) foto 1., internet 2. planda. url yoksa
+    // bile barkodun yerel fotografi aranir.
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
-      child: Image.network(
-        url,
+      child: SmartProductImage(
+        key: ValueKey('skt_${p.barcode}'),
+        barcode: p.barcode,
+        networkUrl: url,
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => placeholder,
-        loadingBuilder: (ctx, child, progress) =>
-            progress == null ? child : placeholder,
+        placeholder: () => placeholder,
       ),
     );
   }

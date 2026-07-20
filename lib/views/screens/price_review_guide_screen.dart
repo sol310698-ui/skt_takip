@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/ui_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -316,22 +316,19 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
               border: Border.all(color: AppTheme.hairline),
             ),
             clipBehavior: Clip.antiAlias,
-            child: imageUrl != null && imageUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: imageUrl,
-                    fit: BoxFit.contain,
-                    placeholder: (_, __) => const Center(
+            // ONCELIK: telefondaki (yerel) foto 1., internet 2. planda.
+            child: SmartProductImage(
+              key: ValueKey('prg_${item.barcode}'),
+              barcode: item.barcode,
+              networkUrl: imageUrl,
+              fit: BoxFit.contain,
+              placeholder: () => _imageCache.containsKey(item.barcode)
+                  ? _noImage()
+                  : const Center(
                       child: CircularProgressIndicator(
                           color: AppTheme.primary, strokeWidth: 2),
                     ),
-                    errorWidget: (_, __, ___) => _noImage(),
-                  )
-                : (_imageCache.containsKey(item.barcode)
-                    ? _noImage()
-                    : const Center(
-                        child: CircularProgressIndicator(
-                            color: AppTheme.primary, strokeWidth: 2),
-                      )),
+            ),
           ),
           const SizedBox(height: 20),
 

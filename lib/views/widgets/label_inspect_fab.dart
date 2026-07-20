@@ -46,6 +46,9 @@ class _LabelInspectFabState extends State<LabelInspectFab>
 
   // Aktif surukleme sirasinda ekran-mutlak (px) konum; null = surukleme yok.
   Offset? _dragPos;
+  // Suruklemenin BASLANGIC konumu (basili tutma anindaki topLeft). Kumulatif
+  // offset buna eklenir; _dragPos'a eklenirse hareket katlanarak buyur.
+  Offset? _dragStart;
   bool _dragging = false;
 
   @override
@@ -177,12 +180,16 @@ class _LabelInspectFabState extends State<LabelInspectFab>
         HapticFeedback.mediumImpact();
         setState(() {
           _dragging = true;
+          _dragStart = topLeft; // sabit baslangic noktasi
           _dragPos = topLeft;
         });
       },
       onLongPressMoveUpdate: (d) {
+        final base = _dragStart ?? topLeft;
+        // offsetFromOrigin = basili-tutma baslangicindan KUMULATIF kayma.
+        // Sabit baslangica eklenir -> 1:1 hareket (katlanma olmaz).
+        final next = base + d.offsetFromOrigin;
         setState(() {
-          final next = topLeft + d.offsetFromOrigin;
           _dragPos = Offset(
             next.dx.clamp(0.0, screen.width - _btnSize),
             next.dy.clamp(safe.top, screen.height - safe.bottom - _btnSize),
@@ -196,6 +203,7 @@ class _LabelInspectFabState extends State<LabelInspectFab>
         HapticFeedback.selectionClick();
         setState(() {
           _dragging = false;
+          _dragStart = null;
           _dragPos = null;
         });
       },

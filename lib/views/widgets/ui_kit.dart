@@ -225,17 +225,16 @@ class StatTile extends StatelessWidget {
   }
 }
 
-/// Önbellekli ag gorseli. Image.network'un yerine kullan.
-/// Yükleniyor: küçük spinner. Hata: placeholder ikon.
-/// Urun gorseli — ONCELIK: internet fotografi > YEREL foto (barkod dizini) >
-/// yer tutucu ikon. "Uygulamadaki mevcut veritabani internetten fotograf alir;
-/// fotograf yoksa yerel veritabanindaki fotografi goster" kuralini uygular.
+/// Urun gorseli — ONCELIK: TELEFONDAKI (yerel) foto 1., internet 2. planda.
+/// "Telefondaki foto her zaman internetten daha degerlidir" kurali: yerel
+/// foto varsa internet gorseline HIC bakilmaz; yerel yoksa internete duser;
+/// o da yoksa yer tutucu ikon gosterilir.
 ///
-/// - [networkUrl] verilmisse once o denenir; yuklenemezse yerel fotoya duser.
-/// - [barcode] verilmisse ve networkUrl yoksa/basarisizsa, barkod dizinindeki
-///   local_image_path aranir.
-/// - [directLocalPath] verilmisse (orn. reyon slotunun kendi fotografi) barkod
-///   dizinine gitmeden dogrudan o dosya kullanilir.
+/// - [directLocalPath] verilmisse (orn. reyon slotunun kendi fotografi) dogrudan
+///   o dosya kullanilir (en oncelikli).
+/// - [barcode] verilmisse barkod dizinindeki local_image_path once cozulur;
+///   varsa gosterilir (internet beklemeden).
+/// - [networkUrl] yalnizca yerel foto YOKKEN devreye girer (2. plan).
 class SmartProductImage extends StatefulWidget {
   final String? networkUrl;
   final String? barcode;
