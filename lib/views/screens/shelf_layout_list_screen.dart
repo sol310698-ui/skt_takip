@@ -18,7 +18,10 @@ import 'shelf_layout_view_screen.dart';
 class ShelfLayoutListScreen extends StatefulWidget {
   final int? warehouseId;
   final String? warehouseName;
-  const ShelfLayoutListScreen({super.key, this.warehouseId, this.warehouseName});
+  /// Nav sekmesi koku olarak mi acildi (hero baslikta geri tusu yok).
+  final bool isTabRoot;
+  const ShelfLayoutListScreen(
+      {super.key, this.warehouseId, this.warehouseName, this.isTabRoot = false});
 
   @override
   State<ShelfLayoutListScreen> createState() => _ShelfLayoutListScreenState();
@@ -172,58 +175,124 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.warehouseName != null
-        ? 'Reyonlar — ${widget.warehouseName}'
-        : 'Reyon Dizilim';
+    final bottomPad = MediaQuery.of(context).padding.bottom + 16;
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Text(title),
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.black,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
+      body: Column(
+        children: [
+          _hero(),
+          Expanded(
+            child: _loading
+                ? const LoadingState()
+                : _units.isEmpty
+                    ? EmptyState(
+                        icon: Icons.grid_view_rounded,
+                        iconColor: AppTheme.primary,
+                        title: 'Henüz reyon yok',
+                        subtitle:
+                            'Bir reyon oluşturun (bölüm ve satır sayısı), '
+                            'sonra ürünleri okutup fotoğraflayın. Dizilimi '
+                            'kuş bakışı görebilirsiniz.',
+                        action: FilledButton.icon(
+                          onPressed: _newUnit,
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Yeni Reyon'),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: GridView.builder(
+                          padding:
+                              EdgeInsets.fromLTRB(12, 14, 12, bottomPad),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            childAspectRatio: 0.82,
+                          ),
+                          itemCount: _units.length,
+                          itemBuilder: (_, i) => _card(_units[i]),
+                        ),
+                      ),
+          ),
+        ],
       ),
-      body: _loading
-          ? const LoadingState()
-          : _units.isEmpty
-              ? EmptyState(
-                  icon: Icons.grid_view_rounded,
-                  iconColor: AppTheme.accent,
-                  title: 'Henüz reyon yok',
-                  subtitle:
-                      'Bir reyon oluşturun (bölüm ve satır sayısı), sonra '
-                      'ürünleri okutup fotoğraflayın. Dizilimi kuş bakışı '
-                      'görebilirsiniz.',
-                  action: FilledButton.icon(
-                    onPressed: _newUnit,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Yeni Reyon'),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 0.82,
-                    ),
-                    itemCount: _units.length,
-                    itemBuilder: (_, i) => _card(_units[i]),
-                  ),
-                ),
       floatingActionButton: _units.isEmpty
           ? null
           : FloatingActionButton.extended(
               onPressed: _newUnit,
-              backgroundColor: AppTheme.accent,
-              foregroundColor: Colors.black,
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
               icon: const Icon(Icons.add_rounded),
               label: const Text('Yeni Reyon'),
             ),
+    );
+  }
+
+  /// Gradyanli hero baslik — Reyon sekmesinin kimligi (primary tonlari).
+  Widget _hero() {
+    final topPad = MediaQuery.of(context).padding.top;
+    final canPop = !widget.isTabRoot && Navigator.of(context).canPop();
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(canPop ? 8 : 20, topPad + 14, 20, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.primary,
+            Color.lerp(AppTheme.primary, AppTheme.accent, 0.45)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Row(
+        children: [
+          if (canPop)
+            IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded,
+                  color: Colors.white),
+            ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.shelves, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.warehouseName != null
+                      ? 'Reyonlar — ${widget.warehouseName}'
+                      : 'Reyon',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white),
+                ),
+                Text(
+                  _loading
+                      ? 'Dizilimler yükleniyor…'
+                      : '${_units.length} reyon · kuş bakışı dizilim',
+                  style: const TextStyle(
+                      fontSize: 12, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

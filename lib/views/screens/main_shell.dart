@@ -14,16 +14,26 @@ import 'checklist_screen.dart';
 import 'price_change_screen.dart';
 import 'price_check_screen.dart';
 import 'shelf_check_screen.dart';
+import 'shelf_layout_list_screen.dart';
 import 'shift_screen.dart';
 import 'warehouse_chat_screen.dart';
 import 'warehouse_list_screen.dart';
 
+/// Alt nav barin govde uzerinde kapladigi YAKLASIK yukseklik (sistem
+/// safe-area HARIC): 12 alt bosluk + 66 bar + 14 nefes payi.
+/// Depo/Reyon ekranlarinin icerigi bunun uzerinde kalmali.
+const double kNavBarClearance = 92;
+
 /// Alt navigasyon barli ana kabuk.
 /// "Kontrol" sekmesi sekme DEGISTIRMEZ: kamera otomatik baslamasin diye
 /// bir secim sheet'i acar; secilen ekran tam sayfa (navbar'siz) push edilir.
+///
+/// DEPO MODU: ortadaki depo dugmesine TEK DOKUNUS depoya girer (sheet yok),
+/// UZUN BASIS Depo Asistani (yapay zeka sohbet) acar. Depodayken alt nav bar
+/// tamamen degisir: solda REYON, sagda DEPO sekmesi olur; varsayilan REYON
+/// acilir. Ortadaki dugme cikis (X) olur.
 class MainShell extends StatefulWidget {
   /// Acilista gosterilecek sekme (0=Anasayfa, 1=Barkod, 3=Mesai).
-  /// Kilit ekraninda kullanici is yerindeyse 3 (Mesai) ile acilir.
   final int initialNavIndex;
   const MainShell({super.key, this.initialNavIndex = 0});
 
@@ -34,12 +44,12 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _navIndex = 0;
 
-  // DEPO: tam sayfa push YERINE shell-ici gorunum. true iken govde depoyu
-  // (kendi ic Navigator'iyla) gosterir; ALT NAV BAR AYNEN KALIR. Depo
-  // icindeki liste->detay->palet gecisleri bu ic Navigator'da olur, boylece
-  // tum akis boyunca nav bar gorunur kalir.
+  // DEPO: shell-ici gorunum. true iken govde depo/reyon sekmelerini
+  // gosterir; alt nav bar Reyon|Depo moduna gecer.
   bool _warehouse = false;
-  final GlobalKey<NavigatorState> _whNavKey = GlobalKey<NavigatorState>();
+  int _whTab = 0; // 0 = Reyon (varsayilan), 1 = Depo
+  final GlobalKey<NavigatorState> _reyonNavKey = GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _depoNavKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -62,7 +72,6 @@ class _MainShellState extends State<MainShell> {
 
   void _onDestination(int i) {
     if (i == 2) {
-      // Kontrol: sekme degistirme, secim sheet'i ac.
       _openControlSheet();
       return;
     }
@@ -70,7 +79,6 @@ class _MainShellState extends State<MainShell> {
       _navIndex = i;
       _warehouse = false; // normal sekmeye donunce depo gorunumunden cik
     });
-    // Sekme degisince nav bar'i her zaman geri goster.
     navBarVisible.value = true;
   }
 
@@ -173,7 +181,6 @@ class _MainShellState extends State<MainShell> {
 
   void _push(Widget screen) {
     Navigator.of(context).pop(); // sheet'i kapat
-    // Push: navbar gorunmez (MainShell disinda tam sayfa).
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => screen),
     );
@@ -231,26 +238,13 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    // KRITIK: MainShell'in KENDI bir AnnotatedRegion'i olmasi gerekir.
-    // Eskiden bu yoktu; sadece IndexedStack icindeki HER ekran (HomeScreen,
-    // BarcodeListScreen, ShiftScreen) kendi AnnotatedRegion'ini ayri ayri
-    // set ediyordu. LockScreen'den (AppTheme.background bazli, koyu/duz
-    // renk) MainShell'e gecis bir Navigator push/pop DEGIL, dogrudan
-    // MaterialApp.home icindeki widget'in degismesi seklinde oluyor
-    // (main.dart: _locked ? LockScreen(...) : MainShell()). Bu anlik
-    // kok-widget degisiminde, ic ekranlarin AnnotatedRegion'lari bazi
-    // cihazlarda/karelerde GEC devreye giriyor, bu da status bar'in
-    // LockScreen'in koyu/duz renginde "yapisik" kalmasina (banner'in
-    // gradyaninin status bar arkasinda hic gorunmemesine) sebep
-    // olabiliyordu. MainShell'in kendi AnnotatedRegion'i, IndexedStack
-    // render olmadan ONCE devreye girip dogru rengi hemen garanti eder.
     return PopScope(
-      // Depo gorunumundeyken sistem geri tusu: once ic Navigator'i (detay ->
-      // liste) geri al; en kokte ise depodan cikip onceki sekmeye don.
+      // Depo gorunumundeyken sistem geri tusu: once AKTIF sekmenin ic
+      // Navigator'ini geri al; en kokte ise depodan cikip onceki sekmeye don.
       canPop: !_warehouse,
       onPopInvoked: (didPop) {
         if (didPop) return;
-        final nav = _whNavKey.currentState;
+        final nav = (_whTab == 0 ? _reyonNavKey : _depoNavKey).currentState;
         if (nav != null && nav.canPop()) {
           nav.pop();
         } else if (mounted) {
@@ -268,7 +262,7 @@ class _MainShellState extends State<MainShell> {
           const HomeScreen(),
           BarcodeListScreen(isActive: _navIndex == 1 && !_warehouse),
           const ShiftScreen(),
-          _warehouseNavigator(),
+          _warehouseBody(),
         ],
       ),
       bottomNavigationBar: ValueListenableBuilder<bool>(
@@ -297,8 +291,6 @@ class _MainShellState extends State<MainShell> {
         alignment: Alignment.topCenter,
         clipBehavior: Clip.none,
         children: [
-          // Alt bar — floating: yanlardan ve alttan bosluklu, tum koseler
-          // yuvarlak (pill/rXl), Soft Glass frosted-glass (BackdropFilter).
           Positioned(
             bottom: 12,
             left: 16,
@@ -324,26 +316,42 @@ class _MainShellState extends State<MainShell> {
                       ),
                       boxShadow: AppTheme.shadowMd,
                     ),
-                    child: Row(
-                      children: [
-                        _navItem(0, Icons.event_note_outlined,
-                            Icons.event_note_rounded, 'SKT'),
-                        _navItem(1, Icons.qr_code_2_outlined,
-                            Icons.qr_code_2_rounded, 'Barkod'),
-                        const Expanded(child: SizedBox()), // orta bosluk
-                        _navItem(2, Icons.price_check_outlined,
-                            Icons.price_check_rounded, 'Kontrol',
-                            isAction: true),
-                        _navItem(3, Icons.access_time_outlined,
-                            Icons.access_time_filled_rounded, 'Mesai'),
-                      ],
+                    // DEPO MODU: solda Reyon, sagda Depo. NORMAL: 4 sekme.
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      child: _warehouse
+                          ? Row(
+                              key: const ValueKey('wh'),
+                              children: [
+                                _whNavItem(0, Icons.shelves,
+                                    Icons.shelves, 'Reyon'),
+                                const Expanded(child: SizedBox()),
+                                _whNavItem(1, Icons.warehouse_outlined,
+                                    Icons.warehouse_rounded, 'Depo'),
+                              ],
+                            )
+                          : Row(
+                              key: const ValueKey('main'),
+                              children: [
+                                _navItem(0, Icons.event_note_outlined,
+                                    Icons.event_note_rounded, 'SKT'),
+                                _navItem(1, Icons.qr_code_2_outlined,
+                                    Icons.qr_code_2_rounded, 'Barkod'),
+                                const Expanded(child: SizedBox()),
+                                _navItem(2, Icons.price_check_outlined,
+                                    Icons.price_check_rounded, 'Kontrol',
+                                    isAction: true),
+                                _navItem(3, Icons.access_time_outlined,
+                                    Icons.access_time_filled_rounded,
+                                    'Mesai'),
+                              ],
+                            ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-          // Ortadaki "evren gecisi" butonu
           Positioned(
             top: 0,
             child: _buildWarpButton(),
@@ -393,27 +401,110 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  /// Depo shell-ici Navigator'i: liste -> detay -> palet gecisleri burada
-  /// olur; disaridaki alt nav bar boylece tum akis boyunca gorunur kalir.
-  Widget _warehouseNavigator() {
-    return Navigator(
-      key: _whNavKey,
-      onGenerateRoute: (settings) => MaterialPageRoute(
-        settings: settings,
-        builder: (_) => const WarehouseListScreen(),
+  /// Depo modundaki Reyon | Depo sekme ogesi.
+  Widget _whNavItem(
+      int tab, IconData icon, IconData activeIcon, String label) {
+    final selected = _whTab == tab;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() => _whTab = tab);
+          navBarVisible.value = true;
+          HapticFeedback.selectionClick();
+        },
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutBack,
+          scale: selected ? 1.0 : 0.96,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                selected ? activeIcon : icon,
+                color:
+                    selected ? AppTheme.accent : AppTheme.textTertiary,
+                size: 24,
+              ),
+              const SizedBox(height: 3),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight:
+                          selected ? FontWeight.w800 : FontWeight.w500,
+                      color: selected
+                          ? AppTheme.accent
+                          : AppTheme.textTertiary)),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  /// Ortadaki buyuk depo gecis butonu — basinca evrenler arasi gecis.
+  /// Depo govdesi: Reyon ve Depo sekmeleri, HER BIRI kendi ic
+  /// Navigator'iyla (liste -> detay -> palet gecisleri sekme icinde kalir,
+  /// alt nav bar hep gorunur).
+  ///
+  /// KOK COZUM (nav bar bosluk sorunu): MediaQuery'nin alt padding /
+  /// viewPadding degerleri nav bar yuksekligi kadar ARTIRILIR. Boylece bu
+  /// agacin ALTINDAKI TUM ekranlarda SafeArea, Scaffold FAB konumu ve
+  /// MediaQuery.padding.bottom kullanan her liste otomatik olarak nav
+  /// barin USTUNDE kalir — ekran ekran elle padding vermek gerekmez.
+  Widget _warehouseBody() {
+    return Builder(builder: (context) {
+      final mq = MediaQuery.of(context);
+      final boosted = mq.copyWith(
+        padding: mq.padding
+            .copyWith(bottom: mq.padding.bottom + kNavBarClearance),
+        viewPadding: mq.viewPadding
+            .copyWith(bottom: mq.viewPadding.bottom + kNavBarClearance),
+      );
+      return MediaQuery(
+        data: boosted,
+        child: IndexedStack(
+          index: _whTab,
+          children: [
+            Navigator(
+              key: _reyonNavKey,
+              onGenerateRoute: (settings) => MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const ShelfLayoutListScreen(isTabRoot: true),
+              ),
+            ),
+            Navigator(
+              key: _depoNavKey,
+              onGenerateRoute: (settings) => MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const WarehouseListScreen(isTabRoot: true),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  /// Ortadaki buyuk depo dugmesi:
+  ///   TEK DOKUNUS  -> depoya gir (varsayilan REYON sekmesi) / depodan cik
+  ///   UZUN BASIS   -> Depo Asistani (yapay zeka sohbet)
   Widget _buildWarpButton() {
     return GestureDetector(
       onTap: () {
-        if (_warehouse) {
-          setState(() => _warehouse = false); // depodan cik
-        } else {
-          _enterWarehouse();
-        }
+        HapticFeedback.selectionClick();
+        setState(() {
+          if (_warehouse) {
+            _warehouse = false; // cikis
+          } else {
+            _warehouse = true;
+            _whTab = 0; // her giriste REYON ile basla
+          }
+        });
+        navBarVisible.value = true;
+      },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const WarehouseChatScreen()));
       },
       child: Container(
         width: 64,
@@ -439,64 +530,6 @@ class _MainShellState extends State<MainShell> {
         child: Icon(_warehouse ? Icons.close_rounded : Icons.warehouse_rounded,
             color: Colors.white, size: 30),
       ),
-    );
-  }
-
-  /// Depo düğmesine basınca iki seçenek sun: Depo ya da Asistan (chat).
-  void _enterWarehouse() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetCtx) {
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 42,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.hairline,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                _sheetOption(
-                  icon: Icons.warehouse_rounded,
-                  title: 'Depo',
-                  subtitle: 'Reyon, palet ve raf yönetimi',
-                  color: AppTheme.primary,
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    // Tam sayfa push YERINE shell-ici depo gorunumu: alt nav
-                    // bar aynen kalir, sadece govde degisir.
-                    setState(() => _warehouse = true);
-                    navBarVisible.value = true;
-                  },
-                ),
-                const SizedBox(height: 10),
-                _sheetOption(
-                  icon: Icons.assistant_rounded,
-                  title: 'Depo Asistanı',
-                  subtitle: 'Ürün nerede? Sor, yerini bulayım',
-                  color: AppTheme.accent,
-                  onTap: () {
-                    Navigator.pop(sheetCtx);
-                    Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const WarehouseChatScreen()));
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }

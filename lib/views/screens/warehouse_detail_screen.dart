@@ -171,41 +171,150 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Text(_warehouse?.name ?? 'Depo'),
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.black,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search_rounded),
-            tooltip: 'Ürün Ara',
-            onPressed: _searchProduct,
+      body: Column(
+        children: [
+          _hero(),
+          Expanded(
+            child: _loading
+                ? const LoadingState()
+                : TabBarView(
+                    controller: _tab,
+                    children: [_buildMap(), _buildPalletList()],
+                  ),
           ),
         ],
-        bottom: TabBar(
-          controller: _tab,
-          labelColor: Colors.black,
-          unselectedLabelColor: Colors.black54,
-          indicatorColor: Colors.black,
-          tabs: const [
-            Tab(text: 'Harita', icon: Icon(Icons.grid_view_rounded)),
-            Tab(text: 'Paletler', icon: Icon(Icons.inventory_2_rounded)),
-          ],
-        ),
       ),
-      body: _loading
-          ? const LoadingState()
-          : TabBarView(
-              controller: _tab,
-              children: [_buildMap(), _buildPalletList()],
-            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _createPallet(),
         backgroundColor: AppTheme.accent,
         foregroundColor: Colors.black,
         icon: const Icon(Icons.add_box_rounded),
         label: const Text('Palet'),
+      ),
+    );
+  }
+
+  /// Hero baslik: geri + depo adi + arama + ozet, altinda modern
+  /// segment secici (Harita / Paletler).
+  Widget _hero() {
+    final topPad = MediaQuery.of(context).padding.top;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 8, 12, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.accent,
+            Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded,
+                    color: Colors.black),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _warehouse?.name ?? 'Depo',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black),
+                    ),
+                    if (!_loading)
+                      Text(
+                        '${_shelves.length} raf · ${_allPallets.length} palet',
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.black87),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.search_rounded, color: Colors.black),
+                tooltip: 'Ürün Ara',
+                onPressed: _searchProduct,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: AnimatedBuilder(
+              animation: _tab.animation!,
+              builder: (_, __) {
+                final idx = _tab.index;
+                return Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
+                  ),
+                  child: Row(
+                    children: [
+                      _segItem(0, idx, Icons.grid_view_rounded, 'Harita'),
+                      _segItem(1, idx, Icons.inventory_2_rounded,
+                          'Paletler'),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _segItem(int i, int current, IconData icon, String label) {
+    final sel = i == current;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _tab.animateTo(i),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: sel ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
+            boxShadow: sel
+                ? [
+                    BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8)
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 17, color: sel ? Colors.black : Colors.black54),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          sel ? FontWeight.w800 : FontWeight.w600,
+                      color: sel ? Colors.black : Colors.black54)),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -233,7 +342,8 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(16, 16, 16,
+                  MediaQuery.of(context).padding.bottom + 16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: colNos.map((cn) {
@@ -606,7 +716,8 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      padding: EdgeInsets.fromLTRB(16, 12, 16,
+          MediaQuery.of(context).padding.bottom + 16),
       children: [
         const SectionLabel('Tüm Paletler'),
         const SizedBox(height: 8),

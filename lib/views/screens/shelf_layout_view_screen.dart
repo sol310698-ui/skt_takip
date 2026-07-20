@@ -102,7 +102,8 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
       body: _loading || unit == null
           ? const LoadingState()
           : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
+              padding: EdgeInsets.fromLTRB(12, 12, 12,
+                  MediaQuery.of(context).padding.bottom + 16),
               itemCount: unit.sections,
               itemBuilder: (_, si) => _columnBlock(unit, si + 1),
             ),

@@ -942,8 +942,8 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                           ),
                         )
                       : ListView.builder(
-                          padding:
-                              const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                          padding: EdgeInsets.fromLTRB(16, 0, 16,
+                              MediaQuery.of(context).padding.bottom + 16),
                           itemCount: _items.length,
                           itemBuilder: (_, i) => _itemTile(_items[i]),
                         ),

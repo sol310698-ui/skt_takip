@@ -5,12 +5,13 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'pallet_detail_screen.dart';
-import 'shelf_layout_list_screen.dart';
 import 'warehouse_detail_screen.dart';
 
 /// Depo listesi — kartlar + "Yeni Depo" sihirbazi.
 class WarehouseListScreen extends StatefulWidget {
-  const WarehouseListScreen({super.key});
+  /// Nav sekmesi koku olarak mi acildi (geri tusu gosterilmez).
+  final bool isTabRoot;
+  const WarehouseListScreen({super.key, this.isTabRoot = false});
 
   @override
   State<WarehouseListScreen> createState() => _WarehouseListScreenState();
@@ -95,123 +96,91 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
     if (created == true) _load();
   }
 
-  Widget _reyonEntry() {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => const ShelfLayoutListScreen())),
-      child: Container(
-        decoration: AppTheme.card(),
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: AppTheme.accent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.grid_view_rounded,
-                  color: AppTheme.accent),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Reyon Dizilim',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 16)),
-                  SizedBox(height: 2),
-                  Text(
-                    'Ürünleri okutup fotoğrafla, dizilimi kuş bakışı gör',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: AppTheme.textTertiary),
-          ],
-        ),
-      ),
-    );
-  }
+  // ── YENIDEN TASARIM: hero baslik + ozet serit + kart listesi ──────
+  ({int pallets, int types, int qty}) get _totals => (
+        pallets: _stats.values.fold(0, (s, e) => s + e.pallets),
+        types: _stats.values.fold(0, (s, e) => s + e.types),
+        qty: _stats.values.fold(0, (s, e) => s + e.qty),
+      );
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom + 16;
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Depolar'),
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.black,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
-      ),
-      body: _loading
-          ? const LoadingState()
-          : _warehouses.isEmpty
-              ? ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                  children: [
-                    _reyonEntry(),
-                    const SizedBox(height: 24),
-                    Icon(Icons.warehouse_rounded,
-                        size: 56, color: AppTheme.accent.withOpacity(0.6)),
-                    const SizedBox(height: 12),
-                    const Text('Henüz depo yok',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Sütunları, rafları ve palet kapasitelerini girerek '
-                      'ilk deponuzu oluşturun.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppTheme.textTertiary),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: FilledButton.icon(
-                        onPressed: _newWarehouse,
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('Yeni Depo'),
-                      ),
-                    ),
-                  ],
-                )
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    children: [
-                      // Reyon Dizilim modulu — depo icinden erisim.
-                      _reyonEntry(),
-                      const SizedBox(height: 16),
-                      const SectionLabel('Depolar'),
-                      const SizedBox(height: 8),
-                      ..._warehouses.map(_card),
-                      if (_hasFloor) ...[
-                        const SizedBox(height: 16),
-                        Row(
+      body: Column(
+        children: [
+          _hero(),
+          Expanded(
+            child: _loading
+                ? const LoadingState()
+                : _warehouses.isEmpty
+                    ? ListView(
+                        padding:
+                            EdgeInsets.fromLTRB(16, 20, 16, bottomPad),
+                        children: [
+                          const SizedBox(height: 24),
+                          Icon(Icons.warehouse_rounded,
+                              size: 56,
+                              color: AppTheme.accent.withOpacity(0.6)),
+                          const SizedBox(height: 12),
+                          const Text('Henüz depo yok',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Sütunları, rafları ve palet kapasitelerini '
+                            'girerek ilk deponuzu oluşturun.',
+                            textAlign: TextAlign.center,
+                            style:
+                                TextStyle(color: AppTheme.textTertiary),
+                          ),
+                          const SizedBox(height: 16),
+                          Center(
+                            child: FilledButton.icon(
+                              onPressed: _newWarehouse,
+                              icon: const Icon(Icons.add_rounded),
+                              label: const Text('Yeni Depo'),
+                            ),
+                          ),
+                        ],
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView(
+                          padding: EdgeInsets.fromLTRB(
+                              16, 14, 16, bottomPad),
                           children: [
-                            const Icon(Icons.vertical_align_bottom_rounded,
-                                size: 18, color: AppTheme.amber),
-                            const SizedBox(width: 6),
-                            Text(
-                                'Zemindekiler (${_floorByWarehouse.values.fold(0, (s, l) => s + l.length)})',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14,
-                                    color: AppTheme.amber)),
+                            ..._warehouses.map(_card),
+                            if (_hasFloor) ...[
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  const Icon(
+                                      Icons
+                                          .vertical_align_bottom_rounded,
+                                      size: 18,
+                                      color: AppTheme.amber),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                      'Zemindekiler (${_floorByWarehouse.values.fold(0, (s, l) => s + l.length)})',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
+                                          color: AppTheme.amber)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ..._buildFloorSection(),
+                            ],
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        ..._buildFloorSection(),
-                      ],
-                    ],
-                  ),
-                ),
+                      ),
+          ),
+        ],
+      ),
       floatingActionButton: _warehouses.isEmpty
           ? null
           : FloatingActionButton.extended(
@@ -223,6 +192,103 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
             ),
     );
   }
+
+  /// Gradyanli hero baslik: durum çubuğunun arkasina uzanir, altinda
+  /// deponun genel ozeti (depo/palet/çeşit/adet) yer alir.
+  Widget _hero() {
+    final t = _totals;
+    final topPad = MediaQuery.of(context).padding.top;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.accent,
+            Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.warehouse_rounded,
+                    color: Colors.black, size: 24),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Depo',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black)),
+                    Text('Sütun, raf ve palet yönetimi',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.black87)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (!_loading && _warehouses.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+              ),
+              child: Row(
+                children: [
+                  _heroStat('${_warehouses.length}', 'depo'),
+                  _heroDivider(),
+                  _heroStat('${t.pallets}', 'palet'),
+                  _heroDivider(),
+                  _heroStat('${t.types}', 'çeşit'),
+                  _heroDivider(),
+                  _heroStat('${t.qty}', 'adet'),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _heroStat(String value, String label) => Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.black)),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 10.5, color: Colors.black87)),
+          ],
+        ),
+      );
+
+  Widget _heroDivider() => Container(
+        width: 1, height: 26, color: Colors.black.withOpacity(0.15));
 
   // Zemin paletlerini depo bazında listele.
   List<Widget> _buildFloorSection() {
