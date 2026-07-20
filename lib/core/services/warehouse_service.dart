@@ -228,6 +228,53 @@ class WarehouseService {
     return rows.map(WhShelf.fromMap).toList();
   }
 
+  // ── Depo DUZENLEME (kurulumdan SONRA) ─────────────────────────────
+  /// Bir rafin palet kapasitesini (raf basina kac palet alacagini)
+  /// sonradan degistirir.
+  Future<void> updateShelfCapacity(int shelfId, int capacity) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(
+      AppConstants.whShelfTable,
+      {'capacity': capacity.clamp(1, 999)},
+      where: 'id = ?',
+      whereArgs: [shelfId],
+    );
+  }
+
+  /// Bir suتuna YENI bir raf ekler (mevcut en ust rafin bir ustune).
+  /// Depo kurulumdan sonra "bu sutuna bir raf daha ekle" icin.
+  Future<int> addShelfToColumn(
+      int warehouseId, int columnNo, int capacity) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.whShelfTable,
+        columns: ['shelf_no'],
+        where: 'warehouse_id = ? AND column_no = ?',
+        whereArgs: [warehouseId, columnNo]);
+    var maxShelf = 0;
+    for (final r in rows) {
+      final s = r['shelf_no'] as int;
+      if (s > maxShelf) maxShelf = s;
+    }
+    return db.insert(AppConstants.whShelfTable, {
+      'warehouse_id': warehouseId,
+      'column_no': columnNo,
+      'shelf_no': maxShelf + 1,
+      'capacity': capacity.clamp(1, 999),
+    });
+  }
+
+  /// Bir rafi siler. Uzerinde palet varsa GUVENLIK icin silmez (false
+  /// doner) - once paletlerin tasinmasi/silinmesi gerekir.
+  Future<bool> deleteShelf(int shelfId) async {
+    final db = await DatabaseService.instance.database;
+    final onIt = await db.query(AppConstants.whPalletTable,
+        columns: ['id'], where: 'shelf_id = ?', whereArgs: [shelfId]);
+    if (onIt.isNotEmpty) return false;
+    await db.delete(AppConstants.whShelfTable,
+        where: 'id = ?', whereArgs: [shelfId]);
+    return true;
+  }
+
   /// Harita icin: her raf + uzerindeki palet sayisi.
   Future<List<ShelfSummary>> getShelfSummaries(int warehouseId) async {
     final db = await DatabaseService.instance.database;

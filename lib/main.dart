@@ -19,8 +19,10 @@ import 'core/services/notification_service.dart';
 import 'core/services/schedule_service.dart';
 import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
+import 'views/screens/label_inspect_screen.dart';
 import 'views/screens/lock_screen.dart';
 import 'views/screens/main_shell.dart';
+import 'views/widgets/label_inspect_fab.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -294,7 +296,25 @@ class _SktTakipAppState extends State<SktTakipApp>
             final isLight =
                 Theme.of(context).brightness == Brightness.light;
             AppTheme.applyBrightness(isLight);
-            return child ?? const SizedBox.shrink();
+            final body = child ?? const SizedBox.shrink();
+            // Etiket İncele butonu ARTIK TUM SAYFALARDA gorunur (global
+            // overlay). Sadece kilit ekrani / acilis yuklemesi bittiginde
+            // ve kilitli degilken gosterilir (guvenlik + anlam butunlugu).
+            if (!_lockCheckDone || _locked) return body;
+            return Stack(
+              children: [
+                body,
+                LabelInspectFab(
+                  onTap: () {
+                    navigatorKey.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => const LabelInspectScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            );
           },
           home: !_lockCheckDone
               ? Scaffold(

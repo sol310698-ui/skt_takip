@@ -271,6 +271,25 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
           ),
           const SizedBox(height: 8),
           ...shelves.map(_buildShelfCell),
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _addShelfToColumn(
+              colNo,
+              shelves.isEmpty ? 2 : shelves.last.shelf.capacity,
+            ),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: AppTheme.textTertiary.withOpacity(0.35),
+                    style: BorderStyle.solid),
+              ),
+              child: Icon(Icons.add_rounded,
+                  size: 18, color: AppTheme.textTertiary),
+            ),
+          ),
         ],
       ),
     );
@@ -367,9 +386,34 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     borderRadius: BorderRadius.circular(2)),
               ),
             ),
-            Text('Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}',
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Sütun ${s.shelf.columnNo} • Raf ${s.shelf.shelfNo}',
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
+                IconButton(
+                  tooltip: 'Kapasiteyi düzenle',
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _editShelfCapacity(s.shelf);
+                  },
+                  icon: Icon(Icons.edit_rounded,
+                      size: 20, color: AppTheme.textSecondary),
+                ),
+                if (s.palletCount == 0)
+                  IconButton(
+                    tooltip: 'Rafı sil',
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await _deleteShelf(s.shelf);
+                    },
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 20, color: AppTheme.statusExpired),
+                  ),
+              ],
+            ),
             Text('${s.palletCount}/${s.shelf.capacity} palet dolu',
                 style: TextStyle(
                     color: AppTheme.textSecondary, fontSize: 13)),
@@ -403,6 +447,114 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         ),
       ),
     );
+  }
+
+  /// Bir rafin palet kapasitesini (raf basina kac palet alacagini)
+  /// sonradan degistirir - klavyeyle sayi girilir.
+  Future<void> _editShelfCapacity(WhShelf shelf) async {
+    final ctrl = TextEditingController(text: '${shelf.capacity}');
+    final newCap = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Sütun ${shelf.columnNo} • Raf ${shelf.shelfNo}'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          decoration: const InputDecoration(
+            labelText: 'Raf başına palet kapasitesi',
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () {
+              final v = int.tryParse(ctrl.text.trim());
+              Navigator.pop(ctx, v);
+            },
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+    if (newCap == null || newCap < 1) return;
+    await WarehouseService.instance.updateShelfCapacity(shelf.id!, newCap);
+    _load();
+  }
+
+  /// Uzerinde palet YOKSA rafi tamamen kaldirir.
+  Future<void> _deleteShelf(WhShelf shelf) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rafı Sil'),
+        content: Text(
+            'Sütun ${shelf.columnNo} • Raf ${shelf.shelfNo} silinsin mi?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style:
+                FilledButton.styleFrom(backgroundColor: AppTheme.statusExpired),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final done = await WarehouseService.instance.deleteShelf(shelf.id!);
+    if (!mounted) return;
+    if (!done) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Rafta palet var, önce onları taşıyın/silin')),
+      );
+      return;
+    }
+    _load();
+  }
+
+  /// Bir sutuna YENI raf ekler (kurulumdan SONRA - "bir raf daha ekle").
+  Future<void> _addShelfToColumn(int columnNo, int suggestedCapacity) async {
+    final ctrl = TextEditingController(text: '$suggestedCapacity');
+    final cap = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Sütun $columnNo — Yeni Raf'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          decoration: const InputDecoration(
+            labelText: 'Yeni rafın palet kapasitesi',
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(ctx, int.tryParse(ctrl.text.trim())),
+            child: const Text('Ekle'),
+          ),
+        ],
+      ),
+    );
+    if (cap == null || cap < 1) return;
+    await WarehouseService.instance
+        .addShelfToColumn(widget.warehouseId, columnNo, cap);
+    _load();
   }
 
   Widget _buildLegend() {

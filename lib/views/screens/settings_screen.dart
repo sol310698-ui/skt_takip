@@ -383,16 +383,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           builder: (_, __) => Container(
             margin: const EdgeInsets.only(bottom: 10),
             decoration: AppTheme.card(),
-            child: SwitchListTile(
-              value: LabelInspectButtonPrefs.instance.animationEnabled,
-              onChanged: (v) =>
-                  LabelInspectButtonPrefs.instance.setAnimationEnabled(v),
-              activeColor: AppTheme.accent,
-              title: const Text('Etiket İncele Animasyonu',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text('Sol alttaki butonun nabız efektini aç/kapat',
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.textSecondary)),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  value: LabelInspectButtonPrefs.instance.animationEnabled,
+                  onChanged: (v) => LabelInspectButtonPrefs.instance
+                      .setAnimationEnabled(v),
+                  activeColor: AppTheme.accent,
+                  title: const Text('Etiket İncele Animasyonu',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text(
+                      'Tüm sayfalarda gezen butonun nabız efektini aç/kapat',
+                      style: TextStyle(
+                          fontSize: 12, color: AppTheme.textSecondary)),
+                ),
+                if (LabelInspectButtonPrefs.instance.hasCustomPosition)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Butonu uzun basıp sürükleyerek taşıdın',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textTertiary),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () =>
+                              LabelInspectButtonPrefs.instance
+                                  .resetPosition(),
+                          icon: const Icon(Icons.restart_alt_rounded,
+                              size: 16),
+                          label: const Text('Konumu Sıfırla'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.accent,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

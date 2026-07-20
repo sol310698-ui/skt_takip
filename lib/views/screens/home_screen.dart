@@ -16,13 +16,11 @@ import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
 import '../widgets/product_card.dart';
 import '../widgets/smart_day_strip.dart';
-import '../widgets/label_inspect_fab.dart';
 import '../widgets/scroll_to_top_fab.dart';
 import '../widgets/speed_dial_fab.dart';
 import '../widgets/ui_kit.dart';
 import 'add_product_screen.dart';
 import 'disposal_sheet.dart';
-import 'label_inspect_screen.dart';
 import 'label_print_screen.dart';
 import 'scanner_screen.dart';
 import 'settings_screen.dart';
@@ -208,13 +206,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ],
             ),
-            // Sag altta, + butonunun TAM USTUNDE: Etiket İncele -
-            // Speed-Dial'dan ayrilip bagimsiz buton yapildi (sik
-            // kullanildigi icin menu acmadan erisim).
-            // Nabiz animasyonu Ayarlar > Gorunum'den ac/kapa yapilabilir.
-            LabelInspectFab(
-              onTap: _openLabelInspect,
-            ),
+            // NOT: "Etiket İncele" butonu artik TUM sayfalarda gorunen
+            // GLOBAL bir buton (bkz. main.dart -> MaterialApp.builder).
+            // Burada ayrica eklenmiyor (cift gorunmesin diye).
             // Sol altta: yukari cik FAB. Cok kaydirinca belirir, nav bar
             // gizlenince (asagi kaydirinca) o da senkron asagi iner.
             ScrollToTopFab(
@@ -787,12 +781,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => DisposalSheet(product: product),
-    );
-  }
-
-  Future<void> _openLabelInspect() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const LabelInspectScreen()),
     );
   }
 

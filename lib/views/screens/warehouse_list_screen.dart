@@ -609,9 +609,77 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
           _stepper('Raf başına palet', col.capacityPerShelf, (v) {
             setState(() => col.capacityPerShelf = v.clamp(1, 20));
           }),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => _duplicateColumn(i),
+            icon: const Icon(Icons.copy_all_rounded, size: 16),
+            label: const Text('Bu Ayarla Çoğalt',
+                style: TextStyle(fontSize: 12.5)),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              minimumSize: const Size(0, 34),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// "Bu sütunu N kez oluştur" — ayni raf sayisi/kapasiteyle N adet YENI
+  /// sutun ekler; her sutunu teker teker ayarlamak zorunda kalinmaz
+  /// (orn. 12 ayni sutunlu depo kurulumu icin).
+  Future<void> _duplicateColumn(int i) async {
+    final src = _columns[i];
+    final ctrl = TextEditingController(text: '1');
+    final count = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aynı Ayarlarla Sütun Ekle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+                '${src.shelfCount} raf, raf başına ${src.capacityPerShelf} palet '
+                'ayarlarıyla kaç YENİ sütun eklensin?',
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              decoration: const InputDecoration(
+                labelText: 'Eklenecek sütun sayısı',
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(ctx, int.tryParse(ctrl.text.trim())),
+            child: const Text('Ekle'),
+          ),
+        ],
+      ),
+    );
+    if (count == null || count < 1) return;
+    setState(() {
+      final copies = List.generate(
+        count.clamp(1, 200),
+        (_) => _ColumnDef(
+            shelfCount: src.shelfCount,
+            capacityPerShelf: src.capacityPerShelf),
+      );
+      _columns.insertAll(i + 1, copies);
+    });
   }
 
   Widget _stepper(String label, int value, ValueChanged<int> onChange) {

@@ -11,6 +11,7 @@ import '../../core/services/database_service.dart';
 import '../../core/services/waybill_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/product_packaging.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
@@ -177,7 +178,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
   // ── Urun cikar ─────────────────────────────────────────────────────
   Future<void> _removeItem(WhPalletItem item) async {
-    int amount = 1;
+    final ctrl = TextEditingController(text: '${item.quantity}');
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -188,28 +189,27 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             children: [
               Text('Mevcut: ${item.quantity} adet',
                   style: TextStyle(color: AppTheme.textSecondary)),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton.filledTonal(
-                    onPressed: () =>
-                        setSt(() => amount = (amount - 1).clamp(1, item.quantity)),
-                    icon: const Icon(Icons.remove_rounded),
-                  ),
-                  Container(
-                    width: 60,
-                    alignment: Alignment.center,
-                    child: Text('$amount',
-                        style: const TextStyle(
-                            fontSize: 24, fontWeight: FontWeight.w800)),
-                  ),
-                  IconButton.filledTonal(
-                    onPressed: () =>
-                        setSt(() => amount = (amount + 1).clamp(1, item.quantity)),
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                decoration: const InputDecoration(
+                  labelText: 'Çıkarılacak adet',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () =>
+                      setSt(() => ctrl.text = '${item.quantity}'),
+                  child: const Text('Tümü', style: TextStyle(fontSize: 12)),
+                ),
               ),
             ],
           ),
@@ -218,10 +218,14 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('İptal')),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, amount),
+              onPressed: () {
+                final amount =
+                    (int.tryParse(ctrl.text.trim()) ?? 0).clamp(0, item.quantity);
+                Navigator.pop(ctx, amount);
+              },
               style: FilledButton.styleFrom(
                   backgroundColor: AppTheme.statusExpired),
-              child: Text('$amount Adet Çıkar'),
+              child: const Text('Çıkar'),
             ),
           ],
         ),
@@ -844,6 +848,19 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                             fontFamily: 'monospace',
                             fontSize: 11.5,
                             color: AppTheme.textTertiary)),
+                    Builder(builder: (context) {
+                      final pkg = parseProductPackaging(item.productName);
+                      if (pkg.piecesPerCase == null ||
+                          pkg.piecesPerCase! <= 0) {
+                        return const SizedBox.shrink();
+                      }
+                      final cases =
+                          (item.quantity / pkg.piecesPerCase!).toStringAsFixed(
+                              item.quantity % pkg.piecesPerCase! == 0 ? 0 : 1);
+                      return Text('≈ $cases koli',
+                          style: TextStyle(
+                              fontSize: 11, color: AppTheme.accent));
+                    }),
                   ],
                 ),
               ),
@@ -889,6 +906,14 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                     color: AppTheme.textSecondary, fontSize: 13)),
             const SizedBox(height: 16),
             _optionTile(
+              icon: Icons.photo_camera_back_outlined,
+              color: AppTheme.primary,
+              title: 'Fotoğraf ve Konum',
+              subtitle: 'Paletin depo fotoğrafını ve raf konumunu göster',
+              value: 'photo',
+            ),
+            const SizedBox(height: 8),
+            _optionTile(
               icon: Icons.swap_horiz_rounded,
               color: AppTheme.accent,
               title: 'Başka Palete Taşı',
@@ -916,9 +941,90 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
       ),
     );
 
+    if (choice == 'photo') await _showItemPhotoAndLocation(item);
     if (choice == 'transfer') await _transferItemToPallet(item);
     if (choice == 'floor') await _putItemOnFloor(item);
     if (choice == 'remove') await _removeItem(item);
+  }
+
+  /// KAYAN PENCERE: paletin depo fotoğrafı + raftaki konumu tek bakışta.
+  Future<void> _showItemPhotoAndLocation(WhPalletItem item) async {
+    final photo = _pallet?.imagePath;
+    final locLabel = _shelf != null
+        ? 'Sütun ${_shelf!.columnNo} · Raf ${_shelf!.shelfNo}'
+        : 'Zemin';
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Text(item.productName ?? item.barcode,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w700),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.place_rounded, size: 15, color: AppTheme.accent),
+                const SizedBox(width: 4),
+                Text('$locLabel · ${_pallet?.code ?? ""}',
+                    style: TextStyle(
+                        fontSize: 13, color: AppTheme.textSecondary)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (photo != null && File(photo).existsSync())
+              GestureDetector(
+                onTap: () => openImageZoom(
+                    context, filePath: photo, title: _pallet?.code ?? ''),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: Image.file(File(photo), fit: BoxFit.cover),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceAlt,
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.no_photography_outlined,
+                        size: 32, color: AppTheme.textTertiary),
+                    const SizedBox(height: 8),
+                    Text('Bu palete henüz fotoğraf eklenmemiş',
+                        style: TextStyle(
+                            fontSize: 12.5, color: AppTheme.textTertiary)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _optionTile({
@@ -993,6 +1099,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
     // Adet seçimi + palet seçimi
     int amount = item.quantity;
+    final amountCtrl = TextEditingController(text: '${item.quantity}');
     int? targetPalletId;
 
     final ok = await showDialog<bool>(
@@ -1010,27 +1117,19 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                     style: TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 13)),
                 const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton.filledTonal(
-                      onPressed: () =>
-                          setSt(() => amount = (amount - 1).clamp(1, item.quantity)),
-                      icon: const Icon(Icons.remove_rounded),
-                    ),
-                    Container(
-                      width: 50,
-                      alignment: Alignment.center,
-                      child: Text('$amount',
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.w800)),
-                    ),
-                    IconButton.filledTonal(
-                      onPressed: () =>
-                          setSt(() => amount = (amount + 1).clamp(1, item.quantity)),
-                      icon: const Icon(Icons.add_rounded),
-                    ),
-                  ],
+                TextField(
+                  controller: amountCtrl,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800),
+                  onChanged: (v) => amount =
+                      (int.tryParse(v.trim()) ?? amount)
+                          .clamp(1, item.quantity),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    suffixText: '/ ${item.quantity} adet',
+                  ),
                 ),
                 const SizedBox(height: 14),
                 const Text('Hedef palet:',
@@ -1103,6 +1202,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
   /// Ürünü yere al: ürün tablosuna "Zemin" konumlu kayıt ekle.
   Future<void> _putItemOnFloor(WhPalletItem item) async {
     int amount = item.quantity;
+    final amountCtrl = TextEditingController(text: '${item.quantity}');
 
     final ok = await showDialog<bool>(
       context: context,
@@ -1118,28 +1218,21 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 style: TextStyle(
                     fontSize: 12.5, color: AppTheme.textSecondary),
               ),
-              const SizedBox(height: 14),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton.filledTonal(
-                    onPressed: () => setSt(
-                        () => amount = (amount - 1).clamp(1, item.quantity)),
-                    icon: const Icon(Icons.remove_rounded),
-                  ),
-                  Container(
-                    width: 50,
-                    alignment: Alignment.center,
-                    child: Text('$amount',
-                        style: const TextStyle(
-                            fontSize: 22, fontWeight: FontWeight.w800)),
-                  ),
-                  IconButton.filledTonal(
-                    onPressed: () => setSt(
-                        () => amount = (amount + 1).clamp(1, item.quantity)),
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w800),
+                onChanged: (v) => amount =
+                    (int.tryParse(v.trim()) ?? amount)
+                        .clamp(1, item.quantity),
+                decoration: InputDecoration(
+                  isDense: true,
+                  suffixText: '/ ${item.quantity} adet',
+                ),
               ),
             ],
           ),
@@ -1199,6 +1292,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   final _expiryCtrl = TextEditingController();
   final _qtyCtrl    = TextEditingController(text: '1');
+  final _caseCtrl   = TextEditingController(); // koli bazinda giris
   final _nameCtrl   = TextEditingController();
 
   String?   _barcode;
@@ -1211,6 +1305,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     _scanner.dispose();
     _expiryCtrl.dispose();
     _qtyCtrl.dispose();
+    _caseCtrl.dispose();
     _nameCtrl.dispose();
     super.dispose();
   }
@@ -1296,7 +1391,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     if (!mounted) return;
     setState(() {
       _added++; _barcode = null; _expiry = null;
-      _expiryCtrl.clear(); _qtyCtrl.text = "1"; _nameCtrl.clear();
+      _expiryCtrl.clear(); _qtyCtrl.text = "1"; _caseCtrl.clear(); _nameCtrl.clear();
       _busy = false;
     });
     await _scanner.start();
@@ -1457,12 +1552,34 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               // Urun adi
               TextField(
                 controller: _nameCtrl,
+                onChanged: (_) => setState(() {}), // paket bilgisi guncellensin
                 decoration: const InputDecoration(
                   labelText: "Ürün adı",
                   prefixIcon: Icon(Icons.label_outline_rounded),
                   isDense: true,
                 ),
               ),
+              Builder(builder: (context) {
+                final pkg = parseProductPackaging(_nameCtrl.text);
+                if (!pkg.hasAny) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      if (pkg.piecesPerCase != null)
+                        _pkgChip(
+                            '1 koli = ${pkg.piecesPerCase} adet',
+                            Icons.inventory_2_outlined),
+                      if (pkg.palletCaseCapacity != null)
+                        _pkgChip(
+                            'Palet max ${pkg.palletCaseCapacity} koli',
+                            Icons.view_in_ar_rounded),
+                    ],
+                  ),
+                );
+              }),
               const SizedBox(height: 10),
               // SKT - klavye + opsiyonel OCR
               Row(
@@ -1509,16 +1626,59 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 ],
               ),
               const SizedBox(height: 10),
-              // Adet
-              TextField(
-                controller: _qtyCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Adet",
-                  prefixIcon: Icon(Icons.inventory_2_outlined),
-                  isDense: true,
-                ),
-              ),
+              // Adet - paket bilgisi varsa KOLI bazinda da girilebilir
+              // (surekli + tusuna basmak yerine dogrudan klavyeyle).
+              Builder(builder: (context) {
+                final pkg = parseProductPackaging(_nameCtrl.text);
+                final pieces = pkg.piecesPerCase;
+                if (pieces == null || pieces <= 0) {
+                  return TextField(
+                    controller: _qtyCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "Adet",
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                      isDense: true,
+                    ),
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _caseCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (v) {
+                          final cases = int.tryParse(v.trim());
+                          if (cases != null) {
+                            _qtyCtrl.text = (cases * pieces).toString();
+                          }
+                          setState(() {});
+                        },
+                        decoration: const InputDecoration(
+                          labelText: "Koli",
+                          prefixIcon: Icon(Icons.inventory_2_outlined),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _qtyCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) =>
+                            setState(() => _caseCtrl.clear()),
+                        decoration: const InputDecoration(
+                          labelText: "Adet",
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: _busy ? null : _confirm,                icon: _busy
@@ -1540,6 +1700,26 @@ class _AddItemSheetState extends State<_AddItemSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _pkgChip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.accent.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(AppTheme.rPill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppTheme.accent),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 11.5, fontWeight: FontWeight.w700)),
+        ],
       ),
     );
   }

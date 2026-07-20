@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/label_inspect_visibility.dart';
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/price_change_service.dart';
@@ -63,6 +64,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   @override
   void initState() {
     super.initState();
+    // Zaten Etiket Incele ekranindayiz - global buton gereksiz, gizle.
+    labelInspectFabSuppressed.value = true;
     _requestCameraPermission();
   }
 
@@ -89,6 +92,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
 
   @override
   void dispose() {
+    labelInspectFabSuppressed.value = false;
     _controller.dispose();
     super.dispose();
   }
@@ -142,6 +146,24 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               for (final o in slots) {
                 if (o.rowNo > maxRow) maxRow = o.rowNo;
               }
+              // HEDEF RAFTAKI (row_no) TUM URUNLER — soldan saga (sutun, sira).
+              // "Rafa yakinlas" asamasinda fotograflariyla dizilir; aranan
+              // urun (isTarget) belirginlestirilir.
+              final rafSlots = slots
+                  .where((o) => o.rowNo == s.rowNo)
+                  .toList()
+                ..sort((a, b) {
+                  final c = a.sectionNo.compareTo(b.sectionNo);
+                  return c != 0 ? c : a.seq.compareTo(b.seq);
+                });
+              final rafProducts = rafSlots
+                  .map((o) => RevealShelfProduct(
+                        name: o.productName,
+                        photoPath: o.photoPath,
+                        sectionNo: o.sectionNo,
+                        isTarget: o.id == s.id,
+                      ))
+                  .toList();
               shelfLoc = _ShelfLocation(
                 unitName: u.unit.name,
                 section: s.sectionNo,
@@ -151,6 +173,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                 photoPath: s.photoPath,
                 allUnits: units.map((x) => x.unit.name).toList(),
                 unitIndex: units.indexOf(u),
+                shelfProducts: rafProducts,
               );
               break outer;
             }
@@ -181,16 +204,39 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               await WarehouseService.instance.findProduct(w.id!, code);
           if (locs.isEmpty) continue;
           // Deponun izgara boyutu (canlandirma icin): raflarin max sutun/raf'i.
+          // Ayrica HER SUTUNUN KENDI raf sayisi da ayri tutulur - sutunlar
+          // farkli yukseklikte olabilir (biri 4 raf, digeri 6 raf gibi);
+          // canlandirma artik butun sutunlarda 6 raf varmis gibi degil,
+          // her sutunun GERCEK raf sayisi kadar cizilir.
           int gc = 1, gr = 1;
+          final colRowCounts = <int, int>{};
           try {
             final shelves =
                 await WarehouseService.instance.getShelves(w.id!);
             for (final sh in shelves) {
               if (sh.columnNo > gc) gc = sh.columnNo;
               if (sh.shelfNo > gr) gr = sh.shelfNo;
+              final cur = colRowCounts[sh.columnNo] ?? 0;
+              if (sh.shelfNo > cur) colRowCounts[sh.columnNo] = sh.shelfNo;
             }
           } catch (_) {}
           for (final l in locs) {
+            // Rafta birden fazla palet olabilir (capacity>1); bu urunun
+            // paleti o rafta KACINCI palet - "1. Palet", "2. Palet" gibi.
+            int? palletPos;
+            int? palletsOnShelf;
+            if (l.shelf?.id != null) {
+              try {
+                final onShelf = await WarehouseService.instance
+                    .getPalletsOnShelf(l.shelf!.id!);
+                final idx =
+                    onShelf.indexWhere((p) => p.pallet.code == l.pallet.code);
+                if (idx >= 0) {
+                  palletPos = idx + 1;
+                  palletsOnShelf = onShelf.length;
+                }
+              } catch (_) {}
+            }
             palletLocs.add(_PalletLocation(
               warehouseName: w.name,
               palletName: l.pallet.code,
@@ -202,9 +248,12 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               shelfNo: l.shelf?.shelfNo,
               gridCols: gc,
               gridRows: gr,
+              colShelfCounts: colRowCounts,
               allWarehouses: whs.map((x) => x.name).toList(),
               warehouseIndex: whs.indexOf(w),
               palletPhotoPath: l.pallet.imagePath,
+              palletPosition: palletPos,
+              palletsOnShelf: palletsOnShelf,
             ));
           }
         }
@@ -255,6 +304,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       warehouseName: loc.warehouseName,
       cols: loc.gridCols,
       rows: loc.gridRows,
+      colShelfCounts: loc.colShelfCounts,
       targetCol: loc.colNo,
       targetRow: loc.shelfNo,
       palletCode: loc.palletName,
@@ -263,6 +313,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       productName: _localName ?? _off?.name,
       localPhotos: _localPhotos,
       palletPhotoPath: loc.palletPhotoPath,
+      palletPosition: loc.palletPosition,
+      palletsOnShelf: loc.palletsOnShelf,
       allWarehouses: loc.allWarehouses,
       targetWarehouseIndex: loc.warehouseIndex,
     );
@@ -285,6 +337,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       // MAGAZA kus bakisi: kamera once TUM reyonlari gorur, hedefe ucar.
       allAisles: loc.allUnits,
       targetAisleIndex: loc.unitIndex,
+      // RAFA YAKINLAS: hedef raftaki urunler fotograflariyla dizilir.
+      shelfProducts: loc.shelfProducts,
     );
   }
 
@@ -787,6 +841,7 @@ class _ShelfLocation {
   final String? photoPath;
   final List<String> allUnits; // MAGAZA gorunumu: tum reyon adlari
   final int unitIndex; // hedef reyonun listedeki sirasi
+  final List<RevealShelfProduct> shelfProducts; // hedef raftaki urunler
   const _ShelfLocation({
     required this.unitName,
     required this.section,
@@ -796,6 +851,7 @@ class _ShelfLocation {
     this.photoPath,
     this.allUnits = const [],
     this.unitIndex = 0,
+    this.shelfProducts = const [],
   });
 }
 
@@ -809,9 +865,12 @@ class _PalletLocation {
   final int? shelfNo; // raftaysa raf
   final int gridCols; // deponun izgara boyutu (max sutun)
   final int gridRows; // deponun izgara boyutu (max raf)
+  final Map<int, int> colShelfCounts; // sutun no -> o sutunun GERCEK raf sayisi
   final List<String> allWarehouses; // magaza gorunumu: tum depo adlari
   final int warehouseIndex;
   final String? palletPhotoPath; // paletin GERCEK fotografi (varsa)
+  final int? palletPosition; // rafta kacinci palet (1-based)
+  final int? palletsOnShelf; // rafta toplam kac palet var
   const _PalletLocation({
     required this.warehouseName,
     required this.palletName,
@@ -821,8 +880,11 @@ class _PalletLocation {
     this.shelfNo,
     this.gridCols = 1,
     this.gridRows = 1,
+    this.colShelfCounts = const {},
     this.allWarehouses = const [],
     this.warehouseIndex = 0,
     this.palletPhotoPath,
+    this.palletPosition,
+    this.palletsOnShelf,
   });
 }

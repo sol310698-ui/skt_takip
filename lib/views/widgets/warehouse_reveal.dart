@@ -12,23 +12,28 @@ import '../../core/theme/app_theme.dart';
 ///  bir KART olarak açılıyordu. Depo için istenen daha detaylı, TAM
 ///  EKRAN bir akış:
 ///
-///   1) GENEL BAKIŞ  — kamera deponun TAM ORTASINDA, tüm sütunlar görünür.
-///   2) KAYDIRMA     — kamera hedef sütunun olduğu tarafa (sola/sağa)
-///                     yatay olarak kayar (henüz yakınlaşma yok).
+///   1) AÇILIŞ      — iki raf duvarı (sol/sağ) merkezde kapalı başlar,
+///                     dışa doğru (soldan sağa) açılarak koridoru
+///                     ortaya çıkarır. Sütunlar yarı yarıya solda/sağda
+///                     paylaştırılır (örn. 6 sütun → 3 sol, 3 sağ).
+///   2) KAYDIRMA     — kamera koridorda hedef tarafa (sola/sağa) ilerler;
+///                     hedef duvar kameraya döner/parlar, diğeri sönükleşir.
 ///   3) YAKINLAŞMA   — hedef sütuna zoom yapılır, sütun içindeki raflar
 ///                     belirginleşir, hedef raf vurgulanır.
-///   4) PALET        — hedef rafın üstünde palet etiketi/ikonu iner,
-///                     nabız atar (haptic ile).
+///   4) PALET        — hedef rafın üstünde palet etiketi iner (rafta
+///                     kaçıncı palet olduğu da gösterilir, örn. "2. Palet").
+///   5) FOTOĞRAF     — paletin gerçek fotoğrafı varsa büyütülüp gösterilir.
 ///
-///  Sahte 3B/perspektif KULLANILMAZ (düz widget'larda çarpık görünür);
-///  sadece Alignment kayması + ölçek (scale) ile "kamera hareketi"
-///  hissi verilir — location_reveal.dart ile aynı dil.
+///  "3B" izlenimi gerçek 3B render değil; Matrix4 perspective girişi +
+///  rotateY ile iki duvarın koridorun ortasından menteşeliymiş gibi
+///  açılıp kapanmasından gelir (düşük maliyetli, tüm cihazlarda akıcı).
 /// ════════════════════════════════════════════════════════════════════
 Future<void> showWarehouseFlythrough(
   BuildContext context, {
   required String warehouseName,
   required int cols, // deponun sutun sayisi
   required int rows, // deponun en buyuk raf numarasi
+  Map<int, int> colShelfCounts = const {}, // sutun no -> o sutunun GERCEK raf sayisi
   int? targetCol, // 1-based; null = zemin (sutun/raf yok)
   int? targetRow, // 1-based
   required String palletCode,
@@ -37,6 +42,8 @@ Future<void> showWarehouseFlythrough(
   String? productName,
   List<String> localPhotos = const [],
   String? palletPhotoPath, // paletin GERCEK fotografi (varsa, son asamada buyutulup gosterilir)
+  int? palletPosition, // rafta kacinci palet (1-based) - "1. Palet" gibi
+  int? palletsOnShelf, // rafta toplam kac palet var
   Color? accent,
   List<String> allWarehouses = const [],
   int targetWarehouseIndex = 0,
@@ -55,6 +62,7 @@ Future<void> showWarehouseFlythrough(
           warehouseName: warehouseName,
           cols: safeCols,
           rows: safeRows,
+          colShelfCounts: colShelfCounts,
           targetCol: onFloor ? 1 : targetCol!.clamp(1, safeCols),
           targetRow: onFloor ? 1 : targetRow!.clamp(1, safeRows),
           onFloor: onFloor,
@@ -64,6 +72,8 @@ Future<void> showWarehouseFlythrough(
           productName: productName,
           localPhotos: localPhotos,
           palletPhotoPath: palletPhotoPath,
+          palletPosition: palletPosition,
+          palletsOnShelf: palletsOnShelf,
           accent: accent ?? AppTheme.primary,
           allWarehouses: allWarehouses,
           targetWarehouseIndex: allWarehouses.isEmpty
@@ -78,6 +88,7 @@ Future<void> showWarehouseFlythrough(
 class _WarehouseFlythroughScreen extends StatefulWidget {
   final String warehouseName;
   final int cols, rows, targetCol, targetRow;
+  final Map<int, int> colShelfCounts;
   final bool onFloor;
   final String palletCode;
   final String? shelfLabel;
@@ -85,6 +96,8 @@ class _WarehouseFlythroughScreen extends StatefulWidget {
   final String? productName;
   final List<String> localPhotos;
   final String? palletPhotoPath;
+  final int? palletPosition;
+  final int? palletsOnShelf;
   final Color accent;
   final List<String> allWarehouses;
   final int targetWarehouseIndex;
@@ -93,6 +106,7 @@ class _WarehouseFlythroughScreen extends StatefulWidget {
     required this.warehouseName,
     required this.cols,
     required this.rows,
+    this.colShelfCounts = const {},
     required this.targetCol,
     required this.targetRow,
     required this.onFloor,
@@ -103,6 +117,8 @@ class _WarehouseFlythroughScreen extends StatefulWidget {
     this.productName,
     this.localPhotos = const [],
     this.palletPhotoPath,
+    this.palletPosition,
+    this.palletsOnShelf,
     this.allWarehouses = const [],
     this.targetWarehouseIndex = 0,
   });
@@ -121,18 +137,20 @@ class _WarehouseFlythroughScreenState
   bool get _hasWarehouses => widget.allWarehouses.length > 1;
 
   // ── Faz sınırları (0..1) ──────────────────────────────────────────
-  // 1) GENEL BAKIS: 0.00-0.12 (baslik + depo seridi belirir)
-  // 2) KAYDIRMA:    0.12-0.42 (kamera sola/saga kayar, henuz zoom yok)
-  // 3) YAKINLASMA:  0.42-0.78 (hedef suna zoom)
-  // 4) PALET:       0.78-1.00 (palet etiketi iner + nabiz)
-  double get _tIntro => 0.12;
-  double get _tPanStart => 0.12;
-  double get _tPanEnd => 0.42;
-  double get _tZoomStart => 0.42;
-  double get _tZoomEnd => 0.70;
-  double get _tPalletEnd => 0.84;
+  // 1) ACILIS:      0.00-0.22 (iki raf duvarı merkezden dışa/sola-sağa acılır)
+  // 2) KAYDIRMA:    0.22-0.48 (kamera koridorda hedef tarafa ilerler)
+  // 3) YAKINLASMA:  0.48-0.72 (hedef sutuna zoom)
+  // 4) PALET:       0.72-0.85 (palet etiketi iner + nabiz)
+  // 5) FOTOGRAF:    0.85-1.00 (varsa palet fotografi ortaya buyur)
+  double get _tIntro => 0.10;
+  double get _tOpenEnd => 0.22;
+  double get _tPanStart => 0.22;
+  double get _tPanEnd => 0.48;
+  double get _tZoomStart => 0.48;
+  double get _tZoomEnd => 0.72;
+  double get _tPalletEnd => 0.85;
   double get _tPhotoEnd => 1.0;
-  double get _tInfoStart => 0.68;
+  double get _tInfoStart => 0.70;
 
   @override
   void initState() {
@@ -186,7 +204,7 @@ class _WarehouseFlythroughScreenState
 
   String get _stageLabel {
     final t = _main.value;
-    if (t < _tPanStart) return 'Depo genel görünüm';
+    if (t < _tOpenEnd) return 'Depo açılıyor…';
     if (t < _tZoomStart) {
       return widget.onFloor
           ? 'Zemine gidiliyor…'
@@ -195,8 +213,15 @@ class _WarehouseFlythroughScreenState
               : 'Sağ tarafa geçiliyor…');
     }
     if (t < _tZoomEnd) return widget.onFloor ? 'Zemin' : 'Sütun · Raf';
-    if (t < _tPalletEnd) return 'Palet bulundu';
-    return _hasPalletPhoto ? 'Palet fotoğrafı' : 'Palet bulundu';
+    if (t < _tPalletEnd) return _palletPositionLabel ?? 'Palet bulundu';
+    return _hasPalletPhoto ? 'Palet fotoğrafı' : (_palletPositionLabel ?? 'Palet bulundu');
+  }
+
+  String? get _palletPositionLabel {
+    if (widget.palletPosition == null || widget.palletsOnShelf == null) {
+      return null;
+    }
+    return '${widget.palletPosition}. Palet · ${widget.palletsOnShelf} palet arasında';
   }
 
   bool get _hasPalletPhoto =>
@@ -213,6 +238,7 @@ class _WarehouseFlythroughScreenState
             final t = _main.value;
             final pulse = _pulse.value;
             final introIn = _seg(t, 0.0, _tIntro, Curves.easeOutCubic);
+            final openT = _seg(t, 0.0, _tOpenEnd, Curves.easeOutCubic);
             final pan = _seg(t, _tPanStart, _tPanEnd, Curves.easeInOutCubic);
             final zoom =
                 _seg(t, _tZoomStart, _tZoomEnd, Curves.easeInOutCubic);
@@ -231,7 +257,8 @@ class _WarehouseFlythroughScreenState
                     child: Stack(
                       children: [
                         Positioned.fill(
-                          child: _warehouseFloor(pan, zoom, palletIn, pulse),
+                          child: _warehouseFloor(
+                              pan, zoom, palletIn, pulse, openT),
                         ),
                         // ── Son asama: paleti ORTAYA al, GERCEK fotografini
                         // buyuterek goster (varsa). Izgaranin ustune biner.
@@ -308,49 +335,153 @@ class _WarehouseFlythroughScreenState
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  DEPO ZEMİNİ — tam ekran sütun/raf ızgarası. Önce ortadan, sonra
-  //  hedef sütunun tarafına kayar, sonra o sütuna yakınlaşır.
+  //  DEPO KORİDORU (3B hissi) — sütunlar SOLDA ve SAĞDA iki rafa
+  //  bölünür (6 sütun varsa 3'ü sol, 3'ü sağ), tıpkı gerçek bir
+  //  koridorda karşılıklı raflar gibi. Perspektif eğim (rotateY) ile
+  //  duvarlar hafifçe içbükey görünür.
+  //
+  //   AÇILIŞ   — duvarlar merkezde kapalı başlar, dışa (sola/sağa)
+  //              açılarak koridoru ortaya çıkarır.
+  //   KAYDIRMA — hedef tarafın duvarı kameraya döner/büyür/parlar,
+  //              diğer taraf hafifçe arkaya döner/sönükleşir.
+  //   YAKINLAŞMA/PALET/FOTOĞRAF — hedef duvar üstünde aynen önceki
+  //              gibi devam eder.
   // ════════════════════════════════════════════════════════════════
-  Widget _warehouseFloor(double pan, double zoom, double palletIn, double pulse) {
-    final acc = widget.accent;
-    // Hedef sutun ekranin sol yarisinda mi sag yarisinda mi?
-    final targetAx = widget.cols == 1
-        ? 0.0
-        : ((widget.targetCol - 0.5) / widget.cols) * 2 - 1;
-    final targetAy = widget.rows == 1
-        ? 0.0
-        : ((widget.targetRow - 0.5) / widget.rows) * 2 - 1;
-
-    // Once (pan asamasi) yatayda kaymaya baslar, zoom asamasinda tam
-    // hedefe kilitlenir ve olcek buyur.
-    final ax = targetAx * pan;
-    final ay = targetAy * pan * 0.6; // dikeyde daha az kayma (daha dogal)
-    final scale = 1.0 + zoom * 2.0;
+  Widget _warehouseFloor(
+      double pan, double zoom, double palletIn, double pulse, double openT) {
+    final leftCount = (widget.cols / 2).ceil().clamp(1, widget.cols);
+    final rightCount = (widget.cols - leftCount).clamp(0, widget.cols);
+    final targetIsLeft = widget.targetCol <= leftCount;
+    final targetLocalCol =
+        targetIsLeft ? widget.targetCol : widget.targetCol - leftCount;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppTheme.rMd),
       child: Container(
-        color: AppTheme.surfaceAlt,
+        color: AppTheme.isLight ? AppTheme.surfaceAlt : const Color(0xFF14161C),
         child: LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 6.0;
-            final cellW =
-                ((constraints.maxWidth - gap * (widget.cols + 1)) /
-                        widget.cols)
-                    .clamp(18.0, 64.0);
-            final cellH =
-                ((constraints.maxHeight - gap * (widget.rows + 1)) /
-                        widget.rows)
-                    .clamp(14.0, 44.0);
-            final gridW = cellW * widget.cols + gap * (widget.cols + 1);
-            final gridH = cellH * widget.rows + gap * (widget.rows + 1);
-            final targetLeft =
-                gap + (widget.targetCol - 1) * (cellW + gap);
-            final targetTop = gap + (widget.targetRow - 1) * (cellH + gap);
+          builder: (context, c) {
+            final wallW = c.maxWidth * 0.47;
+            return Stack(
+              children: [
+                // Koridor zemini: hafif isik/gradyan ile derinlik hissi.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.18),
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.10),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: wallW,
+                  child: _wall(
+                    isLeftSide: true,
+                    colCount: leftCount,
+                    colOffset: 0,
+                    openT: openT,
+                    isTargetWall: targetIsLeft,
+                    targetLocalCol: targetIsLeft ? targetLocalCol : null,
+                    focusT: pan,
+                    zoom: zoom,
+                    palletIn: palletIn,
+                    pulse: pulse,
+                  ),
+                ),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: wallW,
+                  child: _wall(
+                    isLeftSide: false,
+                    colCount: rightCount,
+                    colOffset: leftCount,
+                    openT: openT,
+                    isTargetWall: !targetIsLeft,
+                    targetLocalCol: !targetIsLeft ? targetLocalCol : null,
+                    focusT: pan,
+                    zoom: zoom,
+                    palletIn: palletIn,
+                    pulse: pulse,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-            return Transform(
-              alignment: Alignment(ax, ay),
-              transform: Matrix4.identity()..scale(scale),
+  /// Tek bir raf duvarı (sol veya sağ). Perspektif için Matrix4 +
+  /// rotateY kullanılır: duvar, iç kenarından (koridor ortasından)
+  /// menteşeliymiş gibi açılır/kapanır.
+  Widget _wall({
+    required bool isLeftSide,
+    required int colCount,
+    required int colOffset, // bu duvarin ilk sutununun GLOBAL sutun no'su - 1
+    required double openT,
+    required bool isTargetWall,
+    int? targetLocalCol,
+    required double focusT,
+    required double zoom,
+    required double palletIn,
+    required double pulse,
+  }) {
+    if (colCount <= 0) return const SizedBox.shrink();
+    final acc = widget.accent;
+
+    // AÇILIŞ: kapaliyken duvar kenardan gorunur (buyuk aci = ~kenara
+    // yaslanmis), acildikca dinlenme egimine gelir (hafif ic-buk).
+    const closedAngle = 1.45;
+    const restAngle = 0.5;
+    double angle = closedAngle + (restAngle - closedAngle) * openT;
+    // KAYDIRMA: hedef duvar kameraya donuk hale gelir (aci kuculur,
+    // adeta yuzumuze doner); diger duvar hafifce arkaya kacar.
+    if (isTargetWall) {
+      angle -= angle * focusT * 0.85;
+    } else {
+      angle += (1.25 - angle) * focusT * 0.55;
+    }
+    final dim = isTargetWall ? 1.0 : (1.0 - focusT * 0.55).clamp(0.32, 1.0);
+    final scale = isTargetWall ? (1.0 + zoom * 0.12) : 1.0;
+
+    return Opacity(
+      opacity: openT.clamp(0.0, 1.0) * dim,
+      child: Transform(
+        alignment: isLeftSide ? Alignment.centerRight : Alignment.centerLeft,
+        transform: Matrix4.identity()
+          ..setEntry(3, 2, 0.0016)
+          ..rotateY(isLeftSide ? angle : -angle)
+          ..scale(scale),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            const gap = 5.0;
+            final cellH = ((c.maxHeight - gap * (widget.rows + 1)) /
+                    widget.rows)
+                .clamp(11.0, 40.0);
+            final cellW = ((c.maxWidth - gap * (colCount + 1)) / colCount)
+                .clamp(20.0, 74.0);
+            final gridW = cellW * colCount + gap * (colCount + 1);
+            final gridH = cellH * widget.rows + gap * (widget.rows + 1);
+
+            return Container(
+              color: AppTheme.isLight
+                  ? AppTheme.hairline.withOpacity(0.25)
+                  : Colors.white.withOpacity(0.03),
               child: Center(
                 child: SizedBox(
                   width: gridW,
@@ -358,19 +489,45 @@ class _WarehouseFlythroughScreenState
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      for (var r = 0; r < widget.rows; r++)
-                        for (var c = 0; c < widget.cols; c++)
-                          _shelfCell(c, r, cellW, cellH, gap, acc, pan, zoom),
-
-                      // ── Palet etiketi — hedef hucrenin ustune iner ──
-                      Positioned(
-                        left: targetLeft + cellW / 2 - 46,
-                        top: targetTop - 40 - (1 - palletIn) * 30,
-                        child: Opacity(
-                          opacity: palletIn.clamp(0.0, 1.0),
-                          child: _palletChip(acc, pulse),
+                      // Her sutun KENDI GERCEK raf sayisi kadar cizilir
+                      // (biri 4 raf, digeri 6 raf olabilir); hepsi ayni
+                      // ZEMIN hizasindan (widget.rows referansiyla alttan)
+                      // baslar, kisa sutunlar sadece daha az yukselir.
+                      for (var col = 0; col < colCount; col++)
+                        for (var s = 1;
+                            s <=
+                                (widget.colShelfCounts[colOffset + col + 1] ??
+                                        widget.rows)
+                                    .clamp(1, widget.rows);
+                            s++)
+                          _cell(
+                              col,
+                              widget.rows - s,
+                              s,
+                              cellW,
+                              cellH,
+                              gap,
+                              acc,
+                              focusT,
+                              zoom,
+                              isTargetWall,
+                              targetLocalCol),
+                      if (isTargetWall && targetLocalCol != null)
+                        Positioned(
+                          left: gap +
+                              (targetLocalCol - 1) * (cellW + gap) +
+                              cellW / 2 -
+                              46,
+                          top: gap +
+                              (widget.rows - widget.targetRow) *
+                                  (cellH + gap) -
+                              40 -
+                              (1 - palletIn) * 30,
+                          child: Opacity(
+                            opacity: palletIn.clamp(0.0, 1.0),
+                            child: _palletChip(acc, pulse),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -382,14 +539,21 @@ class _WarehouseFlythroughScreenState
     );
   }
 
-  Widget _shelfCell(int c, int r, double cellW, double cellH, double gap,
-      Color acc, double pan, double zoom) {
-    final isTargetCol = (c + 1) == widget.targetCol;
-    final isTarget = isTargetCol && (r + 1) == widget.targetRow;
-    // Kaydirma asamasinda hedef sutun hafifce vurgulanir (once "hangi
-    // tarafa gidiyoruz" hissi verir); yakinlasinca sadece hedef hucre
-    // tam parlak, digerleri sonukleslir.
-    final colHighlight = isTargetCol ? (0.5 + 0.5 * pan) : 0.0;
+  Widget _cell(
+      int col,
+      int rowFromTop,
+      int shelfNo,
+      double cellW,
+      double cellH,
+      double gap,
+      Color acc,
+      double focusT,
+      double zoom,
+      bool isTargetWall,
+      int? targetLocalCol) {
+    final isTargetCol = isTargetWall && targetLocalCol == (col + 1);
+    final isTarget = isTargetCol && shelfNo == widget.targetRow;
+    final colHighlight = isTargetCol ? (0.5 + 0.5 * focusT) : 0.0;
     final dim = isTarget
         ? 1.0
         : (isTargetCol
@@ -397,8 +561,8 @@ class _WarehouseFlythroughScreenState
             : (1.0 - zoom * 0.65).clamp(0.28, 1.0));
 
     return Positioned(
-      left: gap + c * (cellW + gap),
-      top: gap + r * (cellH + gap),
+      left: gap + col * (cellW + gap),
+      top: gap + rowFromTop * (cellH + gap),
       width: cellW,
       height: cellH,
       child: Opacity(
@@ -462,6 +626,9 @@ class _WarehouseFlythroughScreenState
   }
 
   Widget _palletChip(Color acc, double pulse) {
+    final posLabel = widget.palletPosition != null
+        ? '${widget.palletPosition}.'
+        : null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -477,7 +644,9 @@ class _WarehouseFlythroughScreenState
           const Icon(Icons.inventory_2_rounded, size: 14, color: Colors.white),
           const SizedBox(width: 5),
           Text(
-            widget.palletCode,
+            posLabel != null
+                ? '$posLabel Palet · ${widget.palletCode}'
+                : widget.palletCode,
             style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
@@ -538,6 +707,12 @@ class _WarehouseFlythroughScreenState
                       style: TextStyle(
                           fontSize: 12.5, color: AppTheme.textSecondary),
                     ),
+                    if (_palletPositionLabel != null)
+                      Text(
+                        _palletPositionLabel!,
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textTertiary),
+                      ),
                     if (widget.quantity != null)
                       Text(
                         '${widget.quantity} adet',

@@ -6,22 +6,38 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme/app_theme.dart';
 
+/// Reyon canlandırmasının "raf" fazında gösterilecek tek bir ürün.
+/// Hedef rafta (row_no) soldan sağa dizili ürünlerden biri.
+class RevealShelfProduct {
+  final String? name;
+  final String? photoPath;
+  final int? sectionNo; // hangi sütunda (bilgi amaçlı)
+  final bool isTarget; // aranan ürün mü?
+  const RevealShelfProduct({
+    this.name,
+    this.photoPath,
+    this.sectionNo,
+    this.isTarget = false,
+  });
+}
+
 /// ════════════════════════════════════════════════════════════════════
-///  KONUM CANLANDIRMA — "Soft Glass" tasarım diliyle
+///  KONUM CANLANDIRMA — "Reyon Haritası → Rafa Yakınlaş"
 /// ────────────────────────────────────────────────────────────────────
-///  Uygulamanın kendi tema tokenlarını kullanan, sade bir "hedefe
-///  yakınlaş" animasyonu: cam kart açılır, (varsa) reyon/depo şeridi
-///  kısaca gösterilip hedefe geçilir, ızgara hedef hücreye doğru 2B
-///  olarak (sahte 3B YOK) yakınlaşır, bir pin iner ve hücre yumuşakça
-///  nabız atmaya başlar. Sahte perspektif/rotateX kullanılmıyor —
-///  düz widget'larda bu her zaman çarpık görünür.
+///  AMAÇ: Çalışanın ürünü GERÇEKTEN bulması. İki aşama:
 ///
-///  ORTAK SERVİSTİR: hem REYON hem DEPO konumları aynı fonksiyonla
-///  canlandırılır.
-///    showLocationFlythrough(context,
-///      title: 'BAKLİYAT', cols: 5, rows: 6,
-///      targetCol: 2, targetRow: 3,
-///      subtitle: 'Sütun 2 · Raf 3', productName: ..., photoPath: ...);
+///   1) HARİTA — sabit, okunur reyon ızgarası. Sütun/raf numaraları
+///      kenarda; hedef sütun+raf çapraz aydınlatılır, kesişim (hedef
+///      hücre) vurgulanır, pin iner. Göz "Sütun 2 · Raf 3"ü bir bakışta
+///      okur. Yanıltıcı perspektif/zoom YOK.
+///
+///   2) RAF — harita hafifçe içeri büyüyüp solar; yerine o raftaki
+///      ürünlerin FOTOĞRAF ŞERİDİ gelir (gerçek soldan-sağa dizilim).
+///      ARANAN ürün büyük, çerçeveli, rozetli ve nabız atar; komşular
+///      sönük. Böylece rafın önünde ürünü gözle hemen eşler.
+///      (shelfProducts boşsa bu aşama atlanır; eski davranış korunur.)
+///
+///  ORTAK API — imza geriye dönük uyumlu; yeni parametre opsiyonel.
 /// ════════════════════════════════════════════════════════════════════
 Future<void> showLocationFlythrough(
   BuildContext context, {
@@ -34,11 +50,16 @@ Future<void> showLocationFlythrough(
   String? productName,
   String? photoPath,
   Color? accent,
-  /// Tüm reyon/depo isimleri. Birden fazlaysa, canlandırma önce kısa bir
-  /// şerit gösterip hedefe geçer. Boş/tekil ise doğrudan ızgaradan başlar.
+  /// Tüm reyon/depo isimleri. Birden fazlaysa hedef reyon çip şeridiyle
+  /// vurgulanır (önce doğru reyona git, sonra hücreyi bul).
   List<String> allAisles = const [],
   int targetAisleIndex = 0,
+  /// Hedef raftaki (row_no) ürünler, soldan sağa. Doluysa "rafa yakınlaş"
+  /// aşaması oynatılır ve aranan ürün (isTarget) belirginleştirilir.
+  List<RevealShelfProduct> shelfProducts = const [],
 }) {
+  final safeCols = cols.clamp(1, 30);
+  final safeRows = rows.clamp(1, 30);
   return Navigator.of(context).push(
     PageRouteBuilder(
       opaque: false,
@@ -49,10 +70,10 @@ Future<void> showLocationFlythrough(
         opacity: anim,
         child: _LocationRevealScreen(
           title: title,
-          cols: cols.clamp(1, 30),
-          rows: rows.clamp(1, 30),
-          targetCol: targetCol.clamp(1, cols.clamp(1, 30)),
-          targetRow: targetRow.clamp(1, rows.clamp(1, 30)),
+          cols: safeCols,
+          rows: safeRows,
+          targetCol: targetCol.clamp(1, safeCols),
+          targetRow: targetRow.clamp(1, safeRows),
           subtitle: subtitle,
           productName: productName,
           photoPath: photoPath,
@@ -60,6 +81,7 @@ Future<void> showLocationFlythrough(
           allAisles: allAisles,
           targetAisleIndex: targetAisleIndex.clamp(
               0, allAisles.isEmpty ? 0 : allAisles.length - 1),
+          shelfProducts: shelfProducts,
         ),
       ),
     ),
@@ -73,6 +95,7 @@ class _LocationRevealScreen extends StatefulWidget {
   final Color accent;
   final List<String> allAisles;
   final int targetAisleIndex;
+  final List<RevealShelfProduct> shelfProducts;
 
   const _LocationRevealScreen({
     required this.title,
@@ -86,6 +109,7 @@ class _LocationRevealScreen extends StatefulWidget {
     this.photoPath,
     this.allAisles = const [],
     this.targetAisleIndex = 0,
+    this.shelfProducts = const [],
   });
 
   @override
@@ -94,54 +118,52 @@ class _LocationRevealScreen extends StatefulWidget {
 
 class _LocationRevealScreenState extends State<_LocationRevealScreen>
     with TickerProviderStateMixin {
-  late final AnimationController _main; // tek akış: kart -> (şerit) -> zoom -> pin
-  late final AnimationController _pulse; // animasyon bitince yumuşak nabız
+  late final AnimationController _main; // kart -> harita -> pin -> raf
+  late final AnimationController _pulse; // bitince yumuşak nabız
+  final ScrollController _stripCtrl = ScrollController();
+  bool _stripCentered = false;
 
   bool get _hasAisles => widget.allAisles.length > 1;
+  bool get _hasShelf => widget.shelfProducts.isNotEmpty;
   bool _photoExists = false;
   bool _landedHaptic = false;
+  bool _shelfHaptic = false;
 
-  // ── Faz sınırları (0..1) — tek zaman çizgisi üzerinde ──
-  double get _tCardIn => 0.14;
-  double get _tAisleFadeStart => 0.06;
-  double get _tAisleFadeEnd => 0.20;
-  double get _tCrossStart => _hasAisles ? 0.32 : 0.0;
-  double get _tCrossEnd => _hasAisles ? 0.46 : 0.0;
-  double get _tGridStart => _hasAisles ? _tCrossStart : 0.12;
-  double get _tGridEnd => _hasAisles ? _tCrossEnd : 0.28;
-  double get _tZoomStart => _hasAisles ? 0.46 : 0.28;
-  double get _tZoomEnd => _hasAisles ? 0.78 : 0.64;
-  double get _tPinEnd => _hasAisles ? 0.90 : 0.84;
-  double get _tInfoStart => _hasAisles ? 0.80 : 0.70;
+  // ── Raf şeridi ölçüleri (px) ──
+  static const double _kGap = 12;
+  static const double _kNonTargetW = 76;
+  static const double _kTargetW = 108;
 
   @override
   void initState() {
     super.initState();
     _main = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: _hasAisles ? 2400 : 1700),
+      duration: Duration(milliseconds: _hasShelf ? 2600 : 1400),
     );
     _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1100),
     );
 
     _checkPhoto();
     _main.forward();
-    _main.addListener(_checkLanding);
+    _main.addListener(_checkHaptics);
     _main.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _pulse.repeat(reverse: true);
-      }
+      if (status == AnimationStatus.completed) _pulse.repeat(reverse: true);
     });
 
     HapticFeedback.selectionClick();
   }
 
-  void _checkLanding() {
-    if (!_landedHaptic && _main.value >= _tZoomEnd) {
+  void _checkHaptics() {
+    if (!_landedHaptic && _main.value >= (_hasShelf ? 0.56 : 0.78)) {
       _landedHaptic = true;
       HapticFeedback.mediumImpact();
+    }
+    if (_hasShelf && !_shelfHaptic && _main.value >= 0.86) {
+      _shelfHaptic = true;
+      HapticFeedback.selectionClick();
     }
   }
 
@@ -160,6 +182,7 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
   void dispose() {
     _main.dispose();
     _pulse.dispose();
+    _stripCtrl.dispose();
     super.dispose();
   }
 
@@ -167,6 +190,9 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
     _pulse.stop();
     _pulse.value = 0;
     _landedHaptic = false;
+    _shelfHaptic = false;
+    _stripCentered = false;
+    if (_stripCtrl.hasClients) _stripCtrl.jumpTo(0);
     _main.forward(from: 0);
     HapticFeedback.selectionClick();
   }
@@ -196,104 +222,117 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                 child: Container(
-                  color: (AppTheme.isLight ? Colors.black : Colors.black)
-                      .withOpacity(AppTheme.isLight ? 0.22 : 0.55),
+                  color:
+                      Colors.black.withOpacity(AppTheme.isLight ? 0.22 : 0.55),
                 ),
               ),
             ),
           ),
 
-          // ── Kart ──
+          // ── Kart (dikeyde ortalı; sığmazsa kaydırılır) ──
           SafeArea(
-            child: Center(
-              child: AnimatedBuilder(
-                animation: Listenable.merge([_main, _pulse]),
-                builder: (context, _) {
-                  final t = _main.value;
-                  final pulse = _pulse.value;
+            child: LayoutBuilder(
+              builder: (context, viewport) => SingleChildScrollView(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                child: ConstrainedBox(
+                  constraints:
+                      BoxConstraints(minHeight: viewport.maxHeight - 48),
+                  child: Center(
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_main, _pulse]),
+                      builder: (context, _) {
+                        final t = _main.value;
+                        final pulse = _pulse.value;
 
-                  final cardIn = _seg(t, 0.0, _tCardIn, Curves.easeOutCubic);
-                  final aisleIn =
-                      _hasAisles ? _seg(t, _tAisleFadeStart, _tAisleFadeEnd) : 0.0;
-                  final cross =
-                      _hasAisles ? _seg(t, _tCrossStart, _tCrossEnd) : 1.0;
-                  final aisleOpacity =
-                      _hasAisles ? (aisleIn * (1 - cross)).clamp(0.0, 1.0) : 0.0;
-                  final gridOpacity = _hasAisles
-                      ? cross.clamp(0.0, 1.0)
-                      : _seg(t, _tGridStart, _tGridEnd, Curves.easeOutCubic);
-                  final zoom = _seg(
-                      t, _tZoomStart, _tZoomEnd, Curves.easeInOutCubic);
-                  final pinDrop =
-                      _seg(t, _tZoomEnd, _tPinEnd, Curves.easeOutBack);
-                  final infoIn =
-                      _seg(t, _tInfoStart, 1.0, Curves.easeOutCubic);
+                        final cardIn =
+                            _seg(t, 0.0, 0.12, Curves.easeOutCubic);
+                        final chipsIn =
+                            _hasAisles ? _seg(t, 0.06, 0.22) : 0.0;
+                        final bannerIn =
+                            _seg(t, 0.03, 0.18, Curves.easeOutCubic);
+                        // "Rafa yakınlaş": harita -> raf şeridi geçişi.
+                        final shelfReveal = _hasShelf
+                            ? _seg(t, 0.60, 0.90, Curves.easeInOutCubic)
+                            : 0.0;
+                        final infoIn = _hasShelf
+                            ? 0.0
+                            : _seg(t, 0.72, 1.0, Curves.easeOutCubic);
 
-                  return Opacity(
-                    opacity: cardIn,
-                    child: Transform.scale(
-                      scale: 0.92 + 0.08 * cardIn,
-                      child: GestureDetector(
-                        onTap: () {}, // kartın üstüne dokununca kapanmasın
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 380),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: GlassPanel(
-                              radius: AppTheme.rXl,
-                              elevated: true,
-                              accentColor: acc,
-                              padding: const EdgeInsets.all(AppTheme.s20),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _header(acc),
-                                  const SizedBox(height: AppTheme.s16),
-                                  SizedBox(
-                                    height: 200,
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        if (_hasAisles)
-                                          Positioned.fill(
-                                            child: Opacity(
-                                              opacity: aisleOpacity,
-                                              child: _aisleStrip(acc, pulse),
-                                            ),
-                                          ),
-                                        Positioned.fill(
-                                          child: Opacity(
-                                            opacity: gridOpacity,
-                                            child: _gridViewport(
-                                                acc, zoom, pinDrop, pulse),
+                        return Opacity(
+                          opacity: cardIn,
+                          child: Transform.scale(
+                            scale: 0.94 + 0.06 * cardIn,
+                            child: GestureDetector(
+                              onTap: () {}, // karta dokununca kapanmasın
+                              child: ConstrainedBox(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 400),
+                                child: GlassPanel(
+                                  radius: AppTheme.rXl,
+                                  elevated: true,
+                                  accentColor: acc,
+                                  padding: const EdgeInsets.all(AppTheme.s20),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      _header(acc),
+                                      const SizedBox(height: AppTheme.s16),
+
+                                      // ── Büyük konum bandı ──
+                                      Opacity(
+                                        opacity: bannerIn,
+                                        child: _locationBanner(acc),
+                                      ),
+
+                                      // ── Hangi reyon? ──
+                                      if (_hasAisles) ...[
+                                        const SizedBox(height: AppTheme.s12),
+                                        Opacity(
+                                          opacity: chipsIn,
+                                          child: _aisleChips(acc, pulse),
+                                        ),
+                                      ],
+
+                                      const SizedBox(height: AppTheme.s16),
+
+                                      // ── SAHNE: harita ↔ raf şeridi ──
+                                      if (_hasShelf)
+                                        _stage(acc, t, shelfReveal, pulse)
+                                      else
+                                        _reyonMap(acc, t, pulse),
+
+                                      // ── (raf yoksa) tekil ürün bilgisi ──
+                                      if (!_hasShelf &&
+                                          (widget.productName != null ||
+                                              (widget.photoPath != null &&
+                                                  _photoExists))) ...[
+                                        const SizedBox(height: AppTheme.s16),
+                                        Opacity(
+                                          opacity: infoIn,
+                                          child: Transform.translate(
+                                            offset:
+                                                Offset(0, (1 - infoIn) * 8),
+                                            child: _infoRow(),
                                           ),
                                         ),
                                       ],
-                                    ),
+
+                                      const SizedBox(height: AppTheme.s20),
+                                      _buttons(acc),
+                                    ],
                                   ),
-                                  if (widget.productName != null ||
-                                      widget.photoPath != null) ...[
-                                    const SizedBox(height: AppTheme.s16),
-                                    Opacity(
-                                      opacity: infoIn,
-                                      child: Transform.translate(
-                                        offset: Offset(0, (1 - infoIn) * 8),
-                                        child: _infoRow(),
-                                      ),
-                                    ),
-                                  ],
-                                  const SizedBox(height: AppTheme.s20),
-                                  _buttons(acc),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ),
               ),
             ),
           ),
@@ -324,36 +363,32 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
+                'REYON',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: AppTheme.textTertiary,
+                ),
+              ),
+              Text(
                 widget.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 17,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: AppTheme.textPrimary,
                   letterSpacing: -0.2,
                 ),
               ),
-              if (widget.subtitle != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    widget.subtitle!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: acc,
-                    ),
-                  ),
-                ),
             ],
           ),
         ),
         IconButton(
           onPressed: _dismiss,
-          icon: Icon(Icons.close_rounded, color: AppTheme.textTertiary, size: 20),
+          icon:
+              Icon(Icons.close_rounded, color: AppTheme.textTertiary, size: 20),
           splashRadius: 18,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -363,149 +398,490 @@ class _LocationRevealScreenState extends State<_LocationRevealScreen>
   }
 
   // ════════════════════════════════════════════════════════════════════
-  //  REYON/DEPO ŞERİDİ (birden fazla reyon varsa kısa bir ön izleme)
+  //  KONUM BANDI — büyük "Sütun X · Raf Y"
   // ════════════════════════════════════════════════════════════════════
-  Widget _aisleStrip(Color acc, double pulse) {
-    final aisles = widget.allAisles;
-    return Center(
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.center,
-        children: List.generate(aisles.length, (i) {
-          final isTarget = i == widget.targetAisleIndex;
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: isTarget
-                ? BoxDecoration(
-                    color: acc.withOpacity(0.16 + 0.06 * pulse),
-                    borderRadius: BorderRadius.circular(AppTheme.rPill),
-                    border: Border.all(color: acc, width: 1.4),
-                  )
-                : AppTheme.softTint(AppTheme.textTertiary,
-                    radius: AppTheme.rPill),
-            child: Text(
-              aisles[i],
+  Widget _locationBanner(Color acc) {
+    Widget chip(String label, String value) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
               style: TextStyle(
-                fontSize: 13,
-                fontWeight: isTarget ? FontWeight.w800 : FontWeight.w500,
-                color: isTarget ? acc : AppTheme.textSecondary,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: AppTheme.textTertiary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 30,
+                height: 1.0,
+                fontWeight: FontWeight.w900,
+                color: acc,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        color: acc.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: acc.withOpacity(0.35), width: 1.2),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          chip('SÜTUN', '${widget.targetCol}'),
+          Container(
+            width: 1,
+            height: 34,
+            margin: const EdgeInsets.symmetric(horizontal: 22),
+            color: acc.withOpacity(0.25),
+          ),
+          chip('RAF', '${widget.targetRow}'),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  REYON ÇİPLERİ
+  // ════════════════════════════════════════════════════════════════════
+  Widget _aisleChips(Color acc, double pulse) {
+    final aisles = widget.allAisles;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      alignment: WrapAlignment.center,
+      children: List.generate(aisles.length, (i) {
+        final isTarget = i == widget.targetAisleIndex;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+          decoration: isTarget
+              ? BoxDecoration(
+                  color: acc.withOpacity(0.16 + 0.06 * pulse),
+                  borderRadius: BorderRadius.circular(AppTheme.rPill),
+                  border: Border.all(color: acc, width: 1.4),
+                )
+              : AppTheme.softTint(AppTheme.textTertiary,
+                  radius: AppTheme.rPill),
+          child: Text(
+            aisles[i],
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: isTarget ? FontWeight.w800 : FontWeight.w500,
+              color: isTarget ? acc : AppTheme.textSecondary,
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  SAHNE — harita ile raf şeridini çapraz geçişle bir arada tutar.
+  //  shelfReveal: 0 = tam harita · 1 = tam raf şeridi ("yakınlaşma").
+  // ════════════════════════════════════════════════════════════════════
+  Widget _stage(Color acc, double t, double shelfReveal, double pulse) {
+    const stageH = 240.0;
+    final mapOpacity = (1 - shelfReveal).clamp(0.0, 1.0);
+    final mapScale = 1.0 + shelfReveal * 0.14; // içeri "uçma" hissi
+    final stripOpacity = shelfReveal;
+    final stripScale = 0.92 + 0.08 * shelfReveal;
+
+    return SizedBox(
+      height: stageH,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Harita (altta) — yakınlaşırken büyüyüp solar
+          IgnorePointer(
+            ignoring: shelfReveal > 0.5,
+            child: Opacity(
+              opacity: mapOpacity,
+              child: Transform.scale(
+                scale: mapScale,
+                child: _reyonMap(acc, t, pulse),
+              ),
+            ),
+          ),
+          // Raf şeridi (üstte) — belirir
+          if (shelfReveal > 0.001)
+            IgnorePointer(
+              ignoring: shelfReveal < 0.5,
+              child: Opacity(
+                opacity: stripOpacity,
+                child: Transform.scale(
+                  scale: stripScale,
+                  child: _shelfStrip(acc, shelfReveal, pulse),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  REYON HARİTASI — sabit, koordinat-vurgulu ızgara
+  // ════════════════════════════════════════════════════════════════════
+  Widget _reyonMap(Color acc, double t, double pulse) {
+    const gutter = 26.0;
+    const topLabel = 24.0;
+    const gap = 6.0;
+
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.s12),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: AppTheme.hairline),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availW = constraints.maxWidth;
+          final availH =
+              constraints.maxHeight.isFinite ? constraints.maxHeight : 320.0;
+          final cellByW =
+              (availW - gutter - gap * (widget.cols + 1)) / widget.cols;
+          final cellByH =
+              (availH - topLabel - gap * (widget.rows + 1)) / widget.rows;
+          final cell = cellByW < cellByH ? cellByW : cellByH;
+          final cellSize = cell.clamp(12.0, 46.0);
+
+          final gridW =
+              gutter + gap * (widget.cols + 1) + cellSize * widget.cols;
+          final gridH =
+              topLabel + gap * (widget.rows + 1) + cellSize * widget.rows;
+
+          final pinDrop = _seg(t, 0.42, 0.60, Curves.easeOutBack);
+          final targetPop = _seg(t, 0.30, 0.48, Curves.easeOutBack);
+          final targetLeft =
+              gutter + gap + (widget.targetCol - 1) * (cellSize + gap);
+          final targetTop =
+              topLabel + gap + (widget.targetRow - 1) * (cellSize + gap);
+
+          return Center(
+            child: SizedBox(
+              width: gridW,
+              height: gridH,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (var c = 0; c < widget.cols; c++)
+                    Positioned(
+                      left: gutter + gap + c * (cellSize + gap),
+                      top: 0,
+                      width: cellSize,
+                      height: topLabel,
+                      child: _axisLabel('${c + 1}',
+                          highlight: (c + 1) == widget.targetCol, acc: acc),
+                    ),
+                  for (var r = 0; r < widget.rows; r++)
+                    Positioned(
+                      left: 0,
+                      top: topLabel + gap + r * (cellSize + gap),
+                      width: gutter,
+                      height: cellSize,
+                      child: _axisLabel('${r + 1}',
+                          highlight: (r + 1) == widget.targetRow, acc: acc),
+                    ),
+                  for (var r = 0; r < widget.rows; r++)
+                    for (var c = 0; c < widget.cols; c++)
+                      _cell(c, r, cellSize, gap, gutter, topLabel, acc, t,
+                          targetPop, pinDrop, pulse),
+                  Positioned(
+                    left: targetLeft + cellSize / 2 - 11,
+                    top: targetTop - 22 - (1 - pinDrop) * 30,
+                    child: Opacity(
+                      opacity: pinDrop.clamp(0.0, 1.0),
+                      child: Icon(
+                        Icons.location_on_rounded,
+                        size: 22 + 3 * pulse,
+                        color: acc,
+                        shadows: [
+                          Shadow(color: acc.withOpacity(0.45), blurRadius: 10),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
-        }),
+        },
       ),
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════
-  //  IZGARA — hedef hücreye 2B (sahte-3B YOK) yakınlaşma
-  // ════════════════════════════════════════════════════════════════════
-  Widget _gridViewport(Color acc, double zoom, double pinDrop, double pulse) {
-    final ax = widget.cols == 1
-        ? 0.0
-        : ((widget.targetCol - 0.5) / widget.cols) * 2 - 1;
-    final ay = widget.rows == 1
-        ? 0.0
-        : ((widget.targetRow - 0.5) / widget.rows) * 2 - 1;
-    final scale = 1.0 + zoom * 1.1;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppTheme.rMd),
-      child: Container(
-        color: AppTheme.surfaceAlt,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 5.0;
-            final cellSize = ((constraints.maxWidth - gap * (widget.cols + 1)) /
-                    widget.cols)
-                .clamp(10.0, 30.0);
-            final gridW = cellSize * widget.cols + gap * (widget.cols + 1);
-            final gridH = cellSize * widget.rows + gap * (widget.rows + 1);
-            final targetLeft =
-                gap + (widget.targetCol - 1) * (cellSize + gap);
-            final targetTop = gap + (widget.targetRow - 1) * (cellSize + gap);
-
-            return Transform(
-              alignment: Alignment(ax, ay),
-              transform: Matrix4.identity()..scale(scale),
-              child: Center(
-                child: SizedBox(
-                  width: gridW,
-                  height: gridH,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      for (var r = 0; r < widget.rows; r++)
-                        for (var c = 0; c < widget.cols; c++)
-                          _cell(c, r, cellSize, gap, acc, zoom, pinDrop),
-
-                      // ── Konum pini — hedef hücrenin tam üstüne iner ──
-                      Positioned(
-                        left: targetLeft + cellSize / 2 - 11,
-                        top: targetTop - 24 - (1 - pinDrop) * 34,
-                        child: Opacity(
-                          opacity: pinDrop.clamp(0.0, 1.0),
-                          child: Icon(
-                            Icons.location_on_rounded,
-                            size: 22 + 3 * pulse,
-                            color: acc,
-                            shadows: [
-                              Shadow(
-                                  color: acc.withOpacity(0.45), blurRadius: 10),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+  Widget _axisLabel(String text,
+      {required bool highlight, required Color acc}) {
+    return Center(
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: highlight ? 14 : 12,
+          fontWeight: highlight ? FontWeight.w900 : FontWeight.w600,
+          color: highlight ? acc : AppTheme.textTertiary,
         ),
       ),
     );
   }
 
-  Widget _cell(int c, int r, double cellSize, double gap, Color acc,
-      double zoom, double pinDrop) {
-    final isTarget = (c + 1) == widget.targetCol && (r + 1) == widget.targetRow;
-    final dim = isTarget ? 1.0 : (1.0 - zoom * 0.6).clamp(0.35, 1.0);
+  Widget _cell(int c, int r, double cellSize, double gap, double gutter,
+      double topLabel, Color acc, double t, double targetPop, double pinDrop,
+      double pulse) {
+    final isTarget =
+        (c + 1) == widget.targetCol && (r + 1) == widget.targetRow;
+    final sameCol = (c + 1) == widget.targetCol;
+    final sameRow = (r + 1) == widget.targetRow;
+
+    final rowFrac = widget.rows <= 1 ? 0.0 : r / widget.rows;
+    final appear =
+        _seg(t, 0.10 + rowFrac * 0.16, 0.32 + rowFrac * 0.16, Curves.easeOut);
+
+    Color fill;
+    BoxBorder? border;
+    List<BoxShadow>? shadow;
+    if (isTarget) {
+      fill = acc;
+      border = Border.all(color: Colors.white.withOpacity(0.9), width: 1.6);
+      shadow = AppTheme.glow(acc);
+    } else if (sameCol || sameRow) {
+      fill = acc.withOpacity(0.16);
+      border = Border.all(color: acc.withOpacity(0.30), width: 1);
+    } else {
+      fill = AppTheme.hairline;
+    }
+
+    final scale = isTarget ? (0.6 + 0.4 * targetPop) : 1.0;
 
     return Positioned(
-      left: gap + c * (cellSize + gap),
-      top: gap + r * (cellSize + gap),
+      left: gutter + gap + c * (cellSize + gap),
+      top: topLabel + gap + r * (cellSize + gap),
       width: cellSize,
       height: cellSize,
       child: Opacity(
-        opacity: dim,
-        child: Container(
-          decoration: BoxDecoration(
-            color: isTarget ? acc : AppTheme.hairline,
-            borderRadius: BorderRadius.circular(cellSize * 0.3),
-            border: isTarget
-                ? Border.all(color: Colors.white.withOpacity(0.85), width: 1.4)
+        opacity: appear,
+        child: Transform.scale(
+          scale: scale,
+          child: Container(
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: BorderRadius.circular(cellSize * 0.28),
+              border: border,
+              boxShadow: shadow,
+            ),
+            child: isTarget && pinDrop > 0.55
+                ? Center(
+                    child: Icon(Icons.check_rounded,
+                        size: cellSize * 0.6, color: Colors.white),
+                  )
                 : null,
-            boxShadow: isTarget ? AppTheme.glow(acc) : null,
           ),
-          child: isTarget && pinDrop > 0.55
-              ? Center(
-                  child: Icon(
-                    Icons.check_rounded,
-                    size: cellSize * 0.6,
-                    color: Colors.white,
-                  ),
-                )
-              : null,
         ),
       ),
     );
   }
 
   // ════════════════════════════════════════════════════════════════════
-  //  ÜRÜN BİLGİSİ + BUTONLAR
+  //  RAF ŞERİDİ — raftaki ürünlerin fotoğrafları, aranan belirgin
+  // ════════════════════════════════════════════════════════════════════
+  Widget _shelfStrip(Color acc, double reveal, double pulse) {
+    final products = widget.shelfProducts;
+    final targetIndex = products.indexWhere((p) => p.isTarget);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: AppTheme.hairline),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, left: 14, right: 14),
+            child: Row(
+              children: [
+                Icon(Icons.view_week_rounded,
+                    size: 15, color: AppTheme.textTertiary),
+                const SizedBox(width: 6),
+                Text(
+                  'Raf ${widget.targetRow} · bu raftaki ürünler',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, cons) {
+                final vw = cons.maxWidth;
+                // Aranan ürünü ortala (şerit taşarsa kaydır).
+                if (!_stripCentered && targetIndex >= 0) {
+                  double x = 14; // sol iç boşluk
+                  double targetCenter = x;
+                  for (var i = 0; i < products.length; i++) {
+                    final w =
+                        products[i].isTarget ? _kTargetW : _kNonTargetW;
+                    if (i == targetIndex) targetCenter = x + w / 2;
+                    x += w + _kGap;
+                  }
+                  final off = targetCenter - vw / 2;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!_stripCentered && _stripCtrl.hasClients) {
+                      final max = _stripCtrl.position.maxScrollExtent;
+                      _stripCtrl.jumpTo(off.clamp(0.0, max));
+                      _stripCentered = true;
+                    }
+                  });
+                }
+                return SingleChildScrollView(
+                  controller: _stripCtrl,
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < products.length; i++) ...[
+                        if (i > 0) const SizedBox(width: _kGap),
+                        _shelfTile(products[i], acc, pulse),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _shelfTile(RevealShelfProduct p, Color acc, double pulse) {
+    final isT = p.isTarget;
+    final w = isT ? _kTargetW : _kNonTargetW;
+    final photo = isT ? _kTargetW : _kNonTargetW;
+    final scale = isT ? (1.0 + 0.03 * pulse) : 1.0;
+
+    return Opacity(
+      opacity: isT ? 1.0 : 0.6,
+      child: Transform.scale(
+        scale: scale,
+        child: SizedBox(
+          width: w,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: photo,
+                    height: photo,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppTheme.rSm),
+                      border: isT
+                          ? Border.all(color: acc, width: 2.4)
+                          : Border.all(color: AppTheme.hairline),
+                      boxShadow: isT ? AppTheme.glow(acc) : null,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _photo(p.photoPath),
+                  ),
+                  if (isT)
+                    Positioned(
+                      top: -8,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: acc,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.rPill),
+                            boxShadow: AppTheme.glow(acc),
+                          ),
+                          child: const Text(
+                            'ARANAN',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 7),
+              if (p.name != null)
+                Text(
+                  p.name!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: isT ? 12.5 : 11.5,
+                    height: 1.2,
+                    fontWeight: isT ? FontWeight.w800 : FontWeight.w500,
+                    color: isT ? AppTheme.textPrimary : AppTheme.textSecondary,
+                  ),
+                ),
+              if (p.sectionNo != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    'Sütun ${p.sectionNo}',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: isT ? acc : AppTheme.textTertiary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _photo(String? path) {
+    if (path == null) return _photoPlaceholder();
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      errorBuilder: (ctx, err, stack) => _photoPlaceholder(),
+    );
+  }
+
+  Widget _photoPlaceholder() {
+    return Container(
+      color: AppTheme.surface,
+      child: Icon(Icons.inventory_2_rounded,
+          color: AppTheme.textTertiary, size: 26),
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  //  TEKİL ÜRÜN BİLGİSİ (raf verisi yoksa) + BUTONLAR
   // ════════════════════════════════════════════════════════════════════
   Widget _infoRow() {
     final showPhoto = widget.photoPath != null && _photoExists;

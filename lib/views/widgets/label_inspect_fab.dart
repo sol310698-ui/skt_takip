@@ -1,26 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/label_inspect_visibility.dart';
 import '../../core/nav_bar_visibility.dart';
 import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/theme/app_theme.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  ETİKET İNCELE FAB — Speed-Dial menüsünden ayrılıp, sağ altta ana (+)
-///  butonun TAM ÜSTÜNE sabitlenen, bağımsız (tek başına, menü açmadan
-///  her zaman görünür) yuvarlak buton.
+///  ETİKET İNCELE FAB — artık uygulamanın TÜM sayfalarında görünen,
+///  bağımsız (menü açmadan her zaman erişilebilir) global bir yuvarlak
+///  buton (bkz. main.dart: MaterialApp.builder içine eklenir).
 ///
-///  Diğer ana aksiyonlar (Etiket Bas / SKT Tara) sağ alttaki Speed-Dial
-///  içinde kalır; bu buton sık kullanıldığı için tek dokunuşla, menü
-///  açmadan erişilsin diye ayrı ve + butonunun hemen üstünde tutulur.
+///  Varsayılan konumu sağ altta, ana (+) speed-dial butonunun tam
+///  üstüdür. Kullanıcı UZUN BASIP SÜRÜKLEYEREK butonu ekranın istediği
+///  yerine taşıyabilir; bu özel konum kalıcı saklanır (bkz.
+///  LabelInspectButtonPrefs) ve tüm sayfalarda aynı yerde kalır.
 ///
 ///  Dikkat çekmesi için hafif bir "nabız" (pulse) animasyonu oynatır.
-///  Bu animasyon Ayarlar > Görünüm bölümünden açılıp kapatılabilir
-///  (bkz. LabelInspectButtonPrefs). Kapatıldığında buton sabit durur.
+///  Bu animasyon Ayarlar > Görünüm bölümünden açılıp kapatılabilir.
+///  Kullanıcı zaten Etiket İncele ekranındaysa (labelInspectFabSuppressed)
+///  buton otomatik gizlenir.
 /// ════════════════════════════════════════════════════════════════════
 class LabelInspectFab extends StatefulWidget {
   final VoidCallback onTap;
 
-  /// Alttaki nav bar / diğer sol alt butonlarla çakışmaması için pay.
+  /// Varsayılan (özel konum yokken) alttaki nav bar / + butonuyla
+  /// çakışmaması için pay.
   final double bottomOffset;
 
   const LabelInspectFab({
@@ -35,7 +40,13 @@ class LabelInspectFab extends StatefulWidget {
 
 class _LabelInspectFabState extends State<LabelInspectFab>
     with SingleTickerProviderStateMixin {
+  static const _btnSize = 56.0;
+
   late final AnimationController _pulseCtrl;
+
+  // Aktif surukleme sirasinda ekran-mutlak (px) konum; null = surukleme yok.
+  Offset? _dragPos;
+  bool _dragging = false;
 
   @override
   void initState() {
@@ -67,13 +78,135 @@ class _LabelInspectFabState extends State<LabelInspectFab>
     super.dispose();
   }
 
+  Offset _defaultTopLeft(Size screen, EdgeInsets safe) {
+    return Offset(
+      screen.width - 16 - _btnSize,
+      screen.height - (16 + widget.bottomOffset + safe.bottom) - _btnSize,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: labelInspectFabSuppressed,
+      builder: (_, suppressed, __) {
+        if (suppressed) return const SizedBox.shrink();
+        return _positioned(context);
+      },
+    );
+  }
+
+  Widget _positioned(BuildContext context) {
+    final screen = MediaQuery.of(context).size;
+    final safe = MediaQuery.of(context).padding;
+    final prefs = LabelInspectButtonPrefs.instance;
+    final hasCustom = prefs.hasCustomPosition;
+
+    Offset topLeft;
+    if (_dragPos != null) {
+      topLeft = _dragPos!;
+    } else if (hasCustom) {
+      topLeft = Offset(
+        prefs.posFx! * screen.width,
+        prefs.posFy! * screen.height,
+      );
+    } else {
+      topLeft = _defaultTopLeft(screen, safe);
+    }
+    // Ekran disina ve sistem cubuklarinin altina tasmasin.
+    topLeft = Offset(
+      topLeft.dx.clamp(0.0, screen.width - _btnSize),
+      topLeft.dy.clamp(
+          safe.top, screen.height - safe.bottom - _btnSize),
+    );
+
     final color = AppTheme.accent;
-    return Positioned(
-      right: 16,
-      bottom: 16 + widget.bottomOffset,
-      child: ValueListenableBuilder<bool>(
+
+    Widget button = AnimatedBuilder(
+      animation: _pulseCtrl,
+      builder: (_, __) {
+        final t = _pulseCtrl.value; // 0 -> 1 -> 0 (reverse ile)
+        final pulseScale = 1.0 + (t * 0.08);
+        final dragScale = _dragging ? 1.18 : 1.0;
+        final glowStrength = 0.4 + (t * 0.5);
+        return Transform.scale(
+          scale: pulseScale * dragScale,
+          child: Opacity(
+            opacity: _dragging ? 0.88 : 1.0,
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              elevation: 0,
+              child: InkWell(
+                onTap: _dragging ? null : widget.onTap,
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: _btnSize,
+                  height: _btnSize,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [color, color.withOpacity(0.75)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withOpacity(
+                            _dragging ? 0.7 : glowStrength * 0.55),
+                        blurRadius: _dragging ? 20 : 14 + (t * 10),
+                        spreadRadius: _dragging ? 3 : t * 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.document_scanner_rounded,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    // Uzun basip surukleme: buton ekranin istenen yerine tasinabilir.
+    button = GestureDetector(
+      onLongPressStart: (d) {
+        HapticFeedback.mediumImpact();
+        setState(() {
+          _dragging = true;
+          _dragPos = topLeft;
+        });
+      },
+      onLongPressMoveUpdate: (d) {
+        setState(() {
+          final next = topLeft + d.offsetFromOrigin;
+          _dragPos = Offset(
+            next.dx.clamp(0.0, screen.width - _btnSize),
+            next.dy.clamp(safe.top, screen.height - safe.bottom - _btnSize),
+          );
+        });
+      },
+      onLongPressEnd: (d) {
+        final fx = (_dragPos!.dx / screen.width).clamp(0.0, 1.0);
+        final fy = (_dragPos!.dy / screen.height).clamp(0.0, 1.0);
+        LabelInspectButtonPrefs.instance.setPosition(fx, fy);
+        HapticFeedback.selectionClick();
+        setState(() {
+          _dragging = false;
+          _dragPos = null;
+        });
+      },
+      child: button,
+    );
+
+    // Varsayilan (ozel konum tasinmamis) konumdayken nav bar ile senkron
+    // asagi/yukari kayar; ozel konuma tasinmissa kullanicinin sectigi
+    // yerde sabit kalir (beklenmedik kaymalar can sikici olur).
+    if (!hasCustom && _dragPos == null) {
+      button = ValueListenableBuilder<bool>(
         valueListenable: navBarVisible,
         builder: (_, navVisible, child) => AnimatedSlide(
           duration: const Duration(milliseconds: 250),
@@ -81,50 +214,14 @@ class _LabelInspectFabState extends State<LabelInspectFab>
           offset: navVisible ? Offset.zero : const Offset(0, 1.6),
           child: child,
         ),
-        child: AnimatedBuilder(
-          animation: _pulseCtrl,
-          builder: (_, __) {
-            final t = _pulseCtrl.value; // 0 -> 1 -> 0 (reverse ile)
-            final scale = 1.0 + (t * 0.08);
-            final glowStrength = 0.4 + (t * 0.5);
-            return Transform.scale(
-              scale: scale,
-              child: Material(
-                color: Colors.transparent,
-                shape: const CircleBorder(),
-                elevation: 0,
-                child: InkWell(
-                  onTap: widget.onTap,
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [color, color.withOpacity(0.75)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withOpacity(glowStrength * 0.55),
-                          blurRadius: 14 + (t * 10),
-                          spreadRadius: t * 2,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.document_scanner_rounded,
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+        child: button,
+      );
+    }
+
+    return Positioned(
+      left: topLeft.dx,
+      top: topLeft.dy,
+      child: button,
     );
   }
 }
