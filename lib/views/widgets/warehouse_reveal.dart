@@ -470,13 +470,24 @@ class _WarehouseFlythroughScreenState
         child: LayoutBuilder(
           builder: (context, c) {
             const gap = 5.0;
-            final cellH = ((c.maxHeight - gap * (widget.rows + 1)) /
-                    widget.rows)
-                .clamp(11.0, 40.0);
             final cellW = ((c.maxWidth - gap * (colCount + 1)) / colCount)
                 .clamp(20.0, 74.0);
             final gridW = cellW * colCount + gap * (colCount + 1);
-            final gridH = cellH * widget.rows + gap * (widget.rows + 1);
+            // TUM SUTUNLAR AYNI TOPLAM YUKSEKLIK: rafin dik direkleri aynı
+            // boydadır. Her sutun bu yuksekligi KENDI gercek raf sayisina
+            // boler; dolayisiyla raf yukseklikleri sutundan sutuna DEGISIR
+            // (3 rafli sutun = 3 yuksek raf, 6 rafli = 6 kisa raf).
+            final gridH = c.maxHeight.isFinite ? c.maxHeight : 300.0;
+
+            // Hedef sutunun kendi rafina gore palet chip konumu.
+            double chipTop = 0;
+            if (isTargetWall && targetLocalCol != null) {
+              final nT = (widget.colShelfCounts[colOffset + targetLocalCol] ??
+                      widget.rows)
+                  .clamp(1, widget.rows);
+              final bandHT = ((gridH - gap * (nT + 1)) / nT).clamp(5.0, gridH);
+              chipTop = gap + (nT - widget.targetRow) * (bandHT + gap);
+            }
 
             return Container(
               color: AppTheme.isLight
@@ -489,10 +500,8 @@ class _WarehouseFlythroughScreenState
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      // Her sutun KENDI GERCEK raf sayisi kadar cizilir
-                      // (biri 4 raf, digeri 6 raf olabilir); hepsi ayni
-                      // ZEMIN hizasindan (widget.rows referansiyla alttan)
-                      // baslar, kisa sutunlar sadece daha az yukselir.
+                      // Her sutun ayni toplam yukseklikte; kendi GERCEK raf
+                      // sayisina bolunur. Raf 1 = EN ALT.
                       for (var col = 0; col < colCount; col++)
                         for (var s = 1;
                             s <=
@@ -502,10 +511,12 @@ class _WarehouseFlythroughScreenState
                             s++)
                           _cell(
                               col,
-                              widget.rows - s,
                               s,
+                              (widget.colShelfCounts[colOffset + col + 1] ??
+                                      widget.rows)
+                                  .clamp(1, widget.rows),
                               cellW,
-                              cellH,
+                              gridH,
                               gap,
                               acc,
                               focusT,
@@ -518,11 +529,7 @@ class _WarehouseFlythroughScreenState
                               (targetLocalCol - 1) * (cellW + gap) +
                               cellW / 2 -
                               46,
-                          top: gap +
-                              (widget.rows - widget.targetRow) *
-                                  (cellH + gap) -
-                              40 -
-                              (1 - palletIn) * 30,
+                          top: chipTop - 40 - (1 - palletIn) * 30,
                           child: Opacity(
                             opacity: palletIn.clamp(0.0, 1.0),
                             child: _palletChip(acc, pulse),
@@ -541,16 +548,21 @@ class _WarehouseFlythroughScreenState
 
   Widget _cell(
       int col,
-      int rowFromTop,
-      int shelfNo,
+      int shelfNo, // 1 = EN ALT raf
+      int shelfCount, // bu sutunun GERCEK raf sayisi
       double cellW,
-      double cellH,
+      double fullH, // sutunun TAM yuksekligi (tum sutunlar icin ayni)
       double gap,
       Color acc,
       double focusT,
       double zoom,
       bool isTargetWall,
       int? targetLocalCol) {
+    // Sutunun tam yuksekligi kendi raf sayisina bolunur: raf boyu degisken.
+    final n = shelfCount < 1 ? 1 : shelfCount;
+    final bandH = ((fullH - gap * (n + 1)) / n).clamp(5.0, fullH);
+    final top = gap + (n - shelfNo) * (bandH + gap); // raf 1 en altta
+
     final isTargetCol = isTargetWall && targetLocalCol == (col + 1);
     final isTarget = isTargetCol && shelfNo == widget.targetRow;
     final colHighlight = isTargetCol ? (0.5 + 0.5 * focusT) : 0.0;
@@ -562,9 +574,9 @@ class _WarehouseFlythroughScreenState
 
     return Positioned(
       left: gap + col * (cellW + gap),
-      top: gap + rowFromTop * (cellH + gap),
+      top: top,
       width: cellW,
-      height: cellH,
+      height: bandH,
       child: Opacity(
         opacity: dim,
         child: Container(

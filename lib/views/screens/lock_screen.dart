@@ -40,6 +40,7 @@ class _LockScreenState extends State<LockScreen>
     with SingleTickerProviderStateMixin {
   bool _loading = true;
   bool _isSetupMode = false; // PIN hic yoksa kurulum modu
+  bool _isResetMode = false; // biyometrik dogrulamayla PIN sifirlama modu
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
   bool _verifying = false; // dogrulama + konum kontrolu surerken
@@ -119,6 +120,29 @@ class _LockScreenState extends State<LockScreen>
     if (ok && mounted) _unlockSuccess();
   }
 
+  /// PIN'i unuttum → biyometrik (parmak izi/yüz) doğrulama ile SIFIRLA.
+  /// Cihazda kayıtlı biyometri varsa çalışır (giriş için biyometri açık
+  /// olması şart DEĞİL). Doğrulama başarılıysa kullanıcı yeni bir PIN
+  /// belirleme moduna alınır; eski PIN'in üzerine yazılır.
+  Future<void> _forgotPin() async {
+    if (_verifying || !_biometricAvailable) return;
+    setState(() => _errorText = null);
+    final ok = await AppLockService.instance.authenticateWithBiometrics();
+    if (!mounted) return;
+    if (ok) {
+      HapticFeedback.selectionClick();
+      setState(() {
+        _isSetupMode = true; // yeni PIN belirleme akışını yeniden kullan
+        _isResetMode = true;
+        _setupFirstPin = null;
+        _entered.clear();
+        _errorText = null;
+      });
+    } else {
+      _fail('Doğrulanamadı, tekrar deneyin');
+    }
+  }
+
   void _onDigit(String d) {
     if (_entered.length >= _pinLength || _verifying) return;
     HapticFeedback.lightImpact();
@@ -195,11 +219,15 @@ class _LockScreenState extends State<LockScreen>
     }
 
     final title = _isSetupMode
-        ? (_setupFirstPin == null ? 'Bir PIN belirleyin' : 'PIN’i tekrar girin')
+        ? (_setupFirstPin == null
+            ? (_isResetMode ? 'Yeni PIN belirleyin' : 'Bir PIN belirleyin')
+            : 'PIN’i tekrar girin')
         : 'PIN girin';
     final subtitle = _isSetupMode
         ? (_setupFirstPin == null
-            ? 'Uygulamayı korumak için 6 haneli bir PIN seçin'
+            ? (_isResetMode
+                ? 'Kimliğiniz doğrulandı — yeni bir 6 haneli PIN seçin'
+                : 'Uygulamayı korumak için 6 haneli bir PIN seçin')
             : 'Onaylamak için aynı PIN’i tekrar girin')
         : 'Devam etmek için PIN’inizi girin';
 
@@ -265,9 +293,10 @@ class _LockScreenState extends State<LockScreen>
                   ),
                   const Spacer(flex: 3),
                   _buildKeypad(),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   _buildBiometricRow(),
-                  const SizedBox(height: 18),
+                  _buildForgotRow(),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
@@ -363,6 +392,24 @@ class _LockScreenState extends State<LockScreen>
       icon: const Icon(Icons.fingerprint_rounded, size: 22),
       label: const Text('Parmak izi / Yüz ile aç',
           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+    );
+  }
+
+  /// "PIN'i mi unuttunuz?" — yalnız GIRIS modunda ve cihazda biyometri
+  /// varsa gösterilir. Biyometrik doğrulama sonrası yeni PIN belirletir.
+  Widget _buildForgotRow() {
+    if (_isSetupMode || !_biometricAvailable) {
+      return const SizedBox(height: 8);
+    }
+    return TextButton.icon(
+      onPressed: _verifying ? null : _forgotPin,
+      style: TextButton.styleFrom(
+        foregroundColor: AppTheme.textSecondary,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      ),
+      icon: const Icon(Icons.lock_reset_rounded, size: 20),
+      label: const Text('PIN’i mi unuttunuz? Biyometrik ile sıfırla',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
     );
   }
 
