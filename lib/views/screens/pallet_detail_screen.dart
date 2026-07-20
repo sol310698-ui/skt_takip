@@ -238,6 +238,99 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     }
   }
 
+  // ── Barkodla urun bul & cikar ───────────────────────────────────────
+  // Buyuk paletlerde urunu listede aramak yerine barkodu okut/yaz -> palette
+  // eslesen urun bulunur ve cikarma penceresi acilir. El terminali (klavye
+  // gibi davranan barkod okuyucu) ve elle giris ile calisir.
+  Future<void> _findAndRemoveByBarcode() async {
+    final ctrl = TextEditingController();
+    final entered = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Barkodla Ürün Bul'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Barkodu okutun ya da yazın; paletteki ürün bulunup çıkarma açılır.',
+              style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+              decoration: const InputDecoration(
+                labelText: 'Barkod',
+                prefixIcon: Icon(Icons.qr_code_rounded),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('İptal')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Bul'),
+          ),
+        ],
+      ),
+    );
+    if (entered == null || entered.isEmpty || !mounted) return;
+    final norm = ScanParser.parse(entered).barcode ?? entered.trim();
+    final matches = _items
+        .where((e) => e.barcode == norm || e.barcode == entered.trim())
+        .toList();
+    if (matches.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bu palette "$norm" barkodlu ürün yok')),
+        );
+      }
+      return;
+    }
+    if (matches.length == 1) {
+      _removeItem(matches.first);
+      return;
+    }
+    // Ayni barkoddan birden fazla kayit (farkli SKT/parti) -> secim.
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Text('${matches.length} eşleşme — birini seçin',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 8),
+            for (final m in matches)
+              ListTile(
+                leading: const Icon(Icons.inventory_2_rounded),
+                title: Text(m.productName ?? m.barcode),
+                subtitle: Text('${m.quantity} adet'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _removeItem(m);
+                },
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Depo ici transfer ───────────────────────────────────────────────
   Future<void> _transfer() async {
     // Tum depolari ve raflarini cek.
@@ -686,6 +779,12 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 : Icons.photo_camera_rounded),
             tooltip: _pallet?.imagePath != null ? 'Resmi Değiştir' : 'Resim Çek',
             onPressed: _loading ? null : _capturePalletImage,
+          ),
+          // Barkodla urun bul & cikar (el terminali / elle giris)
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner_rounded),
+            tooltip: 'Barkodla Ürün Bul/Çıkar',
+            onPressed: _loading ? null : _findAndRemoveByBarcode,
           ),
           // Depo ici transfer
           IconButton(

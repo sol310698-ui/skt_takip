@@ -34,6 +34,13 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _navIndex = 0;
 
+  // DEPO: tam sayfa push YERINE shell-ici gorunum. true iken govde depoyu
+  // (kendi ic Navigator'iyla) gosterir; ALT NAV BAR AYNEN KALIR. Depo
+  // icindeki liste->detay->palet gecisleri bu ic Navigator'da olur, boylece
+  // tum akis boyunca nav bar gorunur kalir.
+  bool _warehouse = false;
+  final GlobalKey<NavigatorState> _whNavKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -59,7 +66,10 @@ class _MainShellState extends State<MainShell> {
       _openControlSheet();
       return;
     }
-    setState(() => _navIndex = i);
+    setState(() {
+      _navIndex = i;
+      _warehouse = false; // normal sekmeye donunce depo gorunumunden cik
+    });
     // Sekme degisince nav bar'i her zaman geri goster.
     navBarVisible.value = true;
   }
@@ -234,17 +244,31 @@ class _MainShellState extends State<MainShell> {
     // gradyaninin status bar arkasinda hic gorunmemesine) sebep
     // olabiliyordu. MainShell'in kendi AnnotatedRegion'i, IndexedStack
     // render olmadan ONCE devreye girip dogru rengi hemen garanti eder.
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: AppTheme.systemBarForColor(AppTheme.primary),
-      child: Scaffold(
+    return PopScope(
+      // Depo gorunumundeyken sistem geri tusu: once ic Navigator'i (detay ->
+      // liste) geri al; en kokte ise depodan cikip onceki sekmeye don.
+      canPop: !_warehouse,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        final nav = _whNavKey.currentState;
+        if (nav != null && nav.canPop()) {
+          nav.pop();
+        } else if (mounted) {
+          setState(() => _warehouse = false);
+        }
+      },
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: AppTheme.systemBarForColor(AppTheme.primary),
+        child: Scaffold(
       extendBody: true,
       backgroundColor: AppTheme.background,
       body: IndexedStack(
-        index: _stackIndex,
+        index: _warehouse ? 3 : _stackIndex,
         children: [
           const HomeScreen(),
-          BarcodeListScreen(isActive: _navIndex == 1),
+          BarcodeListScreen(isActive: _navIndex == 1 && !_warehouse),
           const ShiftScreen(),
+          _warehouseNavigator(),
         ],
       ),
       bottomNavigationBar: ValueListenableBuilder<bool>(
@@ -260,6 +284,7 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         child: _buildCustomNavBar(),
+      ),
       ),
       ),
     );
@@ -368,10 +393,28 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  /// Depo shell-ici Navigator'i: liste -> detay -> palet gecisleri burada
+  /// olur; disaridaki alt nav bar boylece tum akis boyunca gorunur kalir.
+  Widget _warehouseNavigator() {
+    return Navigator(
+      key: _whNavKey,
+      onGenerateRoute: (settings) => MaterialPageRoute(
+        settings: settings,
+        builder: (_) => const WarehouseListScreen(),
+      ),
+    );
+  }
+
   /// Ortadaki buyuk depo gecis butonu — basinca evrenler arasi gecis.
   Widget _buildWarpButton() {
     return GestureDetector(
-      onTap: _enterWarehouse,
+      onTap: () {
+        if (_warehouse) {
+          setState(() => _warehouse = false); // depodan cik
+        } else {
+          _enterWarehouse();
+        }
+      },
       child: Container(
         width: 64,
         height: 64,
@@ -389,9 +432,11 @@ class _MainShellState extends State<MainShell> {
               spreadRadius: 1,
             ),
           ],
-          border: Border.all(color: AppTheme.background, width: 4),
+          border: Border.all(
+              color: _warehouse ? Colors.white : AppTheme.background,
+              width: 4),
         ),
-        child: const Icon(Icons.warehouse_rounded,
+        child: Icon(_warehouse ? Icons.close_rounded : Icons.warehouse_rounded,
             color: Colors.white, size: 30),
       ),
     );
@@ -429,8 +474,10 @@ class _MainShellState extends State<MainShell> {
                   color: AppTheme.primary,
                   onTap: () {
                     Navigator.pop(sheetCtx);
-                    Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const WarehouseListScreen()));
+                    // Tam sayfa push YERINE shell-ici depo gorunumu: alt nav
+                    // bar aynen kalir, sadece govde degisir.
+                    setState(() => _warehouse = true);
+                    navBarVisible.value = true;
                   },
                 ),
                 const SizedBox(height: 10),
