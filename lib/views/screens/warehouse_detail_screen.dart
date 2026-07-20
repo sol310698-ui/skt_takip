@@ -154,11 +154,11 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
 
   // ── Urun arama ─────────────────────────────────────────────────────
   Future<void> _searchProduct() async {
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SearchSheet(warehouseId: widget.warehouseId),
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _SearchScreen(warehouseId: widget.warehouseId),
+      ),
     );
     if (result != null) {
       // result = palletId string -> ac
@@ -845,15 +845,15 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
 /// ════════════════════════════════════════════════════════════════════
 ///  Urun arama sheet'i (barkod okut veya yaz)
 /// ════════════════════════════════════════════════════════════════════
-class _SearchSheet extends StatefulWidget {
+class _SearchScreen extends StatefulWidget {
   final int warehouseId;
-  const _SearchSheet({required this.warehouseId});
+  const _SearchScreen({required this.warehouseId});
 
   @override
-  State<_SearchSheet> createState() => _SearchSheetState();
+  State<_SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchSheetState extends State<_SearchSheet> {
+class _SearchScreenState extends State<_SearchScreen> {
   final _ctrl = TextEditingController();
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
@@ -893,46 +893,62 @@ class _SearchSheetState extends State<_SearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      maxChildSize: 0.92,
-      minChildSize: 0.5,
-      expand: false,
-      builder: (ctx, scroll) => Container(
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-        child: ListView(
-          controller: scroll,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                    color: AppTheme.textTertiary,
-                    borderRadius: BorderRadius.circular(2)),
+    final topPad = MediaQuery.of(context).padding.top;
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── HERO ─ tam sayfa "fragment" basligi.
+          Container(
+            padding: EdgeInsets.fromLTRB(8, topPad + 8, 16, 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accent,
+                  Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+                ],
               ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppTheme.rLg)),
             ),
-            const Text('Ürün Ara',
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text(
-              'Reyon etiketini (QR) veya ürün barkodunu okutun. Etiketten '
-              'okunan barkod depoda aranır.',
-              style:
-                  TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_rounded,
+                      color: Colors.black),
+                ),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Ürün Ara',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black)),
+                      Text('Etiket QR / barkod okut — depoda bul',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.black87)),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+          ),
+          Expanded(
+            child: ListView(
+          padding: EdgeInsets.fromLTRB(20, 14, 20,
+              MediaQuery.of(context).padding.bottom + 20),
+          children: [
             if (_camOpen)
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppTheme.rMd),
                 child: SizedBox(
-                  height: 180,
+                  height: 260,
                   child: MobileScanner(
                     controller: _scanner,
                     onDetect: (cap) {
@@ -1037,7 +1053,9 @@ class _SearchSheetState extends State<_SearchSheet> {
               ],
             ],
           ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -48,8 +48,6 @@ class _MainShellState extends State<MainShell> {
   // gosterir; alt nav bar Reyon|Depo moduna gecer.
   bool _warehouse = false;
   int _whTab = 0; // 0 = Reyon (varsayilan), 1 = Depo
-  final GlobalKey<NavigatorState> _reyonNavKey = GlobalKey<NavigatorState>();
-  final GlobalKey<NavigatorState> _depoNavKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -239,17 +237,14 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // Depo gorunumundeyken sistem geri tusu: once AKTIF sekmenin ic
-      // Navigator'ini geri al; en kokte ise depodan cikip onceki sekmeye don.
+      // Depo gorunumundeyken sistem geri tusu depodan cikarir. Detay
+      // ekranlari artik KOK Navigator'a push edildigi icin (tam sayfa,
+      // nav bar YOK) onlarin geri islemi normal route pop'udur ve buraya
+      // ugramaz.
       canPop: !_warehouse,
       onPopInvoked: (didPop) {
         if (didPop) return;
-        final nav = (_whTab == 0 ? _reyonNavKey : _depoNavKey).currentState;
-        if (nav != null && nav.canPop()) {
-          nav.pop();
-        } else if (mounted) {
-          setState(() => _warehouse = false);
-        }
+        if (mounted) setState(() => _warehouse = false);
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: AppTheme.systemBarForColor(AppTheme.primary),
@@ -441,15 +436,16 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  /// Depo govdesi: Reyon ve Depo sekmeleri, HER BIRI kendi ic
-  /// Navigator'iyla (liste -> detay -> palet gecisleri sekme icinde kalir,
-  /// alt nav bar hep gorunur).
+  /// Depo govdesi: Reyon ve Depo KOK listeleri. Ic Navigator YOK —
+  /// detaya gecisler ekranlarin kendi Navigator.of(context) push'lariyla
+  /// KOK Navigator uzerinden TAM SAYFA olur; boylece nav bar yalnizca bu
+  /// iki kok listede gorunur, detay/resim/sheet ekranlarinin ustune BINMEZ.
   ///
   /// KOK COZUM (nav bar bosluk sorunu): MediaQuery'nin alt padding /
-  /// viewPadding degerleri nav bar yuksekligi kadar ARTIRILIR. Boylece bu
-  /// agacin ALTINDAKI TUM ekranlarda SafeArea, Scaffold FAB konumu ve
-  /// MediaQuery.padding.bottom kullanan her liste otomatik olarak nav
-  /// barin USTUNDE kalir — ekran ekran elle padding vermek gerekmez.
+  /// viewPadding degerleri nav bar yuksekligi kadar artirilir; SafeArea,
+  /// FAB ve listeler bu iki kok ekranda otomatik nav barin ustunde kalir.
+  /// Tam sayfa push edilen detaylar kok Navigator context'inde kuruldugu
+  /// icin bu boost'u MIRAS ALMAZ — onlarda fazladan bosluk olusmaz.
   Widget _warehouseBody() {
     return Builder(builder: (context) {
       final mq = MediaQuery.of(context);
@@ -463,21 +459,9 @@ class _MainShellState extends State<MainShell> {
         data: boosted,
         child: IndexedStack(
           index: _whTab,
-          children: [
-            Navigator(
-              key: _reyonNavKey,
-              onGenerateRoute: (settings) => MaterialPageRoute(
-                settings: settings,
-                builder: (_) => const ShelfLayoutListScreen(isTabRoot: true),
-              ),
-            ),
-            Navigator(
-              key: _depoNavKey,
-              onGenerateRoute: (settings) => MaterialPageRoute(
-                settings: settings,
-                builder: (_) => const WarehouseListScreen(isTabRoot: true),
-              ),
-            ),
+          children: const [
+            ShelfLayoutListScreen(isTabRoot: true),
+            WarehouseListScreen(isTabRoot: true),
           ],
         ),
       );

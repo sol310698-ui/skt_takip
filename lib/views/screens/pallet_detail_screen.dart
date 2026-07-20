@@ -8,6 +8,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
 import '../../core/services/database_service.dart';
+import '../../data/datasources/barcode_directory_datasource.dart';
+import '../../data/models/barcode_entry.dart';
+import '../../data/repositories/barcode_directory_repository.dart';
 import '../../core/services/waybill_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
@@ -165,13 +168,17 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     openImageZoom(context, filePath: path, title: _pallet!.code);
   }
 
-  // ── Urun ekle ──────────────────────────────────────────────────────
+  // ── Urun ekle — TAM SAYFA akilli ekran (sheet degil, fragment gibi) ─
   Future<void> _addItem() async {
-    final res = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AddItemSheet(palletId: widget.palletId),
+    final res = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _AddItemScreen(
+          palletId: widget.palletId,
+          warehouseId: widget.warehouseId,
+          palletCode: _pallet?.code ?? 'Palet',
+        ),
+      ),
     );
     if (res == true) _load();
   }
@@ -342,14 +349,15 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     // Transfer hedefini kullaniciya sec: (warehouseId, shelfId) cift
     // shelfId == null && warehouseId == widget.warehouseId → bekleme
     // shelfId == null && warehouseId != widget.warehouseId → diger depoda bekleme
-    final result = await showModalBottomSheet<_TransferTarget>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _TransferSheet(
-        currentWarehouseId: widget.warehouseId,
-        currentShelfId: _pallet?.shelfId,
-        allWarehouses: allWarehouses,
+    final result = await Navigator.of(context).push<_TransferTarget>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _TransferScreen(
+          currentWarehouseId: widget.warehouseId,
+          currentShelfId: _pallet?.shelfId,
+          allWarehouses: allWarehouses,
+          palletCode: _pallet?.code ?? 'Palet',
+        ),
       ),
     );
 
@@ -1471,27 +1479,60 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 }
 
 /// ════════════════════════════════════════════════════════════════════
-///  Urun ekleme sheet'i (barkod okut + adet)
+///  ÜRÜN EKLEME — TAM SAYFA AKILLI EKRAN ("fragment" gibi, sheet değil)
+/// ────────────────────────────────────────────────────────────────────
+///  İki giriş yolu (üstte segment):
+///   • TARA  — kamera ile barkod okut (eski davranış).
+///   • ARA   — VERİTABANI SORGUSU: barkod dizininde ad / barkod / stok
+///             kodu ile canlı arama; sonuçtan seçince form dolar.
+///  AKILLI katman (ürün seçilince):
+///   • Dizinden ad + stok kodu otomatik gelir.
+///   • Ürün BU depoda başka nerede varsa (palet + sütun·raf + adet)
+///     çipler halinde gösterilir; aynı palete ekleme "miktar birleşir"
+///     uyarısı verir.
+///   • Ad içindeki paket kalıbı (*12, PLT-72) çözümlenip koli bazlı
+///     giriş açılır (eski davranış korunur).
 /// ════════════════════════════════════════════════════════════════════
-class _AddItemSheet extends StatefulWidget {
+class _AddItemScreen extends StatefulWidget {
   final int palletId;
-  const _AddItemSheet({required this.palletId});
+  final int warehouseId;
+  final String palletCode;
+  const _AddItemScreen({
+    required this.palletId,
+    required this.warehouseId,
+    required this.palletCode,
+  });
   @override
-  State<_AddItemSheet> createState() => _AddItemSheetState();
+  State<_AddItemScreen> createState() => _AddItemScreenState();
 }
 
-class _AddItemSheetState extends State<_AddItemSheet> {
+class _AddItemScreenState extends State<_AddItemScreen> {
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   final _expiryCtrl = TextEditingController();
-  final _qtyCtrl    = TextEditingController(text: '1');
-  final _caseCtrl   = TextEditingController(); // koli bazinda giris
-  final _nameCtrl   = TextEditingController();
+  final _qtyCtrl = TextEditingController(text: '1');
+  final _caseCtrl = TextEditingController(); // koli bazinda giris
+  final _nameCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
 
-  String?   _barcode;
+  late final BarcodeDirectoryRepository _dirRepo =
+      BarcodeDirectoryRepository(
+          BarcodeDirectoryDataSource(DatabaseService.instance));
+
+  int _mode = 0; // 0 = TARA (kamera), 1 = ARA (veritabani)
+  String? _barcode;
+  String? _stockCode;
   DateTime? _expiry;
-  bool _busy  = false;
-  int  _added = 0;
+  bool _busy = false;
+  int _added = 0;
+
+  // Canli arama durumu.
+  List<BarcodeEntry> _results = [];
+  bool _searching = false;
+  int _searchSeq = 0; // gec gelen sonuclari at
+
+  // Akilli konum bilgisi: urun bu depoda baska nerede?
+  List<ProductLocation> _existingLocs = [];
 
   @override
   void dispose() {
@@ -1500,7 +1541,64 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     _qtyCtrl.dispose();
     _caseCtrl.dispose();
     _nameCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  // ── VERİTABANI ARAMASI ────────────────────────────────────────────
+  Future<void> _runSearch(String q) async {
+    final seq = ++_searchSeq;
+    if (q.trim().length < 2) {
+      setState(() => _results = []);
+      return;
+    }
+    setState(() => _searching = true);
+    final res = await _dirRepo.search(q);
+    if (!mounted || seq != _searchSeq) return;
+    setState(() {
+      _results = res;
+      _searching = false;
+    });
+  }
+
+  Future<void> _pickEntry(BarcodeEntry e) async {
+    await _scanner.stop();
+    await _select(e.barcode, name: e.productName, stockCode: e.stockCode);
+  }
+
+  // ── Ortak seçim: barkod belli olunca formu + akıllı bilgiyi doldur ─
+  Future<void> _select(String code,
+      {String? name, String? stockCode, DateTime? expiry}) async {
+    String? resolved = name;
+    String? sc = stockCode;
+    if (resolved == null || sc == null) {
+      try {
+        final entry = await _dirRepo.findEntryByBarcode(code);
+        resolved ??= entry?.productName;
+        sc ??= entry?.stockCode;
+      } catch (_) {}
+    }
+    if (resolved == null) {
+      try {
+        resolved = await WarehouseService.instance.resolveName(code);
+      } catch (_) {}
+    }
+    // Urun bu depoda zaten nerede? (akilli konum sorgusu)
+    List<ProductLocation> locs = [];
+    try {
+      locs =
+          await WarehouseService.instance.findProduct(widget.warehouseId, code);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _barcode = code;
+      _stockCode = sc;
+      _expiry = expiry;
+      _existingLocs = locs;
+      if (resolved != null) _nameCtrl.text = resolved;
+      _results = [];
+      _searchCtrl.clear();
+    });
   }
 
   Future<void> _onDetect(BarcodeCapture cap) async {
@@ -1508,21 +1606,14 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     final raw = cap.barcodes.firstOrNull?.rawValue;
     if (raw == null) return;
     final parsed = ScanParser.parse(raw);
-    final code   = parsed.barcode ?? raw.trim();
+    final code = parsed.barcode ?? raw.trim();
     await _scanner.stop();
     if (parsed.expiryDate != null) {
       final d = parsed.expiryDate!;
       _expiryCtrl.text =
-          '${d.day.toString().padLeft(2,"0")}.${d.month.toString().padLeft(2,"0")}.${d.year}';
+          '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
     }
-    String? name;
-    try { name = await WarehouseService.instance.resolveName(code); } catch (_) {}
-    if (!mounted) return;
-    setState(() {
-      _barcode = code;
-      _expiry  = parsed.expiryDate;
-      if (name != null) _nameCtrl.text = name;
-    });
+    await _select(code, expiry: parsed.expiryDate);
   }
 
   void _parseExpiry() {
@@ -1546,7 +1637,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     final d = outcome.date.year == 1900 ? null : outcome.date;
     if (d != null) {
       _expiryCtrl.text =
-          '${d.day.toString().padLeft(2,"0")}.${d.month.toString().padLeft(2,"0")}.${d.year}';
+          '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
     }
     setState(() => _expiry = d);
   }
@@ -1554,348 +1645,631 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   Future<void> _confirm() async {
     if (_barcode == null) return;
     _parseExpiry();
-    // SKT ve ad opsiyonel — girilmemişse de kaydedilir.
-    final qty  = (int.tryParse(_qtyCtrl.text.trim()) ?? 1).clamp(1, 9999);
-    final name = _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
+    final qty = (int.tryParse(_qtyCtrl.text.trim()) ?? 1).clamp(1, 9999);
+    final name =
+        _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
 
-    // Depoya ekle.
     await WarehouseService.instance.addItemToPallet(
       palletId: widget.palletId,
-      barcode:  _barcode!,
+      barcode: _barcode!,
       quantity: qty,
       productName: name,
     );
 
-    // SKT girilmişse SKT listesine de ekle — palet bağlantısı OLMADAN
-    // (location boş; normal ürün gibi takip edilsin).
+    // SKT girilmisse SKT listesine de ekle (palet baglantisiz).
     if (_expiry != null) {
       final db = await DatabaseService.instance.database;
       await db.insert('products', {
-        'name':            name ?? _barcode!,
-        'barcode':         _barcode!,
-        'expiry_date':     _expiry!.millisecondsSinceEpoch,
-        'quantity':        qty,
-        'created_at':      DateTime.now().millisecondsSinceEpoch,
+        'name': name ?? _barcode!,
+        'barcode': _barcode!,
+        'expiry_date': _expiry!.millisecondsSinceEpoch,
+        'quantity': qty,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
         'disposal_status': 'active',
       });
     }
 
     if (!mounted) return;
+    HapticFeedback.mediumImpact();
     setState(() {
-      _added++; _barcode = null; _expiry = null;
-      _expiryCtrl.clear(); _qtyCtrl.text = "1"; _caseCtrl.clear(); _nameCtrl.clear();
+      _added++;
+      _barcode = null;
+      _stockCode = null;
+      _expiry = null;
+      _existingLocs = [];
+      _expiryCtrl.clear();
+      _qtyCtrl.text = '1';
+      _caseCtrl.clear();
+      _nameCtrl.clear();
       _busy = false;
     });
-    await _scanner.start();
+    if (_mode == 0) await _scanner.start();
   }
 
-  /// Elle barkod / ürün adı girişi (kamera olmadan).
-  Future<void> _manualEntry() async {
-    final bcCtrl = TextEditingController();
-    final nmCtrl = TextEditingController();
-    await _scanner.stop();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Elle Ürün Girişi'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: bcCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Barkod',
-                prefixIcon: Icon(Icons.qr_code_rounded),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: nmCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Ürün adı (opsiyonel)',
-                prefixIcon: Icon(Icons.label_outline_rounded),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('İptal')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Devam')),
-        ],
-      ),
-    );
-
-    if (ok != true) {
-      await _scanner.start();
-      return;
-    }
-    final bc = bcCtrl.text.trim();
-    final nm = nmCtrl.text.trim();
-    if (bc.isEmpty && nm.isEmpty) {
-      await _scanner.start();
-      return;
-    }
-
-    String? name = nm.isEmpty ? null : nm;
-    if (name == null && bc.isNotEmpty) {
-      try {
-        name = await WarehouseService.instance.resolveName(bc);
-      } catch (_) {}
-    }
-    if (!mounted) return;
+  void _reset() async {
     setState(() {
-      _barcode = bc.isEmpty
-          ? 'MANUEL-${DateTime.now().millisecondsSinceEpoch % 100000}'
-          : bc;
-      if (name != null) _nameCtrl.text = name;
+      _barcode = null;
+      _stockCode = null;
+      _expiry = null;
+      _existingLocs = [];
+      _expiryCtrl.clear();
+      _nameCtrl.clear();
     });
+    if (_mode == 0) await _scanner.start();
   }
 
+  // ── UI ────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-          20, 14, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                    color: AppTheme.textTertiary,
-                    borderRadius: BorderRadius.circular(2)),
+    final topPad = MediaQuery.of(context).padding.top;
+    final kb = MediaQuery.of(context).viewInsets.bottom;
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      resizeToAvoidBottomInset: false,
+      body: Column(
+        children: [
+          // ── HERO BAŞLIK ─────────────────────────────────────────
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(8, topPad + 8, 12, 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accent,
+                  Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+                ],
               ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppTheme.rLg)),
             ),
-            Row(
+            child: Column(
               children: [
-                const Expanded(
-                  child: Text("Ürün Ekle",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                ),
-                if (_added > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.statusSafe.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(AppTheme.rPill),
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () =>
+                          Navigator.of(context).pop(_added > 0),
+                      icon: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.black),
                     ),
-                    child: Text("$_added eklendi",
-                        style: const TextStyle(
-                            color: AppTheme.statusSafe,
-                            fontWeight: FontWeight.w700, fontSize: 12)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            if (_barcode == null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppTheme.rMd),
-                child: SizedBox(
-                  height: 190,
-                  child: MobileScanner(
-                      controller: _scanner, onDetect: _onDetect),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Ürün Ekle',
+                              style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black)),
+                          Text(widget.palletCode,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.black87)),
+                        ],
+                      ),
+                    ),
+                    if (_added > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.rPill),
+                        ),
+                        child: Text('$_added eklendi',
+                            style: const TextStyle(
+                                color: AppTheme.accent,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 12)),
+                      ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _manualEntry,
-                icon: const Icon(Icons.keyboard_rounded, size: 18),
-                label: const Text('Elle Barkod / Ürün Adı Gir'),
-              ),
-            ]
-            else ...[
-              // Barkod satiri
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: AppTheme.card(accentColor: AppTheme.accent),
-                child: Row(children: [
-                  const Icon(Icons.qr_code_2_rounded, color: AppTheme.accent, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(_barcode!,
-                      style: const TextStyle(fontFamily: "monospace",
-                          fontWeight: FontWeight.w700, fontSize: 13))),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero, minimumSize: const Size(50, 30)),
-                    onPressed: () async {
-                      setState(() { _barcode = null; _expiry = null; });
-                      _expiryCtrl.clear(); _nameCtrl.clear();
-                      await _scanner.start();
-                    },
-                    child: const Text("Değiştir", style: TextStyle(fontSize: 12)),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 10),
-              // Urun adi
-              TextField(
-                controller: _nameCtrl,
-                onChanged: (_) => setState(() {}), // paket bilgisi guncellensin
-                decoration: const InputDecoration(
-                  labelText: "Ürün adı",
-                  prefixIcon: Icon(Icons.label_outline_rounded),
-                  isDense: true,
-                ),
-              ),
-              Builder(builder: (context) {
-                final pkg = parseProductPackaging(_nameCtrl.text);
-                if (!pkg.hasAny) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: [
-                      if (pkg.piecesPerCase != null)
-                        _pkgChip(
-                            '1 koli = ${pkg.piecesPerCase} adet',
-                            Icons.inventory_2_outlined),
-                      if (pkg.palletCaseCapacity != null)
-                        _pkgChip(
-                            'Palet max ${pkg.palletCaseCapacity} koli',
-                            Icons.view_in_ar_rounded),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 10),
-              // SKT - klavye + opsiyonel OCR
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _expiryCtrl,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [_DateInputFormatter()],
-                      onChanged: (_) => _parseExpiry(),
-                      onSubmitted: (_) => _parseExpiry(),
-                      decoration: InputDecoration(
-                        labelText: "SKT (gg.aa.yyyy) — opsiyonel",
-                        prefixIcon: Icon(Icons.event_rounded,
-                            color: _expiry != null ? AppTheme.statusSafe : null),
-                        suffixIcon: _expiry != null
-                            ? const Icon(Icons.check_circle_rounded,
-                                color: AppTheme.statusSafe, size: 18)
-                            : null,
-                        isDense: true,
+                if (_barcode == null) ...[
+                  const SizedBox(height: 6),
+                  // TARA | ARA segment secici.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(AppTheme.rPill),
+                      ),
+                      child: Row(
+                        children: [
+                          _modeItem(0, Icons.qr_code_scanner_rounded, 'Tara'),
+                          _modeItem(1, Icons.manage_search_rounded,
+                              'Veritabanında Ara'),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Tooltip(
-                    message: "OCR ile tara",
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(10),
-                      onTap: _scanExpiry,
+                ],
+              ],
+            ),
+          ),
+          // ── GÖVDE ───────────────────────────────────────────────
+          Expanded(
+            child: _barcode == null
+                ? (_mode == 0 ? _scanBody() : _searchBody(kb))
+                : _formBody(kb, bottomPad),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeItem(int i, IconData icon, String label) {
+    final sel = _mode == i;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () async {
+          if (_mode == i) return;
+          setState(() => _mode = i);
+          if (i == 0) {
+            await _scanner.start();
+          } else {
+            await _scanner.stop();
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: sel ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 16, color: sel ? Colors.black : Colors.black54),
+              const SizedBox(width: 5),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+                      color: sel ? Colors.black : Colors.black54)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── MOD 1: KAMERA ─────────────────────────────────────────────────
+  Widget _scanBody() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.rLg),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  MobileScanner(controller: _scanner, onDetect: _onDetect),
+                  // Nisan cercevesi.
+                  IgnorePointer(
+                    child: Center(
                       child: Container(
-                        padding: const EdgeInsets.all(10),
+                        width: 230,
+                        height: 140,
                         decoration: BoxDecoration(
-                          color: AppTheme.surfaceAlt,
-                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: AppTheme.textTertiary.withOpacity(0.3)),
+                              color: AppTheme.accent, width: 2.5),
+                          borderRadius: BorderRadius.circular(AppTheme.rMd),
                         ),
-                        child: const Icon(Icons.document_scanner_rounded,
-                            size: 20, color: AppTheme.primary),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              // Adet - paket bilgisi varsa KOLI bazinda da girilebilir
-              // (surekli + tusuna basmak yerine dogrudan klavyeyle).
-              Builder(builder: (context) {
-                final pkg = parseProductPackaging(_nameCtrl.text);
-                final pieces = pkg.piecesPerCase;
-                if (pieces == null || pieces <= 0) {
-                  return TextField(
-                    controller: _qtyCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: "Adet",
-                      prefixIcon: Icon(Icons.inventory_2_outlined),
-                      isDense: true,
-                    ),
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _caseCtrl,
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) {
-                          final cases = int.tryParse(v.trim());
-                          if (cases != null) {
-                            _qtyCtrl.text = (cases * pieces).toString();
-                          }
-                          setState(() {});
-                        },
-                        decoration: const InputDecoration(
-                          labelText: "Koli",
-                          prefixIcon: Icon(Icons.inventory_2_outlined),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _qtyCtrl,
-                        keyboardType: TextInputType.number,
-                        onChanged: (_) =>
-                            setState(() => _caseCtrl.clear()),
-                        decoration: const InputDecoration(
-                          labelText: "Adet",
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _busy ? null : _confirm,                icon: _busy
-                    ? const SizedBox(width: 16, height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.black))
-                    : const Icon(Icons.add_rounded),
-                label: Text(_expiry != null ? "Palete Ekle + SKT Kaydet" : "Palete Ekle",
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.accent,
-                    foregroundColor: Colors.black),
-              ),
-            ],
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => Navigator.pop(context, _added > 0),
-              child: Text(_added > 0 ? "Bitir ($_added eklendi)" : "Kapat"),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text('Barkodu çerçeveye hizala',
+              style:
+                  TextStyle(fontSize: 12.5, color: AppTheme.textTertiary)),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _mode = 1),
+            icon: const Icon(Icons.manage_search_rounded, size: 18),
+            label: const Text('Kamera yerine veritabanında ara'),
+          ),
+          SizedBox(height: MediaQuery.of(context).padding.bottom),
+        ],
       ),
     );
   }
+
+  // ── MOD 2: VERİTABANI ARAMA ───────────────────────────────────────
+  Widget _searchBody(double kb) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 14, 16, kb > 0 ? kb + 8 : 16),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchCtrl,
+            autofocus: true,
+            onChanged: _runSearch,
+            decoration: InputDecoration(
+              labelText: 'Ürün adı, barkod veya stok kodu',
+              prefixIcon: const Icon(Icons.manage_search_rounded),
+              suffixIcon: _searchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _results = []);
+                      },
+                    )
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _searching
+                ? const Center(child: CircularProgressIndicator())
+                : _results.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.storage_rounded,
+                                size: 44,
+                                color:
+                                    AppTheme.textTertiary.withOpacity(0.5)),
+                            const SizedBox(height: 10),
+                            Text(
+                              _searchCtrl.text.trim().length < 2
+                                  ? 'Dizinde aramak için en az 2 harf yazın'
+                                  : 'Eşleşme yok — barkodu tarayarak da\nekleyebilirsiniz',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppTheme.textTertiary),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _results.length,
+                        itemBuilder: (_, i) {
+                          final e = _results[i];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: InkWell(
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.rMd),
+                              onTap: () => _pickEntry(e),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: AppTheme.card(),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.accent
+                                            .withOpacity(0.14),
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                          Icons.qr_code_2_rounded,
+                                          size: 18,
+                                          color: AppTheme.accent),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(e.productName,
+                                              maxLines: 2,
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                  fontSize: 13.5,
+                                                  fontWeight:
+                                                      FontWeight.w700)),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            e.stockCode != null
+                                                ? '${e.barcode} · Stok: ${e.stockCode}'
+                                                : e.barcode,
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                fontFamily: 'monospace',
+                                                color:
+                                                    AppTheme.textTertiary),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Icon(Icons.add_circle_rounded,
+                                        color: AppTheme.accent),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── FORM: ürün seçildi ────────────────────────────────────────────
+  Widget _formBody(double kb, double bottomPad) {
+    final pkg = parseProductPackaging(_nameCtrl.text);
+    final onThisPallet = _existingLocs
+        .where((l) => l.pallet.id == widget.palletId)
+        .toList();
+    final elsewhere = _existingLocs
+        .where((l) => l.pallet.id != widget.palletId)
+        .toList();
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+          16, 14, 16, (kb > 0 ? kb : bottomPad) + 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Barkod + stok kodu karti.
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: AppTheme.card(accentColor: AppTheme.accent),
+            child: Row(children: [
+              const Icon(Icons.qr_code_2_rounded,
+                  color: AppTheme.accent, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_barcode!,
+                        style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13)),
+                    if (_stockCode != null)
+                      Text('Stok kodu: $_stockCode',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textTertiary)),
+                  ],
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(50, 30)),
+                onPressed: _reset,
+                child:
+                    const Text('Değiştir', style: TextStyle(fontSize: 12)),
+              ),
+            ]),
+          ),
+          // ── AKILLI KONUM: urun depoda zaten nerede? ──
+          if (onThisPallet.isNotEmpty || elsewhere.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+                border:
+                    Border.all(color: AppTheme.primary.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.travel_explore_rounded,
+                          size: 16, color: AppTheme.primary),
+                      const SizedBox(width: 6),
+                      const Text('Bu ürün depoda zaten var',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final l in onThisPallet)
+                        _locChip(
+                            'Bu palet · ${l.item.quantity} adet '
+                            '(miktar birleşecek)',
+                            AppTheme.statusSafe),
+                      for (final l in elsewhere)
+                        _locChip(
+                            '${l.pallet.code}'
+                            '${l.shelf != null ? ' · S${l.shelf!.columnNo}·R${l.shelf!.shelfNo}' : ' · Bekleme'}'
+                            ' · ${l.item.quantity} adet',
+                            AppTheme.primary),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          // Urun adi.
+          TextField(
+            controller: _nameCtrl,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              labelText: 'Ürün adı',
+              prefixIcon: Icon(Icons.label_outline_rounded),
+              isDense: true,
+            ),
+          ),
+          if (pkg.hasAny)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  if (pkg.piecesPerCase != null)
+                    _pkgChip('1 koli = ${pkg.piecesPerCase} adet',
+                        Icons.inventory_2_outlined),
+                  if (pkg.palletCaseCapacity != null)
+                    _pkgChip('Palet max ${pkg.palletCaseCapacity} koli',
+                        Icons.view_in_ar_rounded),
+                ],
+              ),
+            ),
+          const SizedBox(height: 10),
+          // SKT - klavye + OCR.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _expiryCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [_DateInputFormatter()],
+                  onChanged: (_) => _parseExpiry(),
+                  onSubmitted: (_) => _parseExpiry(),
+                  decoration: InputDecoration(
+                    labelText: 'SKT (gg.aa.yyyy) — opsiyonel',
+                    prefixIcon: Icon(Icons.event_rounded,
+                        color:
+                            _expiry != null ? AppTheme.statusSafe : null),
+                    suffixIcon: _expiry != null
+                        ? const Icon(Icons.check_circle_rounded,
+                            color: AppTheme.statusSafe, size: 18)
+                        : null,
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'OCR ile tara',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: _scanExpiry,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceAlt,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: AppTheme.textTertiary.withOpacity(0.3)),
+                    ),
+                    child: const Icon(Icons.document_scanner_rounded,
+                        size: 20, color: AppTheme.primary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Adet / koli girisi.
+          if (pkg.piecesPerCase == null || pkg.piecesPerCase! <= 0)
+            TextField(
+              controller: _qtyCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Adet',
+                prefixIcon: Icon(Icons.inventory_2_outlined),
+                isDense: true,
+              ),
+            )
+          else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _caseCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (v) {
+                      final cases = int.tryParse(v.trim());
+                      if (cases != null) {
+                        _qtyCtrl.text =
+                            (cases * pkg.piecesPerCase!).toString();
+                      }
+                      setState(() {});
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Koli',
+                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _qtyCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() => _caseCtrl.clear()),
+                    decoration: const InputDecoration(
+                      labelText: 'Adet',
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _busy ? null : _confirm,
+            icon: _busy
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.black))
+                : const Icon(Icons.add_rounded),
+            label: Text(
+                _expiry != null ? 'Palete Ekle + SKT Kaydet' : 'Palete Ekle',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14)),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _added > 0),
+            child: Text(_added > 0 ? 'Bitir ($_added eklendi)' : 'Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _locChip(String label, Color color) => Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.14),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color)),
+      );
 
   Widget _pkgChip(String label, IconData icon) {
     return Container(
@@ -1927,21 +2301,23 @@ class _TransferTarget {
 
 /// Depolar arasi transfer secim sheet'i.
 /// Ust: depo secici (chip'ler). Alt: secilen depodaki raflar.
-class _TransferSheet extends StatefulWidget {
+class _TransferScreen extends StatefulWidget {
   final int currentWarehouseId;
   final int? currentShelfId;
   final List<Warehouse> allWarehouses;
-  const _TransferSheet({
+  final String palletCode;
+  const _TransferScreen({
     required this.currentWarehouseId,
     required this.currentShelfId,
     required this.allWarehouses,
+    required this.palletCode,
   });
 
   @override
-  State<_TransferSheet> createState() => _TransferSheetState();
+  State<_TransferScreen> createState() => _TransferScreenState();
 }
 
-class _TransferSheetState extends State<_TransferSheet> {
+class _TransferScreenState extends State<_TransferScreen> {
   late int _selectedWarehouseId;
   List<ShelfSummary> _shelves = [];
   bool _loading = false;
@@ -1966,36 +2342,58 @@ class _TransferSheetState extends State<_TransferSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      maxChildSize: 0.92,
-      minChildSize: 0.5,
-      expand: false,
-      builder: (ctx, scroll) => Container(
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Tutac
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                    color: AppTheme.textTertiary,
-                    borderRadius: BorderRadius.circular(2)),
+    final topPad = MediaQuery.of(context).padding.top;
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── HERO ─ tam sayfa "fragment" basligi.
+          Container(
+            padding: EdgeInsets.fromLTRB(8, topPad + 8, 16, 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accent,
+                  Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+                ],
               ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppTheme.rLg)),
             ),
-            const Text('Paleti Taşı',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text('Hedef depo ve rafı seçin.',
-                style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary)),
-            const SizedBox(height: 14),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_rounded,
+                      color: Colors.black),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Paleti Taşı',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black)),
+                      Text('${widget.palletCode} · hedef depo ve rafı seçin',
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.black87)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
 
             // Depo secici (yatay chip'ler)
             if (widget.allWarehouses.length > 1) ...[
@@ -2088,7 +2486,9 @@ class _TransferSheetState extends State<_TransferSheet> {
             else
               Expanded(
                 child: ListView(
-                  controller: scroll,
+                  padding: EdgeInsets.only(
+                      bottom:
+                          MediaQuery.of(context).padding.bottom + 12),
                   children: _shelves.map((s) {
                     final full = s.isFull &&
                         !(s.shelf.id == widget.currentShelfId &&
@@ -2126,8 +2526,11 @@ class _TransferSheetState extends State<_TransferSheet> {
                   }).toList(),
                 ),
               ),
-          ],
-        ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

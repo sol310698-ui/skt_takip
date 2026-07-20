@@ -184,56 +184,28 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
           Expanded(
             child: _loading
                 ? const LoadingState()
-                : _units.isEmpty
-                    ? EmptyState(
-                        icon: Icons.grid_view_rounded,
-                        iconColor: AppTheme.primary,
-                        title: 'Henüz reyon yok',
-                        subtitle:
-                            'Bir reyon oluşturun (bölüm ve satır sayısı), '
-                            'sonra ürünleri okutup fotoğraflayın. Dizilimi '
-                            'kuş bakışı görebilirsiniz.',
-                        action: FilledButton.icon(
-                          onPressed: _newUnit,
-                          icon: const Icon(Icons.add_rounded),
-                          label: const Text('Yeni Reyon'),
-                        ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _load,
-                        child: GridView.builder(
-                          padding:
-                              EdgeInsets.fromLTRB(12, 14, 12, bottomPad),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 0.82,
-                          ),
-                          itemCount: _units.length,
-                          itemBuilder: (_, i) => _card(_units[i]),
-                        ),
-                      ),
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      padding: EdgeInsets.fromLTRB(16, 14, 16, bottomPad),
+                      children: [
+                        if (_units.isEmpty) _emptyCard(),
+                        ..._units.map(_card),
+                        _addCard(),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
-      floatingActionButton: _units.isEmpty
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _newUnit,
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Yeni Reyon'),
-            ),
     );
   }
 
-  /// Gradyanli hero baslik — Reyon sekmesinin kimligi (primary tonlari).
+  /// ── HERO ─ Reyon sekmesinin kimliği: primary gradyan + özet.
   Widget _hero() {
     final topPad = MediaQuery.of(context).padding.top;
     final canPop = !widget.isTabRoot && Navigator.of(context).canPop();
+    final totalItems = _units.fold(0, (s, u) => s + u.itemCount);
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(canPop ? 8 : 20, topPad + 14, 20, 16),
@@ -284,11 +256,24 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
                 Text(
                   _loading
                       ? 'Dizilimler yükleniyor…'
-                      : '${_units.length} reyon · kuş bakışı dizilim',
+                      : '${_units.length} reyon · $totalItems ürün',
                   style: const TextStyle(
                       fontSize: 12, color: Colors.white70),
                 ),
               ],
+            ),
+          ),
+          IconButton(
+            onPressed: _newUnit,
+            tooltip: 'Yeni Reyon',
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.add_rounded,
+                  color: AppTheme.primary, size: 22),
             ),
           ),
         ],
@@ -296,56 +281,242 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
     );
   }
 
+  /// ── KART ─ tam genişlik, kapak fotoğraflı; fotoğraf yoksa reyonun
+  /// sütun sayısına göre çizilmiş MİNİ PLANOGRAM arka planı.
   Widget _card(ShelfUnitSummary s) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () async {
-        await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ShelfLayoutViewScreen(unitId: s.unit.id!)));
-        _load();
-      },
-      onLongPress: () => _confirmDelete(s),
-      child: Container(
-        decoration: AppTheme.card(),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Kapak: ilk urunun fotografi (yoksa izgara ikonu).
-            Expanded(
-              child: Container(
-                color: AppTheme.surfaceAlt,
-                child: s.coverPhoto != null && File(s.coverPhoto!).existsSync()
-                    ? Image.file(File(s.coverPhoto!), fit: BoxFit.cover)
-                    : Center(
-                        child: Icon(Icons.grid_view_rounded,
-                            size: 46,
-                            color: AppTheme.accent.withOpacity(0.4)),
+    final hasPhoto =
+        s.coverPhoto != null && File(s.coverPhoto!).existsSync();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        onTap: () async {
+          await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ShelfLayoutViewScreen(unitId: s.unit.id!)));
+          _load();
+        },
+        onLongPress: () => _confirmDelete(s),
+        child: Container(
+          height: 150,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppTheme.rLg),
+            border: Border.all(color: AppTheme.primary.withOpacity(0.25)),
+            boxShadow: AppTheme.shadowMd,
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Arka plan: kapak fotoğrafı ya da mini planogram.
+              hasPhoto
+                  ? Image.file(File(s.coverPhoto!), fit: BoxFit.cover)
+                  : CustomPaint(
+                      painter: _MiniPlanogramPainter(
+                        sections: s.unit.sections,
+                        accent: AppTheme.primary,
+                        isLight: AppTheme.isLight,
                       ),
+                    ),
+              // Okunabilirlik: alttan koyu gradyan perde.
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(hasPhoto ? 0.10 : 0.0),
+                      Colors.black.withOpacity(0.62),
+                    ],
+                    stops: const [0.35, 1.0],
+                  ),
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(s.unit.name,
+              // İçerik: ad + bilgi çipleri + dizilim oku.
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      s.unit.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 15)),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${s.unit.sections} sütun  •  ${s.itemCount} ürün',
-                    style: TextStyle(
-                        fontSize: 11, color: AppTheme.textTertiary),
-                  ),
-                ],
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _chip(Icons.view_week_rounded,
+                            '${s.unit.sections} sütun'),
+                        const SizedBox(width: 8),
+                        _chip(Icons.inventory_2_rounded,
+                            '${s.itemCount} ürün'),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.rPill),
+                          ),
+                          child: const Row(
+                            children: [
+                              Text('Dizilim',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white)),
+                              SizedBox(width: 3),
+                              Icon(Icons.arrow_forward_rounded,
+                                  size: 14, color: Colors.white),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, String label) => Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 13, color: Colors.white),
+            const SizedBox(width: 4),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white)),
+          ],
+        ),
+      );
+
+  /// Kesikli çerçeveli "Yeni Reyon" ekleme kartı — listenin sonunda.
+  Widget _addCard() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      onTap: _newUnit,
+      child: Container(
+        height: 64,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          color: AppTheme.primary.withOpacity(0.06),
+          border: Border.all(
+              color: AppTheme.primary.withOpacity(0.45), width: 1.4),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_rounded, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text('Yeni Reyon',
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.primary)),
           ],
         ),
       ),
     );
   }
+
+  Widget _emptyCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(24),
+      decoration: AppTheme.card(),
+      child: Column(
+        children: [
+          Icon(Icons.shelves,
+              size: 48, color: AppTheme.primary.withOpacity(0.5)),
+          const SizedBox(height: 12),
+          const Text('Henüz reyon yok',
+              style:
+                  TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          Text(
+            'Bir reyon oluşturun (sütun sayısı), sonra ürünleri okutup '
+            'fotoğraflayın. Dizilimi kuş bakışı görebilirsiniz.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: AppTheme.textTertiary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fotoğrafı olmayan reyon kartının arka planı: sütun sayısına göre
+/// basit bir raf dizilimi (planogram) çizer — her sütunda 3 raf bandı,
+/// bantların üstünde rastgele-ymiş gibi (deterministik) ürün blokları.
+class _MiniPlanogramPainter extends CustomPainter {
+  final int sections;
+  final Color accent;
+  final bool isLight;
+  _MiniPlanogramPainter({
+    required this.sections,
+    required this.accent,
+    required this.isLight,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bg = Paint()
+      ..color = isLight ? const Color(0xFFEDEFF4) : const Color(0xFF171A21);
+    canvas.drawRect(Offset.zero & size, bg);
+
+    final n = sections.clamp(1, 12);
+    const pad = 10.0, gap = 6.0;
+    final colW = (size.width - pad * 2 - gap * (n - 1)) / n;
+    final shelf = Paint()..color = accent.withOpacity(0.30);
+    final box = Paint()..color = accent.withOpacity(0.55);
+
+    for (int c = 0; c < n; c++) {
+      final x = pad + c * (colW + gap);
+      for (int r = 0; r < 3; r++) {
+        final y = pad + 12 + r * ((size.height - pad * 2) / 3);
+        // Raf bandı.
+        canvas.drawRRect(
+            RRect.fromRectAndRadius(
+                Rect.fromLTWH(x, y + 24, colW, 4),
+                const Radius.circular(2)),
+            shelf);
+        // Ürün blokları (deterministik desen: sütun+raf'a göre 2-3 kutu).
+        final k = 2 + ((c + r) % 2);
+        final bw = (colW - (k - 1) * 3) / k;
+        for (int b = 0; b < k; b++) {
+          final bh = 12.0 + ((c * 3 + r * 5 + b * 7) % 3) * 4;
+          canvas.drawRRect(
+              RRect.fromRectAndRadius(
+                  Rect.fromLTWH(
+                      x + b * (bw + 3), y + 24 - bh, bw, bh),
+                  const Radius.circular(2)),
+              box);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MiniPlanogramPainter old) =>
+      old.sections != sections ||
+      old.accent != accent ||
+      old.isLight != isLight;
 }

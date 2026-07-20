@@ -16,6 +16,9 @@ class BarcodeDirectoryRepository {
           {bool forceOverwrite = false}) =>
       _local.importAll(entries, forceOverwrite: forceOverwrite);
   Future<List<BarcodeEntry>> getAll() => _local.getAll();
+  /// Ad / barkod / stok kodu icinde serbest arama (palete urun ekleme).
+  Future<List<BarcodeEntry>> search(String query, {int limit = 30}) =>
+      _local.search(query, limit: limit);
   Future<int> count() => _local.count();
   Future<void> clearAll() => _local.clearAll();
   Future<void> deleteById(int id) => _local.deleteById(id);

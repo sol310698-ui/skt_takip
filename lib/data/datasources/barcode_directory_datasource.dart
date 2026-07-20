@@ -197,6 +197,34 @@ class BarcodeDirectoryDataSource {
     return rows.first['local_image_path'] as String?;
   }
 
+  /// SERBEST ARAMA: urun adi, barkod veya stok kodu icinde LIKE.
+  /// Palete urun eklerken "veritabanindan sorgulama" icin kullanilir.
+  /// Kelime bazli: "cikolata gofret" -> her kelime ayri LIKE (AND).
+  Future<List<BarcodeEntry>> search(String query, {int limit = 30}) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+    final db = await _dbService.database;
+    final words =
+        q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final where = words
+        .map((_) =>
+            '(product_name LIKE ? OR barcode LIKE ? OR IFNULL(stock_code, \'\') LIKE ?)')
+        .join(' AND ');
+    final args = <Object?>[];
+    for (final w in words) {
+      final like = '%' + w + '%';
+      args..add(like)..add(like)..add(like);
+    }
+    final rows = await db.query(
+      AppConstants.barcodeTable,
+      where: where,
+      whereArgs: args,
+      orderBy: 'product_name COLLATE NOCASE ASC',
+      limit: limit,
+    );
+    return rows.map(BarcodeEntry.fromMap).toList();
+  }
+
   Future<List<BarcodeEntry>> getAll() async {
     final db = await _dbService.database;
     final rows = await db.query(
