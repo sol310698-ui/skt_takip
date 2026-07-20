@@ -444,6 +444,90 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     }
   }
 
+  // ── PALET QR ETIKETI YAZDIR ─────────────────────────────────────────
+  // Paletin disina yapistirmak icin QR + kod iceren etiketi YAZICIYA
+  // gonderir (sistem yazdirma diyalogu). Iki boyut: A4 / kucuk etiket.
+  Future<void> _printPalletQr() async {
+    final pallet = _pallet;
+    if (pallet == null) return;
+    final summary = _items.isEmpty
+        ? null
+        : _items
+            .map((e) => '${e.productName ?? e.barcode}  x${e.quantity}')
+            .join('\n');
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 14),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppTheme.textTertiary,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  const Icon(Icons.qr_code_2_rounded,
+                      color: AppTheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('QR Etiketi — ${pallet.code}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.description_rounded),
+              title: const Text('A4 sayfa (büyük)'),
+              subtitle: const Text('Normal yazıcı · QR + kod + ürün özeti'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _runQrPrint(() => WaybillService.instance
+                    .printPalletQrA4(pallet, productSummary: summary));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.label_rounded),
+              title: const Text('Küçük etiket (~62×60mm)'),
+              subtitle: const Text('Termal/etiket yazıcısı · QR + kod'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _runQrPrint(
+                    () => WaybillService.instance.printPalletQrSmall(pallet));
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _runQrPrint(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Yazdırılamadı: $e')),
+        );
+      }
+    }
+  }
+
   /// Gecmis transferler listesi
   Future<void> _showTransferHistory() async {
     final transfers =
@@ -612,11 +696,21 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
           // Transfer gecmisi + Magaza disi + Sil
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'qr') _printPalletQr();
               if (v == 'history') _showTransferHistory();
               if (v == 'external') _externalTransfer();
               if (v == 'delete') _deletePallet();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'qr',
+                child: Row(children: [
+                  Icon(Icons.qr_code_2_rounded,
+                      size: 18, color: AppTheme.primary),
+                  SizedBox(width: 8),
+                  Text('QR Etiketi Yazdır'),
+                ]),
+              ),
               PopupMenuItem(
                 value: 'external',
                 child: Row(children: [

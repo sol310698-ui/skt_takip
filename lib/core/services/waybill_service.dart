@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -14,13 +16,33 @@ class WaybillService {
   WaybillService._();
   static final WaybillService instance = WaybillService._();
 
+  // ── TURKCE KARAKTER: gomulu Noto Sans fontu ──────────────────────────
+  // PDF paketinin varsayilan fontu (Helvetica) Turkce harfleri (İ, ş, ğ,
+  // ı) BOZUK gosterir. Uygulamaya gomulu Noto Sans ile tum PDF/etiketler
+  // Turkce uyumlu uretilir. Font bir kez yuklenip onbelleklenir.
+  static pw.Font? _fontReg;
+  static pw.Font? _fontBold;
+
+  static Future<pw.ThemeData> _theme() async {
+    try {
+      _fontReg ??=
+          pw.Font.ttf(await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'));
+      _fontBold ??=
+          pw.Font.ttf(await rootBundle.load('assets/fonts/NotoSans-Bold.ttf'));
+      return pw.ThemeData.withFont(base: _fontReg!, bold: _fontBold!);
+    } catch (_) {
+      // Font yuklenemezse cokme; varsayilan tema (Turkce eksik olabilir).
+      return pw.ThemeData();
+    }
+  }
+
   /// PDF olustur, kalici klasore kaydet, yolunu dondur.
   Future<String> generateWaybill({
     required WhPallet pallet,
     required List<WhPalletItem> items,
     required WhTransfer transfer,
   }) async {
-    final pdf = pw.Document();
+    final pdf = pw.Document(theme: await _theme());
     final fmt = DateFormat('dd.MM.yyyy HH:mm');
     final dateStr = fmt.format(transfer.createdAt);
     final isExternal = transfer.transferType == 'external';
@@ -48,8 +70,8 @@ class WaybillService {
                     children: [
                       pw.Text(
                         isExternal
-                            ? 'SEVK IRSALIYESi'
-                            : 'TRANSFER IRSALIYESi',
+                            ? 'SEVK İRSALİYESİ'
+                            : 'TRANSFER İRSALİYESİ',
                         style: pw.TextStyle(
                             fontSize: 20,
                             fontWeight: pw.FontWeight.bold),
@@ -213,6 +235,92 @@ class WaybillService {
       filename: path.split('/').last,
     );
   }
+
+  // ── PALET QR ETIKETI (paletin disina yazicidan basilir) ──────────────
+  // QR icerigi irsaliyedekiyle uyumlu: 'PALET:<kod>|ID:<id>'. Iki boyut:
+  //   • detailed=true  -> A4: buyuk QR + kod (+ urun ozeti). Normal yazici.
+  //   • detailed=false -> kucuk etiket (~62x60mm). Termal/etiket yazicisi.
+  Future<Uint8List> buildPalletQrLabel({
+    required WhPallet pallet,
+    required PdfPageFormat format,
+    bool detailed = false,
+    String? productSummary,
+  }) async {
+    final doc = pw.Document(theme: await _theme());
+    final qrData = 'PALET:${pallet.code}|ID:${pallet.id}';
+    doc.addPage(
+      pw.Page(
+        pageFormat: format,
+        margin: pw.EdgeInsets.all(detailed ? 28 : 8),
+        build: (ctx) => pw.Center(
+          child: pw.Column(
+            mainAxisAlignment: pw.MainAxisAlignment.center,
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              pw.BarcodeWidget(
+                barcode: pw.Barcode.qrCode(),
+                data: qrData,
+                width: detailed ? 240 : 120,
+                height: detailed ? 240 : 120,
+              ),
+              pw.SizedBox(height: detailed ? 18 : 6),
+              pw.Text(
+                pallet.code,
+                style: pw.TextStyle(
+                    fontSize: detailed ? 30 : 15,
+                    fontWeight: pw.FontWeight.bold),
+              ),
+              if (detailed &&
+                  productSummary != null &&
+                  productSummary.isNotEmpty) ...[
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  productSummary,
+                  textAlign: pw.TextAlign.center,
+                  style: const pw.TextStyle(fontSize: 12),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    return doc.save();
+  }
+
+  /// Palet QR etiketini SISTEM YAZICI diyaloguyla yazdirir (paylasim degil).
+  Future<void> printPalletQrLabel({
+    required WhPallet pallet,
+    required PdfPageFormat format,
+    bool detailed = false,
+    String? productSummary,
+  }) async {
+    await Printing.layoutPdf(
+      name: 'palet_${pallet.code}_qr',
+      onLayout: (_) => buildPalletQrLabel(
+        pallet: pallet,
+        format: format,
+        detailed: detailed,
+        productSummary: productSummary,
+      ),
+    );
+  }
+
+  /// A4 boyutta buyuk QR etiketi (normal yazici) — urun ozeti dahil.
+  Future<void> printPalletQrA4(WhPallet pallet, {String? productSummary}) =>
+      printPalletQrLabel(
+        pallet: pallet,
+        format: PdfPageFormat.a4,
+        detailed: true,
+        productSummary: productSummary,
+      );
+
+  /// Kucuk etiket (~62x60mm) — termal/etiket yazicisi.
+  Future<void> printPalletQrSmall(WhPallet pallet) => printPalletQrLabel(
+        pallet: pallet,
+        format: const PdfPageFormat(62 * PdfPageFormat.mm, 60 * PdfPageFormat.mm),
+        detailed: false,
+      );
 
   pw.Widget _infoBox(String title, List<String> lines) =>
       pw.Expanded(
