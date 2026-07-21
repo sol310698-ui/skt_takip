@@ -16,6 +16,9 @@ class BarcodeDirectoryRepository {
           {bool forceOverwrite = false}) =>
       _local.importAll(entries, forceOverwrite: forceOverwrite);
   Future<List<BarcodeEntry>> getAll() => _local.getAll();
+  /// Barkod dizininde bu barkod icin kayitli yerel foto yolu (reyon/etiket).
+  Future<String?> getLocalImage(String barcode) =>
+      _local.getLocalImage(barcode);
   /// Ad / barkod / stok kodu icinde serbest arama (palete urun ekleme).
   Future<List<BarcodeEntry>> search(String query, {int limit = 30}) =>
       _local.search(query, limit: limit);

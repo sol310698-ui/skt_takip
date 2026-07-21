@@ -6,6 +6,7 @@ import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'shelf_layout_view_screen.dart';
+import 'shelf_bulk_move_screen.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  REYON DIZILIM — KUS BAKISI LISTE
@@ -44,6 +45,16 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
       _units = units;
       _loading = false;
     });
+  }
+
+  Future<void> _openBulkMove() async {
+    final moved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const ShelfBulkMoveScreen(),
+      ),
+    );
+    if (moved == true) _load();
   }
 
   Future<void> _newUnit() async {
@@ -263,6 +274,20 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
               ],
             ),
           ),
+          if (_units.length >= 2)
+            IconButton(
+              onPressed: _openBulkMove,
+              tooltip: 'Toplu Sütun Taşı',
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.swap_horiz_rounded,
+                    color: Colors.white, size: 22),
+              ),
+            ),
           IconButton(
             onPressed: _newUnit,
             tooltip: 'Yeni Reyon',

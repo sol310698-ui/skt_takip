@@ -276,4 +276,160 @@ class ShelfLayoutService {
     await db.delete(AppConstants.shelfSlotTable,
         where: 'id = ?', whereArgs: [slotId]);
   }
+
+  // ── TOPLU REYON/SUTUN TASIMA ────────────────────────────────────────
+  //  Yanlislikla yanlis reyona/sutuna eklenen raflari (urunleri) tek tek
+  //  silip yeniden eklemek yerine TOPLU tasima. Foto ve barkodlar korunur;
+  //  sadece unit_id / section_no / row_no yeniden atanir.
+
+  /// Bir reyondaki DOLU (urunu olan) sutun numaralarini dondurur — soldan
+  /// saga. Tasima ekraninda "hangi sutunu tasiyacaksin" secimi icin.
+  Future<List<int>> sectionsWithItems(int unitId) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT section_no FROM ${AppConstants.shelfSlotTable} '
+      'WHERE unit_id = ? ORDER BY section_no ASC',
+      [unitId],
+    );
+    return rows.map((r) => r['section_no'] as int).toList();
+  }
+
+  /// Bir sutundaki urun sayisi (tasima onizlemesi icin).
+  Future<int> itemCountInColumn(int unitId, int sectionNo) async {
+    final db = await DatabaseService.instance.database;
+    final r = await db.rawQuery(
+      'SELECT COUNT(*) c FROM ${AppConstants.shelfSlotTable} '
+      'WHERE unit_id = ? AND section_no = ?',
+      [unitId, sectionNo],
+    );
+    return (r.first['c'] as int?) ?? 0;
+  }
+
+  /// Bir sutundaki DOLU raf (row_no) numaralari — soldan saga sirali.
+  Future<List<int>> rowsInColumn(int unitId, int sectionNo) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT row_no FROM ${AppConstants.shelfSlotTable} '
+      'WHERE unit_id = ? AND section_no = ? ORDER BY row_no ASC',
+      [unitId, sectionNo],
+    );
+    return rows.map((r) => r['row_no'] as int).toList();
+  }
+
+  /// Bir hedef reyonda BOS olan (hic urunu olmayan) ilk sutun numarasi —
+  /// "sutunu yeni sutun olarak ekle" secenegi icin. Reyonun tanimli sutun
+  /// sayisi (sections) icinde bos yoksa, sections+1 doner (sutun genisletme).
+  Future<int> firstEmptySection(int unitId) async {
+    final unit = await getUnit(unitId);
+    final defined = unit?.sections ?? 1;
+    final used = (await sectionsWithItems(unitId)).toSet();
+    for (int s = 1; s <= defined; s++) {
+      if (!used.contains(s)) return s;
+    }
+    return defined + 1; // hepsi dolu -> yeni sutun ekle
+  }
+
+  /// TOPLU SUTUN TASIMA. Kaynak reyondaki [sourceSection] sutununun TUM
+  /// raflarini (urunleriyle) hedef reyona tasir.
+  ///
+  ///  * [mode] = 'append'  → hedefteki [targetSection] sutununun MEVCUT
+  ///    raflarinin ALTINA eklenir (row_no'lar kaydirilir; cakisma olmaz).
+  ///    "Baska reyona EK olarak tasima" bunu kullanir.
+  ///  * [mode] = 'newColumn' → hedefte YENI/BOS bir sutuna yerlestirilir
+  ///    (raf numaralari korunur). Hedef sutun tanimli sutun sayisini
+  ///    asiyorsa reyonun 'sections' degeri otomatik buyutulur.
+  ///
+  /// Barkod, foto, urun adi ve raf ICI sira (seq) korunur. Islem tek
+  /// transaction'da yapilir; kaynak sutun bosalir.
+  Future<int> moveColumn({
+    required int sourceUnitId,
+    required int sourceSection,
+    required int targetUnitId,
+    required int targetSection,
+    String mode = 'append',
+  }) async {
+    final db = await DatabaseService.instance.database;
+    return await db.transaction<int>((txn) async {
+      // Kaynak sutundaki tum slotlar.
+      final slots = await txn.query(
+        AppConstants.shelfSlotTable,
+        where: 'unit_id = ? AND section_no = ?',
+        whereArgs: [sourceUnitId, sourceSection],
+        orderBy: 'row_no ASC, seq ASC, id ASC',
+      );
+      if (slots.isEmpty) return 0;
+
+      // row_no yeniden haritalama.
+      int rowShift = 0;
+      if (mode == 'append') {
+        // Hedef sutundaki mevcut en buyuk raf; kaynak raflar bunun ustune biner.
+        final r = await txn.rawQuery(
+          'SELECT COALESCE(MAX(row_no), 0) m FROM ${AppConstants.shelfSlotTable} '
+          'WHERE unit_id = ? AND section_no = ?',
+          [targetUnitId, targetSection],
+        );
+        rowShift = (r.first['m'] as int?) ?? 0;
+      }
+
+      // Kaynaktaki en kucuk row_no'yu 1'e normalize et, sonra shift uygula.
+      int minRow = 1 << 30;
+      for (final s in slots) {
+        final rn = s['row_no'] as int;
+        if (rn < minRow) minRow = rn;
+      }
+
+      // Hedef hucre (section,row) icin bir sonraki seq'i tutan cache.
+      final seqCache = <String, int>{};
+      Future<int> nextSeq(int sec, int row) async {
+        final key = '$sec:$row';
+        if (seqCache.containsKey(key)) {
+          final v = seqCache[key]! + 1;
+          seqCache[key] = v;
+          return v;
+        }
+        final q = await txn.rawQuery(
+          'SELECT COALESCE(MAX(seq), -1) m FROM ${AppConstants.shelfSlotTable} '
+          'WHERE unit_id = ? AND section_no = ? AND row_no = ?',
+          [targetUnitId, sec, row],
+        );
+        final base = (q.first['m'] as int?) ?? -1;
+        final v = base + 1;
+        seqCache[key] = v;
+        return v;
+      }
+
+      for (final s in slots) {
+        final origRow = s['row_no'] as int;
+        final newRow = mode == 'append'
+            ? rowShift + (origRow - minRow + 1) // ust uste ekle
+            : origRow; // yeni sutun: raf numaralari korunur
+        final seq = await nextSeq(targetSection, newRow);
+        await txn.update(
+          AppConstants.shelfSlotTable,
+          {
+            'unit_id': targetUnitId,
+            'section_no': targetSection,
+            'row_no': newRow,
+            'seq': seq,
+          },
+          where: 'id = ?',
+          whereArgs: [s['id']],
+        );
+      }
+
+      // Hedef sutun tanimli sutun sayisini asiyorsa reyonu genislet.
+      final tUnit = await txn.query(AppConstants.shelfUnitTable,
+          where: 'id = ?', whereArgs: [targetUnitId], limit: 1);
+      if (tUnit.isNotEmpty) {
+        final curSections = (tUnit.first['sections'] as int?) ?? 1;
+        if (targetSection > curSections) {
+          await txn.update(AppConstants.shelfUnitTable,
+              {'sections': targetSection},
+              where: 'id = ?', whereArgs: [targetUnitId]);
+        }
+      }
+
+      return slots.length;
+    });
+  }
 }

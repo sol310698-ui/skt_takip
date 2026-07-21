@@ -70,6 +70,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   bool _saved = false; // kayit tamamlandi -> tekrar kayit/pop garantisi
   String? _lookupInfo;
   String? _previewImageUrl;
+  String? _localImagePath; // barkod dizininden yerel foto (reyon/etiket)
   String _lastLookedUp = '';
 
   // Hizli manuel akis: ekran acilinca tarih kutusuna odaklan, tarih
@@ -288,6 +289,21 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         _categoryCtrl.text = category;
       }
     });
+
+    // YEREL FOTOGRAF: barkod dizininde bu barkod icin kayitli yerel foto
+    // (reyon dizilim / etiket / fiyat kontrol fotografi) varsa onizlemede
+    // goster. OFF ag gorseli yoksa bile bu gorunur; varsa bile yerel
+    // fotografi tercih ederiz (magazadaki gercek urun).
+    try {
+      final localImg = await ref
+          .read(barcodeDirectoryRepositoryProvider)
+          .getLocalImage(code);
+      if (localImg != null &&
+          localImg.isNotEmpty &&
+          await File(localImg).exists()) {
+        if (mounted) setState(() => _localImagePath = localImg);
+      }
+    } catch (_) {}
 
     // HIZLI MANUEL AKIS: barkod tarandi + tarih zaten var. Isim de bulunduysa
     // otomatik kaydet. TEK SEFER tetiklenir (_autoSaveTriggered), boylece
@@ -813,7 +829,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   /// Header: gorsel varsa gradyanli SliverAppBar, yoksa sade AppBar yuksekligi.
   Widget _buildHeader(bool isEdit) {
-    final hasImage = _previewImageUrl != null;
+    final hasImage = _previewImageUrl != null || _localImagePath != null;
     return SliverAppBar(
       expandedHeight: hasImage ? 240 : kToolbarHeight,
       pinned: true,
@@ -926,11 +942,17 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Widget _buildHeroImage() {
+    final localOk = _localImagePath != null;
     return GestureDetector(
-      onTap: _previewImageUrl == null
-          ? null
-          : () => openImageZoom(context,
-              networkUrl: _previewImageUrl, heroTag: 'product_img'),
+      onTap: () {
+        if (localOk) {
+          openImageZoom(context,
+              filePath: _localImagePath, heroTag: 'product_img');
+        } else if (_previewImageUrl != null) {
+          openImageZoom(context,
+              networkUrl: _previewImageUrl, heroTag: 'product_img');
+        }
+      },
       child: Hero(
         tag: 'product_img',
         child: Container(
@@ -942,13 +964,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
           ),
           clipBehavior: Clip.antiAlias,
-          child: _previewImageUrl != null
-              ? CachedImage(
-                  url: _previewImageUrl!,
+          child: localOk
+              ? Image.file(
+                  File(_localImagePath!),
                   fit: BoxFit.cover,
-                  placeholder: _heroPlaceholder,
+                  errorBuilder: (_, __, ___) => _heroPlaceholder(),
                 )
-              : _heroPlaceholder(),
+              : (_previewImageUrl != null
+                  ? CachedImage(
+                      url: _previewImageUrl!,
+                      fit: BoxFit.cover,
+                      placeholder: _heroPlaceholder,
+                    )
+                  : _heroPlaceholder()),
         ),
       ),
     );
@@ -1200,16 +1228,29 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
   // Tek controller, HER iki formati da okur; secili formati detect
   // asamasinda filtreleriz. Boylece switch'te kamera yeniden baslamaz
   // (yeniden kurmak kamerayi siyah birakiyordu).
+  //
+  // KARARLILIK: detectionSpeed = normal (noDuplicates DEGIL). Ayni barkodu
+  // ust uste birden cok kez okuyup DOGRULAYABILMEK icin tekrarlar gerekli.
+  // Tek karelik yanlis okuma (yansima/bulaniklik) hemen kabul edilmesin.
   final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
+    detectionSpeed: DetectionSpeed.normal,
     formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
   );
   bool _handled = false;
+
+  // ── COK KARELI DOGRULAMA ──────────────────────────────────────────
+  // Ayni barkod DEGERI pes pese [_needed] kez okununca kabul edilir.
+  // Farkli bir deger okunursa sayac sifirlanir (yanlis okuma birikmez).
+  static const int _needed = 3;
+  String? _candidate;
+  int _candidateHits = 0;
 
   void _toggleFormat(bool ean13) {
     setState(() {
       _ean13 = ean13;
       _handled = false;
+      _candidate = null;
+      _candidateHits = 0;
     });
   }
 
@@ -1219,16 +1260,44 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
     super.dispose();
   }
 
+  /// EAN-13 saglama basamagi (check digit) dogrulamasi. Yanlis okunan
+  /// barkodlarin buyuk cogunlugu bu testte elenir.
+  bool _validEan13(String s) {
+    if (s.length != 13 || int.tryParse(s) == null) return false;
+    int sum = 0;
+    for (int i = 0; i < 12; i++) {
+      final d = s.codeUnitAt(i) - 48;
+      sum += (i.isEven) ? d : d * 3;
+    }
+    final check = (10 - (sum % 10)) % 10;
+    return check == (s.codeUnitAt(12) - 48);
+  }
+
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
     final wanted = _ean13 ? BarcodeFormat.ean13 : BarcodeFormat.code128;
-    // Sadece secili formattaki barkodu kabul et.
     for (final b in capture.barcodes) {
-      if (b.format == wanted && b.rawValue != null && b.rawValue!.isNotEmpty) {
-        _handled = true;
-        Navigator.of(context).pop(b.rawValue);
-        return;
+      if (b.format != wanted) continue;
+      final val = b.rawValue;
+      if (val == null || val.isEmpty) continue;
+      // EAN-13'te check-digit gecersizse bu okumayi TAMAMEN yok say.
+      if (_ean13 && !_validEan13(val)) continue;
+
+      // Ayni deger tekrar geldiyse say; degistiyse yeni adaya gec.
+      if (val == _candidate) {
+        _candidateHits++;
+      } else {
+        _candidate = val;
+        _candidateHits = 1;
       }
+
+      // Yeterli tekrar birikince kabul et.
+      if (_candidateHits >= _needed) {
+        _handled = true;
+        HapticFeedback.mediumImpact();
+        Navigator.of(context).pop(val);
+      }
+      return; // her capture'da tek aday isle
     }
   }
 
