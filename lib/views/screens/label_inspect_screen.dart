@@ -23,6 +23,10 @@ import '../../viewmodels/providers.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
+import 'count_screen.dart';
+import 'price_check_screen.dart';
+import 'label_print_screen.dart';
+import 'pallet_detail_screen.dart';
 
 /// Etiket Inceleme: tek etiket okut -> icindeki HER SEYI goster.
 /// Fiyat, SKT, basim tarihi, barkod, dizin adi, OFF bilgisi (gorsel,
@@ -342,6 +346,234 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════
+  //  AKSIYON HUB — barkod okununca TUM islemlere tek noktadan yonlendir
+  // ════════════════════════════════════════════════════════════════
+  /// Bu urunu bir palete ekle: once palet sec (depo listesinden), sonra
+  /// palet detayina git — oradaki "Urun Ekle" tam sayfa akisi barkodu
+  /// kullanir. Palet yoksa uyari ver.
+  Future<void> _actionAddToPallet(String barcode) async {
+    final whs = await WarehouseService.instance.getWarehouses();
+    if (!mounted) return;
+    if (whs.isEmpty) {
+      _snack('Önce Depo bölümünden bir depo ve palet oluşturun.');
+      return;
+    }
+    // Tum paletleri topla (depo adiyla birlikte).
+    final entries = <({int id, String label})>[];
+    for (final w in whs) {
+      final pallets = await WarehouseService.instance.getAllPallets(w.id!);
+      for (final ps in pallets) {
+        entries.add((
+          id: ps.pallet.id!,
+          label: whs.length > 1
+              ? '${w.name} · ${ps.pallet.code}'
+              : ps.pallet.code
+        ));
+      }
+    }
+    if (!mounted) return;
+    if (entries.isEmpty) {
+      _snack('Hiç palet yok. Depo bölümünden palet oluşturun.');
+      return;
+    }
+    // Palet secim sayfasi.
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(24))),
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+        padding: EdgeInsets.fromLTRB(
+            16, 14, 16, 20 + MediaQuery.of(ctx).padding.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const Text('Hangi palete eklensin?',
+                style:
+                    TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (_, i) => Material(
+                  color: AppTheme.surfaceAlt,
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppTheme.rMd),
+                    onTap: () => Navigator.pop(ctx, entries[i].id),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.inventory_2_rounded,
+                              color: AppTheme.primary, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(entries[i].label,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          Icon(Icons.chevron_right_rounded,
+                              color: AppTheme.textTertiary),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    final wid = whs
+        .firstWhere((w) => true)
+        .id!; // palet zaten depoya bagli; detay kendi cozer
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) =>
+          PalletDetailScreen(palletId: chosen, warehouseId: wid),
+    ));
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  /// Aksiyon hub kart bloğu: taranan ürün için tüm işlemlere kısayol.
+  Widget _actionsHub(String barcode) {
+    final displayName = _localName ?? _off?.name;
+    final actions = <({IconData icon, String label, Color color, VoidCallback onTap})>[
+      (
+        icon: Icons.add_box_rounded,
+        label: 'Palete Ekle',
+        color: AppTheme.primary,
+        onTap: () => _actionAddToPallet(barcode),
+      ),
+      (
+        icon: Icons.inventory_rounded,
+        label: 'Say',
+        color: AppTheme.accent,
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const CountScreen())),
+      ),
+      (
+        icon: Icons.local_printshop_rounded,
+        label: 'Etiket Bas',
+        color: AppTheme.coral,
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const LabelPrintScreen())),
+      ),
+      (
+        icon: Icons.price_check_rounded,
+        label: 'Fiyat Kontrol',
+        color: AppTheme.statusSafe,
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const PriceCheckScreen())),
+      ),
+      if (_palletLocs.isNotEmpty)
+        (
+          icon: Icons.travel_explore_rounded,
+          label: 'Depoda Bul',
+          color: AppTheme.primary,
+          onTap: () => _playWarehouseReveal(_palletLocs.first),
+        ),
+      (
+        icon: Icons.search_rounded,
+        label: 'İnternette Ara',
+        color: AppTheme.textSecondary,
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => WebSearchScreen(
+                query: displayName ?? barcode))),
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(accentColor: AppTheme.primary),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bolt_rounded, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 6),
+              const Text('Hızlı İşlemler',
+                  style: TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: actions
+                .map((a) => _hubButton(a.icon, a.label, a.color, a.onTap))
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hubButton(
+      IconData icon, String label, Color color, VoidCallback onTap) {
+    // 3 sutunlu grid hissi: ekran genisligine gore esnek buton.
+    final w = (MediaQuery.of(context).size.width - 32 - 28 - 20) / 3;
+    return SizedBox(
+      width: w.clamp(90.0, 140.0),
+      child: Material(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            child: Column(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(height: 6),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.1,
+                        fontWeight: FontWeight.w700,
+                        color: color)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _rescan() async {
     setState(() {
       _parsed = null;
@@ -536,6 +768,15 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
               if (_palletLocs.isNotEmpty) _palletCard(),
               if (_shelfLoc != null || _palletLocs.isNotEmpty)
                 const SizedBox(height: 16),
+
+              // ── HIZLI İŞLEMLER (aksiyon hub) ──
+              // Barkod okununca bu ürün için tüm işlemlere tek noktadan
+              // yönlendir: palete ekle, say, etiket bas, fiyat kontrol,
+              // depoda bul, internette ara.
+              if (p.barcode != null) ...[
+                _actionsHub(p.barcode!),
+                const SizedBox(height: 16),
+              ],
 
               // ETIKET VERILERI
               const SectionLabel('Etiket Verileri'),
