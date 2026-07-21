@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../core/services/assistant_action_service.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
@@ -25,8 +26,16 @@ class WarehouseChatScreen extends StatefulWidget {
 
 class _ChatMsg {
   final bool fromUser;
-  final String text;
-  _ChatMsg(this.fromUser, this.text);
+  String text;
+  // Bu mesaja bagli asistan eylemleri (onay bekleyen ya da sonuclanmis).
+  final List<AssistantAction> actions;
+  // Her eylemin durumu: null=bekliyor, true=onaylandi/calisti, false=iptal.
+  final List<bool?> actionStates;
+  final List<String?> actionResults; // calisma sonrasi mesaj
+  _ChatMsg(this.fromUser, this.text, {List<AssistantAction>? actions})
+      : actions = actions ?? [],
+        actionStates = List<bool?>.filled(actions?.length ?? 0, null),
+        actionResults = List<String?>.filled(actions?.length ?? 0, null);
 }
 
 class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
@@ -152,13 +161,19 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       final answer = await WarehouseAssistantService.instance
           .ask(history: history, question: q);
       if (!mounted) return;
-      setState(() => _messages.add(_ChatMsg(false, answer.trim())));
+      // Cevaptan eylem bloklarini ayikla; kalan duz metni baloncukta goster.
+      final parsed =
+          AssistantActionService.instance.parse(answer.trim());
+      final display = parsed.cleanText.isEmpty
+          ? (parsed.actions.isEmpty ? answer.trim() : 'Onayınızı bekliyorum:')
+          : parsed.cleanText;
+      setState(() => _messages
+          .add(_ChatMsg(false, display, actions: parsed.actions)));
       // Sesli moddaysa cevabi oku (mevcut native TTS ile).
       if (_voiceMode) {
-        // Cok uzun cevaplari kirpmadan okumak sikici olur; ilk ~300 karakter.
-        final speakText = answer.trim().length > 300
-            ? '${answer.trim().substring(0, 300)}…'
-            : answer.trim();
+        final speakText = display.length > 300
+            ? '${display.substring(0, 300)}…'
+            : display;
         await PriceCheckChannel.speak(speakText);
       }
     } on GeminiOcrException catch (e) {
@@ -174,6 +189,28 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       if (mounted) setState(() => _sending = false);
       _scrollToBottom();
     }
+  }
+
+  // ── EYLEM ONAYI ────────────────────────────────────────────────────
+  /// Kullanici bir eylem kartinda "Onayla" der -> gercek islemi calistir.
+  Future<void> _approveAction(_ChatMsg msg, int index) async {
+    if (msg.actionStates[index] != null) return; // zaten islenmis
+    HapticFeedback.mediumImpact();
+    setState(() => msg.actionStates[index] = true);
+    final result =
+        await AssistantActionService.instance.execute(msg.actions[index]);
+    if (!mounted) return;
+    setState(() => msg.actionResults[index] = result);
+    _scrollToBottom();
+  }
+
+  void _rejectAction(_ChatMsg msg, int index) {
+    if (msg.actionStates[index] != null) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      msg.actionStates[index] = false;
+      msg.actionResults[index] = 'İptal edildi.';
+    });
   }
 
   void _scrollToBottom() {
@@ -245,10 +282,10 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   Widget _emptyState() {
     final examples = [
       'Pilavlık bulgur nerede?',
+      'P123 paletine 6 adet ketçap ekle',
+      'Bakliyat reyonunu sil',
+      'Yeni depo oluştur: Arka Depo',
       'Bu hafta SKT\'si dolan var mı?',
-      'Etiket kuyruğunda kaç ürün var?',
-      'Ketçaplar hangi reyonda?',
-      'Vardiyam açık mı?',
     ];
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -263,8 +300,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Ürünlerin yerini sor; önce telefondaki reyon kayıtlarından, '
-          'yetmezse internetten yardımcı olurum.',
+          'Ürün yerini sor, SKT kontrol et — ya da işlem yaptır: ürün '
+          'ekle/çıkar, palet ve depo/reyon oluştur veya sil. Her işlemi '
+          'senin onayınla yaparım.',
           textAlign: TextAlign.center,
           style: TextStyle(color: AppTheme.textTertiary, fontSize: 13),
         ),
@@ -289,31 +327,158 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
 
   Widget _bubble(_ChatMsg m) {
     final isUser = m.fromUser;
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 5),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.78),
-        decoration: BoxDecoration(
-          color: isUser ? AppTheme.accent : AppTheme.surface,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
+    return Column(
+      crossAxisAlignment:
+          isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 5),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.78),
+            decoration: BoxDecoration(
+              color: isUser ? AppTheme.accent : AppTheme.surface,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(isUser ? 16 : 4),
+                bottomRight: Radius.circular(isUser ? 4 : 16),
+              ),
+              border: isUser ? null : Border.all(color: AppTheme.hairline),
+            ),
+            child: SelectableText(
+              m.text,
+              style: TextStyle(
+                color: isUser ? Colors.white : AppTheme.textPrimary,
+                fontSize: 14.5,
+                height: 1.3,
+              ),
+            ),
           ),
-          border: isUser ? null : Border.all(color: AppTheme.hairline),
         ),
-        child: SelectableText(
-          m.text,
-          style: TextStyle(
-            color: isUser ? Colors.white : AppTheme.textPrimary,
-            fontSize: 14.5,
-            height: 1.3,
+        // Onay kartlari (asistan mesajina bagli eylemler).
+        for (int i = 0; i < m.actions.length; i++)
+          _actionCard(m, i),
+      ],
+    );
+  }
+
+  /// Tek bir eylem icin onay karti. Bekliyorken Onayla/İptal butonlari,
+  /// islendikten sonra sonuc rozeti gosterir.
+  Widget _actionCard(_ChatMsg m, int i) {
+    final a = m.actions[i];
+    final state = m.actionStates[i];
+    final result = m.actionResults[i];
+    final accent =
+        a.isDestructive ? AppTheme.statusExpired : AppTheme.primary;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 6, right: 40),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: accent.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                  a.isDestructive
+                      ? Icons.warning_amber_rounded
+                      : Icons.bolt_rounded,
+                  size: 17,
+                  color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(a.title,
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: accent)),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 8),
+          // Detay satirlari.
+          ...a.details.map((d) => Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 76,
+                      child: Text('${d.label}:',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textTertiary)),
+                    ),
+                    Expanded(
+                      child: Text(d.value,
+                          style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                ),
+              )),
+          const SizedBox(height: 10),
+          if (state == null)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _rejectAction(m, i),
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                    label: const Text('İptal'),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.textSecondary,
+                        side: BorderSide(color: AppTheme.hairline),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 8)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _approveAction(m, i),
+                    icon: const Icon(Icons.check_rounded, size: 16),
+                    label: Text(a.isDestructive ? 'Sil, onayla' : 'Onayla'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: accent,
+                        foregroundColor: Colors.white,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 8)),
+                  ),
+                ),
+              ],
+            )
+          else
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: (state ? AppTheme.statusSafe : AppTheme.textTertiary)
+                    .withOpacity(0.14),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                result ?? (state ? 'İşleniyor…' : 'İptal edildi.'),
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: state
+                        ? AppTheme.statusSafe
+                        : AppTheme.textSecondary),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -142,15 +142,26 @@ class _WarehouseFlythroughScreenState
   // 3) YAKINLASMA:  0.48-0.72 (hedef sutuna zoom)
   // 4) PALET:       0.72-0.85 (palet etiketi iner + nabiz)
   // 5) FOTOGRAF:    0.85-1.00 (varsa palet fotografi ortaya buyur)
-  double get _tIntro => 0.10;
+  // YENI AKIS (tarifе gore):
+  //  1) KORIDOR    0.00-0.22  ortada bosluk; sol/sag depo duvarlari
+  //                            perspektifle karsiya dogru daralir.
+  //  2) DUZLESME   0.22-0.46  hedef taraf (sol ise sol) 90 dereceye
+  //                            donup KARSI DUZLEME dumduz gelir; diger
+  //                            taraf kayip gider.
+  //  3) IZOLASYON  0.46-0.66  hedef sutun tek basina kalir ve genisler
+  //                            (digerleri solup daralir).
+  //  4) RAF        0.66-0.82  hedef raf vurgulanir + palet etiketi iner.
+  //  5) FOTOGRAF   0.82-1.00  paletin gercek fotografi buyuyerek gelir.
+  double get _tIntro => 0.08;
   double get _tOpenEnd => 0.22;
-  double get _tPanStart => 0.22;
-  double get _tPanEnd => 0.48;
-  double get _tZoomStart => 0.48;
-  double get _tZoomEnd => 0.72;
-  double get _tPalletEnd => 0.85;
+  double get _tFlatStart => 0.22;
+  double get _tFlatEnd => 0.46;
+  double get _tIsoStart => 0.46;
+  double get _tIsoEnd => 0.66;
+  double get _tShelfStart => 0.66;
+  double get _tShelfEnd => 0.82;
   double get _tPhotoEnd => 1.0;
-  double get _tInfoStart => 0.70;
+  double get _tInfoStart => 0.72;
 
   @override
   void initState() {
@@ -204,16 +215,18 @@ class _WarehouseFlythroughScreenState
 
   String get _stageLabel {
     final t = _main.value;
-    if (t < _tOpenEnd) return 'Depo açılıyor…';
-    if (t < _tZoomStart) return 'Koridorda ilerleniyor…';
-    if (t < _tZoomEnd && !widget.onFloor) {
+    if (t < _tOpenEnd) return 'Koridora bakılıyor…';
+    if (t < _tFlatEnd && !widget.onFloor) {
       return widget.targetCol <= (widget.cols / 2).ceil()
-          ? 'Sola dönülüyor…'
-          : 'Sağa dönülüyor…';
+          ? 'Sol depoya dönülüyor…'
+          : 'Sağ depoya dönülüyor…';
     }
-    if (t < _tZoomEnd) return widget.onFloor ? 'Zemin' : 'Sütun · Raf';
-    if (t < _tPalletEnd) return _palletPositionLabel ?? 'Palet bulundu';
-    return _hasPalletPhoto ? 'Palet fotoğrafı' : (_palletPositionLabel ?? 'Palet bulundu');
+    if (t < _tFlatEnd) return 'Zemine gidiliyor…';
+    if (t < _tIsoEnd) return 'Sütun ${widget.targetCol} bulunuyor…';
+    if (t < _tShelfEnd) return _palletPositionLabel ?? 'Raf ${widget.targetRow}';
+    return _hasPalletPhoto
+        ? 'Palet fotoğrafı'
+        : (_palletPositionLabel ?? 'Palet bulundu');
   }
 
   String? get _palletPositionLabel {
@@ -238,18 +251,20 @@ class _WarehouseFlythroughScreenState
             final pulse = _pulse.value;
             final introIn = _seg(t, 0.0, _tIntro, Curves.easeOutCubic);
             final openT = _seg(t, 0.0, _tOpenEnd, Curves.easeOutCubic);
-            final pan = _seg(t, _tPanStart, _tPanEnd, Curves.easeInOutCubic);
-            final zoom =
-                _seg(t, _tZoomStart, _tZoomEnd, Curves.easeInOutCubic);
-            final palletIn =
-                _seg(t, _tZoomEnd, _tPalletEnd, Curves.easeOutBack);
+            // flat: hedef tarafi 90 dereceye dondurup yuze getirir.
+            final flat = _seg(t, _tFlatStart, _tFlatEnd, Curves.easeInOutCubic);
+            // iso: hedef sutunu tek basina birakip genisletir.
+            final iso = _seg(t, _tIsoStart, _tIsoEnd, Curves.easeInOutCubic);
+            // shelf: hedef rafi vurgular + palet etiketi iner.
+            final shelfT =
+                _seg(t, _tShelfStart, _tShelfEnd, Curves.easeOutBack);
             final photoReveal =
-                _seg(t, _tPalletEnd, _tPhotoEnd, Curves.easeOutCubic);
+                _seg(t, _tShelfEnd, _tPhotoEnd, Curves.easeOutCubic);
             final infoIn = _seg(t, _tInfoStart, 1.0, Curves.easeOutCubic);
 
             return Column(
               children: [
-                _header(introIn, pan),
+                _header(introIn, flat),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -257,7 +272,7 @@ class _WarehouseFlythroughScreenState
                       children: [
                         Positioned.fill(
                           child: _warehouseFloor(
-                              pan, zoom, palletIn, pulse, openT),
+                              openT, flat, iso, shelfT, pulse),
                         ),
                         // ── Son asama: paleti ORTAYA al, GERCEK fotografini
                         // buyuterek goster (varsa). Izgaranin ustune biner.
@@ -334,31 +349,28 @@ class _WarehouseFlythroughScreenState
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  DEPO KORİDORU — GERÇEK "İÇİNE YÜRÜME" SAHNESİ (defter modeli)
+  //  DEPO KORİDORU — perspektif koridor + hedef tarafı düzleştirme
   //
-  //  Model: bir defteri üçe böl, ORTASINA bastır. Orta şerit = koridor
-  //  ZEMİNİ (hep görünür), iki yan şerit = raf DUVARLARI.
+  //  Model: ekranın ORTASINDA bir geçit/boşluk; SOLDA sol depo duvarı,
+  //  SAĞDA sağ depo duvarı. Her duvar perspektifle karşıya (merkeze)
+  //  daralır — koridora bakıyormuş hissi.
   //
-  //   1) AÇILIŞ   — duvarlar yere yatık (defter gibi düz) başlar,
-  //                 zeminin iki kenarından menteşeli olarak YUKARI
-  //                 katlanıp dikilir → koridor oluşur. Tek kaçış
-  //                 noktalı (one-point) perspektif: duvarların uzak
-  //                 ucu ekranın ortasına doğru daralır.
-  //   2) YÜRÜYÜŞ  — kamera koridorun İÇİNE ilerler: sütunlar
-  //                 derinlikten üzerimize doğru akar, hedef sütun
-  //                 yaklaşınca durulur. Palet hangi taraftaysa o duvar
-  //                 parlar, diğeri sönükleşir.
-  //   3) DÖNÜŞ    — kamera hedef duvara döner: hedef duvar düzleşip
-  //                 yüzümüze bakar, raf izgarası netleşir, hedef raf
-  //                 vurgulanır.
-  //   4) PALET    — palet etiketi iner (kaçıncı palet olduğu yazar).
-  //   5) FOTOĞRAF — paletin gerçek fotoğrafı büyüyerek gösterilir.
+  //   1) KORİDOR    — iki depo duvarı perspektifle görünür, ortada boşluk.
+  //   2) DÜZLEŞME   — hedef sütun toplam/2'ye göre solda mı sağda mı; o
+  //                   tarafın duvarı 90°'ye dönüp KARŞI DÜZLEME dümdüz
+  //                   gelir (yüze bakar), diğer taraf kayıp gider.
+  //   3) İZOLASYON  — hedef sütun tek başına kalıp GENİŞLER, diğerleri
+  //                   0'a daralıp solar.
+  //   4) RAF        — hedef raf vurgulanır + palet etiketi iner.
+  //   5) FOTOĞRAF   — paletin gerçek fotoğrafı büyüyerek gösterilir.
   // ════════════════════════════════════════════════════════════════
   Widget _warehouseFloor(
-      double pan, double zoom, double palletIn, double pulse, double openT) {
+      double openT, double flat, double iso, double shelfT, double pulse) {
+    // Sutunlari iki depoya bol: sol yariya sol depo, sag yariya sag depo.
     final leftCount = (widget.cols / 2).ceil().clamp(1, widget.cols);
     final rightCount = (widget.cols - leftCount).clamp(0, widget.cols);
     final targetIsLeft = widget.targetCol <= leftCount;
+    // Hedef sutunun kendi duvarindaki yerel (1-based) indeksi.
     final targetLocalCol =
         targetIsLeft ? widget.targetCol : widget.targetCol - leftCount;
 
@@ -366,85 +378,78 @@ class _WarehouseFlythroughScreenState
       borderRadius: BorderRadius.circular(AppTheme.rMd),
       child: Container(
         color:
-            AppTheme.isLight ? AppTheme.surfaceAlt : const Color(0xFF0E1015),
+            AppTheme.isLight ? AppTheme.surfaceAlt : const Color(0xFF0B0D12),
         child: LayoutBuilder(
           builder: (context, c) {
             final w = c.maxWidth;
             final h = c.maxHeight.isFinite ? c.maxHeight : 360.0;
-            // Duvar genişliği: ekranın yarısından biraz fazla; perspektif
-            // dönüşü sonrası koridor ortada belirgin kalır.
-            final wallW = w * 0.56;
 
             return Stack(
               children: [
-                // ── KORİDOR ZEMİNİ (defterin ortası): trapez perspektif.
+                // ── KORIDOR ZEMINI: ortada bosluk, karsiya daralir. ──
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
-                      painter: _CorridorFloorPainter(
+                      painter: _CorridorPainter(
                         openT: openT,
-                        walk: pan,
+                        flat: flat,
+                        targetIsLeft: targetIsLeft,
                         accent: widget.accent,
                         isLight: AppTheme.isLight,
                       ),
                     ),
                   ),
                 ),
-                // ── SOL DUVAR ─ zeminin sol kenarından menteşeli kalkar.
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: wallW,
-                  child: _wall(
+
+                // ── SOL DEPO DUVARI ──
+                if (leftCount > 0)
+                  _sideWall(
                     isLeftSide: true,
                     colCount: leftCount,
                     colOffset: 0,
-                    openT: openT,
-                    isTargetWall: targetIsLeft,
+                    isTarget: targetIsLeft,
                     targetLocalCol: targetIsLeft ? targetLocalCol : null,
-                    walk: pan,
-                    zoom: zoom,
-                    palletIn: palletIn,
-                    pulse: pulse,
+                    sceneW: w,
                     sceneH: h,
+                    openT: openT,
+                    flat: flat,
+                    iso: iso,
+                    shelfT: shelfT,
+                    pulse: pulse,
                   ),
-                ),
-                // ── SAĞ DUVAR ─ zeminin sağ kenarından menteşeli kalkar.
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: wallW,
-                  child: _wall(
+
+                // ── SAG DEPO DUVARI ──
+                if (rightCount > 0)
+                  _sideWall(
                     isLeftSide: false,
                     colCount: rightCount,
                     colOffset: leftCount,
-                    openT: openT,
-                    isTargetWall: !targetIsLeft,
+                    isTarget: !targetIsLeft,
                     targetLocalCol: !targetIsLeft ? targetLocalCol : null,
-                    walk: pan,
-                    zoom: zoom,
-                    palletIn: palletIn,
-                    pulse: pulse,
+                    sceneW: w,
                     sceneH: h,
+                    openT: openT,
+                    flat: flat,
+                    iso: iso,
+                    shelfT: shelfT,
+                    pulse: pulse,
                   ),
-                ),
-                // Uzak uç sisi: koridorun dibi karanlığa/derinliğe gider.
+
+                // Uzak uc karartmasi (koridor derinlik hissi); duzlesince kalkar.
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Opacity(
-                      opacity: (openT * (1 - zoom)).clamp(0.0, 1.0),
+                      opacity: (openT * (1 - flat) * 0.9).clamp(0.0, 1.0),
                       child: Container(
                         decoration: BoxDecoration(
                           gradient: RadialGradient(
-                            center: Alignment.center,
-                            radius: 0.9,
+                            center: const Alignment(0, -0.15),
+                            radius: 0.85,
                             colors: [
-                              Colors.black.withOpacity(0.35),
+                              Colors.black.withOpacity(0.40),
                               Colors.transparent,
                             ],
-                            stops: const [0.0, 0.45],
+                            stops: const [0.0, 0.5],
                           ),
                         ),
                       ),
@@ -459,213 +464,243 @@ class _WarehouseFlythroughScreenState
     );
   }
 
-  /// Tek raf duvarı. İki dönüşüm katmanı:
-  ///  * DIŞ Transform — perspektif + rotateY: AÇILIŞTA duvar yatıktan
-  ///    (defter sayfası gibi, açı ~88°) dikeye kalkar; dururken hafif
-  ///    açıyla (one-point perspektif) koridorun dibine daralır. DÖNÜŞTE
-  ///    hedef duvar açısı sıfıra iner (yüzümüze düzleşir).
-  ///  * İÇ Transform.translate — YÜRÜYÜŞ: sütun şeridi yakın kenara
-  ///    doğru kaydırılır; perspektif sayesinde uzaktaki sütunlar
-  ///    büyüyerek "üzerimize akar" — koridorda ilerleme hissi.
-  Widget _wall({
+  /// Bir depo duvari (sol ya da sag). Uc asamayi tek Transform zinciriyle
+  /// yonetir:
+  ///   * KORIDOR (openT): duvar perspektifle yana yatik durur; yakin kenar
+  ///     ortadaki boslukta, uzak kenar karsiya (merkeze) daralir.
+  ///   * DUZLESME (flat): SADECE hedef duvarda rotateY 0'a iner → duvar
+  ///     yuze donup KARSI DUZLEME dumduz gelir (90°'lik bakis). Hedef
+  ///     olmayan duvar ekrandan disari kayip silinir.
+  ///   * IZOLASYON (iso) + RAF (shelfT): _cell icinde; hedef sutun genisler,
+  ///     digerleri solar; hedef raf vurgulanir.
+  Widget _sideWall({
     required bool isLeftSide,
     required int colCount,
-    required int colOffset, // bu duvarin ilk sutununun GLOBAL sutun no'su - 1
-    required double openT,
-    required bool isTargetWall,
+    required int colOffset,
+    required bool isTarget,
     int? targetLocalCol,
-    required double walk, // 0..1 koridorda ilerleme
-    required double zoom, // 0..1 hedef duvara donus
-    required double palletIn,
-    required double pulse,
+    required double sceneW,
     required double sceneH,
+    required double openT,
+    required double flat,
+    required double iso,
+    required double shelfT,
+    required double pulse,
   }) {
     if (colCount <= 0) return const SizedBox.shrink();
-    final acc = widget.accent;
 
-    // ── AÇILIŞ: yatık (1.52 ≈ yere serili) -> koridor duruşu (0.62).
-    const lyingAngle = 1.52; // ~87°: sayfa yerde
-    const corridorAngle = 0.62; // dururken: uzak uç merkeze daralır
-    double angle = lyingAngle + (corridorAngle - lyingAngle) * openT;
+    // Koridor duruşu: her duvar sahne yarisini kaplar, ortada ~%12 bosluk.
+    final gapHalf = sceneW * 0.06;
+    final wallW = sceneW * 0.5 - gapHalf;
 
-    // ── DÖNÜŞ: hedef duvar düzleşir (0'a), diğeri daha da yan döner.
-    if (isTargetWall) {
-      angle *= (1.0 - zoom * 0.92);
+    // KORIDOR açisi: yana yatik (~0.95 rad). Yakin kenar boslukta, uzak
+    // kenar merkeze daralir → sol duvar saga, sag duvar sola bakar.
+    const corridorAngle = 0.95;
+
+    // DUZLESME: hedef duvar 90°'ye (rotateY 0) gelir. Hedef olmayan duvar
+    // daha da yan donup kayar.
+    double angle;
+    double offsetX;
+    double opacity;
+    if (isTarget) {
+      angle = corridorAngle * (1 - flat); // 0.95 → 0 (yuze donuk)
+      // Yaklastikca duvar sahnenin ortasina kayar ve genisler.
+      final startX = isLeftSide ? -gapHalf : gapHalf; // koridordaki yeri
+      offsetX = startX * (1 - flat);
+      opacity = openT.clamp(0.0, 1.0);
     } else {
-      angle += (1.35 - angle) * zoom * 0.7;
+      angle = corridorAngle + (1.4 - corridorAngle) * flat; // daha da yan
+      // Hedef olmayan duvar kenara kayip silinir.
+      offsetX = (isLeftSide ? -1 : 1) * sceneW * 0.5 * flat;
+      opacity = (openT * (1 - flat)).clamp(0.0, 1.0);
     }
 
-    final dim = isTargetWall
-        ? 1.0
-        : (1.0 - walk * 0.35 - zoom * 0.35).clamp(0.22, 1.0);
+    // Duvar, duzlestikce koridor yarisindan → neredeyse tam sahne genisligine.
+    final curW = wallW + (sceneW - wallW) * (isTarget ? flat : 0.0);
+    // Sol duvar sahnenin solunda, sag duvar saginda konumlanir; hedef duvar
+    // duzlestikce ortaya toplanir.
+    final leftPos = isLeftSide
+        ? 0.0 + offsetX
+        : sceneW - curW + offsetX;
 
-    return Opacity(
-      opacity: (openT * 1.4).clamp(0.0, 1.0) * dim,
-      child: Transform(
-        // Menteşe: koridora bakan İÇ kenar değil, sahne kenarı — yakın
-        // kenar sabit kalır, uzak uç merkeze daralır (one-point).
-        alignment:
-            isLeftSide ? Alignment.centerLeft : Alignment.centerRight,
-        transform: Matrix4.identity()
-          ..setEntry(3, 2, 0.0020)
-          ..rotateY(isLeftSide ? angle : -angle),
-        child: ClipRect(
-          child: LayoutBuilder(
-            builder: (context, c) {
-              const gap = 5.0;
-              final cW = c.maxWidth; // gorunur pencere genisligi
-              final cellW =
-                  ((cW - gap * (colCount + 1)) / colCount).clamp(26.0, 96.0);
-              final stripRaw = cellW * colCount + gap * (colCount + 1);
-              final stripW = stripRaw < cW ? cW : stripRaw; // serit genisligi
-              final gridH = c.maxHeight.isFinite ? c.maxHeight : sceneH;
-
-              // Derinlik sirasi: 1. sutun YAKIN kenarda. Sol duvarda yakin
-              // kenar SOL, sag duvarda SAG oldugu icin sag duvar AYNALANIR.
-              double colX(int col) => isLeftSide
-                  ? gap + col * (cellW + gap)
-                  : stripW - (gap + col * (cellW + gap)) - cellW;
-
-              // ── YÜRÜYÜŞ: hedef sutun yuruyus sonunda yakin kenara
-              // (pencerenin %30 icerisine) gelir; hedef bu duvarda degilse
-              // sutunlar hafif paralaksla yanindan akip gecer.
-              final base = isLeftSide ? 0.0 : stripW - cW;
-              double travel;
-              if (isTargetWall && targetLocalCol != null) {
-                final targetCenter =
-                    colX(targetLocalCol - 1) + cellW / 2;
-                final wanted = cW * (isLeftSide ? 0.30 : 0.70);
-                travel = (wanted + base - targetCenter) * walk;
-              } else {
-                travel = (isLeftSide ? -1 : 1) * walk * cellW * 1.3;
-              }
-
-              // Hedef sutunun raf sayısı → palet chip dikey konumu.
-              double chipTop = 0;
-              if (isTargetWall && targetLocalCol != null) {
-                final nT =
-                    (widget.colShelfCounts[colOffset + targetLocalCol] ??
-                            widget.rows)
-                        .clamp(1, widget.rows);
-                final bandHT =
-                    ((gridH - gap * (nT + 1)) / nT).clamp(5.0, gridH);
-                chipTop = gap + (nT - widget.targetRow) * (bandHT + gap);
-              }
-
-              return Container(
-                color: AppTheme.isLight
-                    ? AppTheme.hairline.withOpacity(0.25)
-                    : Colors.white.withOpacity(0.035),
-                child: OverflowBox(
-                  maxWidth: stripW,
-                  alignment: isLeftSide
-                      ? Alignment.centerLeft
-                      : Alignment.centerRight,
-                  child: Transform.translate(
-                    offset: Offset(travel, 0),
-                    child: SizedBox(
-                      width: stripW,
-                      height: gridH,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          for (var col = 0; col < colCount; col++)
-                            for (var sh = 1;
-                                sh <=
-                                    (widget.colShelfCounts[
-                                                colOffset + col + 1] ??
-                                            widget.rows)
-                                        .clamp(1, widget.rows);
-                                sh++)
-                              _cell(
-                                  col,
-                                  colX(col),
-                                  sh,
-                                  (widget.colShelfCounts[
-                                              colOffset + col + 1] ??
-                                          widget.rows)
-                                      .clamp(1, widget.rows),
-                                  cellW,
-                                  gridH,
-                                  gap,
-                                  acc,
-                                  walk,
-                                  zoom,
-                                  isTargetWall,
-                                  targetLocalCol),
-                          if (isTargetWall && targetLocalCol != null)
-                            Positioned(
-                              left: colX(targetLocalCol - 1) +
-                                  cellW / 2 -
-                                  46,
-                              top: chipTop - 40 - (1 - palletIn) * 30,
-                              child: Opacity(
-                                opacity: palletIn.clamp(0.0, 1.0),
-                                child: _palletChip(acc, pulse),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+    return Positioned(
+      left: leftPos,
+      top: 0,
+      bottom: 0,
+      width: curW,
+      child: Opacity(
+        opacity: opacity,
+        child: Transform(
+          alignment:
+              isLeftSide ? Alignment.centerRight : Alignment.centerLeft,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.0016)
+            ..rotateY(isLeftSide ? angle : -angle),
+          child: _wallGrid(
+            isLeftSide: isLeftSide,
+            colCount: colCount,
+            colOffset: colOffset,
+            isTargetWall: isTarget,
+            targetLocalCol: targetLocalCol,
+            iso: iso,
+            shelfT: shelfT,
+            flat: flat,
+            pulse: pulse,
           ),
         ),
       ),
     );
   }
 
-  Widget _cell(
-      int col,
-      double x, // seritteki yatay konum (aynalama uygulanmis)
-      int shelfNo, // 1 = EN ALT raf
-      int shelfCount, // bu sutunun GERCEK raf sayisi
-      double cellW,
-      double fullH, // sutunun TAM yuksekligi (tum sutunlar icin ayni)
-      double gap,
-      Color acc,
-      double focusT,
-      double zoom,
-      bool isTargetWall,
-      int? targetLocalCol) {
-    // Sutunun tam yuksekligi kendi raf sayisina bolunur: raf boyu degisken.
-    final n = shelfCount < 1 ? 1 : shelfCount;
-    final bandH = ((fullH - gap * (n + 1)) / n).clamp(5.0, fullH);
-    final top = gap + (n - shelfNo) * (bandH + gap); // raf 1 en altta
+  /// Duvarin raf izgarasi. Sutunlar yatayda dizilir; IZOLASYON asamasinda
+  /// hedef sutun tum genisligi kaplayacak sekilde BUYUR, digerleri 0'a
+  /// dogru daralip solar.
+  Widget _wallGrid({
+    required bool isLeftSide,
+    required int colCount,
+    required int colOffset,
+    required bool isTargetWall,
+    int? targetLocalCol,
+    required double iso,
+    required double shelfT,
+    required double flat,
+    required double pulse,
+  }) {
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, c) {
+          const gap = 6.0;
+          final gridH = c.maxHeight.isFinite ? c.maxHeight : 300.0;
+          final fullW = c.maxWidth;
 
-    final isTargetCol = isTargetWall && targetLocalCol == (col + 1);
-    final isTarget = isTargetCol && shelfNo == widget.targetRow;
-    final colHighlight = isTargetCol ? (0.5 + 0.5 * focusT) : 0.0;
-    final dim = isTarget
-        ? 1.0
-        : (isTargetCol
-            ? (1.0 - zoom * 0.25).clamp(0.55, 1.0)
-            : (1.0 - zoom * 0.65).clamp(0.28, 1.0));
+          // Her sutunun IZOLASYON genisligi. Hedef sutun 1'e, digerleri
+          // 0'a gider. iso=0 iken hepsi esit (1/colCount).
+          double weight(int localCol) {
+            final even = 1.0 / colCount;
+            if (!isTargetWall || targetLocalCol == null) return even;
+            final isT = localCol == targetLocalCol;
+            final target = isT ? 1.0 : 0.0;
+            return even + (target - even) * iso;
+          }
 
-    return Positioned(
-      left: x,
-      top: top,
-      width: cellW,
-      height: bandH,
-      child: Opacity(
-        opacity: dim,
-        child: Container(
-          decoration: BoxDecoration(
-            color: isTarget
-                ? acc
-                : Color.lerp(AppTheme.hairline, acc.withOpacity(0.35),
-                    colHighlight),
-            borderRadius: BorderRadius.circular(4),
-            border: isTarget
-                ? Border.all(color: Colors.white.withOpacity(0.85), width: 1.4)
-                : null,
-            boxShadow: isTarget ? AppTheme.glow(acc) : null,
-          ),
-        ),
+          // Sol kenardan kumulatif yerlesim (agirliklara gore).
+          final totalGap = gap * (colCount + 1);
+          final usableW = (fullW - totalGap).clamp(0.0, fullW);
+
+          double cursor = gap;
+          final positions = <({double x, double w, int local})>[];
+          for (int i = 0; i < colCount; i++) {
+            final local = i + 1;
+            final cw = usableW * weight(local);
+            positions.add((x: cursor, w: cw, local: local));
+            cursor += cw + gap;
+          }
+
+          return SizedBox(
+            width: fullW,
+            height: gridH,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                for (final p in positions)
+                  ..._buildColumn(
+                    localCol: p.local,
+                    x: p.x,
+                    colW: p.w,
+                    gridH: gridH,
+                    gap: gap,
+                    colOffset: colOffset,
+                    isTargetWall: isTargetWall,
+                    targetLocalCol: targetLocalCol,
+                    iso: iso,
+                    shelfT: shelfT,
+                    pulse: pulse,
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
+  }
+
+  /// Tek sutunun raflari + (hedefse) palet etiketi.
+  List<Widget> _buildColumn({
+    required int localCol,
+    required double x,
+    required double colW,
+    required double gridH,
+    required double gap,
+    required int colOffset,
+    required bool isTargetWall,
+    int? targetLocalCol,
+    required double iso,
+    required double shelfT,
+    required double pulse,
+  }) {
+    final acc = widget.accent;
+    final isTargetCol = isTargetWall && targetLocalCol == localCol;
+    // Hedef olmayan sutunlar izolasyonda solar.
+    final colOpacity =
+        isTargetCol ? 1.0 : (1.0 - iso * 0.85).clamp(0.0, 1.0);
+    if (colW <= 1) return const [];
+
+    final n = (widget.colShelfCounts[colOffset + localCol] ?? widget.rows)
+        .clamp(1, widget.rows);
+    final bandH = ((gridH - gap * (n + 1)) / n).clamp(4.0, gridH);
+
+    final cells = <Widget>[];
+    for (int sh = 1; sh <= n; sh++) {
+      final top = gap + (n - sh) * (bandH + gap); // raf 1 en altta
+      final isTarget = isTargetCol && sh == widget.targetRow;
+      // Hedef raf, RAF asamasinda parlar; hedef sutundaki digerleri soluk.
+      final cellFill = isTarget
+          ? Color.lerp(acc.withOpacity(0.5), acc, shelfT)!
+          : Color.lerp(
+              AppTheme.hairline,
+              acc.withOpacity(0.30),
+              isTargetCol ? iso * 0.6 : 0.0,
+            )!;
+      cells.add(Positioned(
+        left: x,
+        top: top,
+        width: colW,
+        height: bandH,
+        child: Opacity(
+          opacity: isTargetCol
+              ? 1.0
+              : colOpacity,
+          child: Container(
+            decoration: BoxDecoration(
+              color: cellFill,
+              borderRadius: BorderRadius.circular(4),
+              border: isTarget
+                  ? Border.all(
+                      color: Colors.white.withOpacity(0.9),
+                      width: 1.6 + pulse * 0.8)
+                  : null,
+              boxShadow: isTarget ? AppTheme.glow(acc) : null,
+            ),
+          ),
+        ),
+      ));
+    }
+
+    // Palet etiketi: hedef sutun + hedef raf uzerine, RAF asamasinda iner.
+    if (isTargetCol && shelfT > 0) {
+      final targetTop = gap + (n - widget.targetRow) * (bandH + gap);
+      cells.add(Positioned(
+        left: x + colW / 2 - 60,
+        width: 120,
+        top: (targetTop - 42 - (1 - shelfT) * 26).clamp(0.0, gridH),
+        child: Opacity(
+          opacity: shelfT.clamp(0.0, 1.0),
+          child: Center(child: _palletChip(acc, pulse)),
+        ),
+      ));
+    }
+
+    return cells;
   }
 
   Widget _palletPhotoReveal(double p) {
@@ -851,17 +886,19 @@ class _WarehouseFlythroughScreenState
 }
 
 
-/// Koridor ZEMINI — defterin ortası. Tek kaçış noktalı perspektifte
-/// trapez zemin çizer; YÜRÜYÜŞ sırasında enine çizgiler izleyiciye
-/// doğru akarak ilerleme hissini güçlendirir.
-class _CorridorFloorPainter extends CustomPainter {
-  final double openT; // duvarlar kalkarken zemin belirir
-  final double walk; // 0..1 ilerleme — cizgiler akar
+/// Koridor ZEMINI — ortada bir GECIT/bosluk, iki yanda depo tabani.
+/// Tek kacis noktali perspektifle karsiya daralir. DUZLESME (flat)
+/// asamasinda zemin duz bir tabana donusup solar.
+class _CorridorPainter extends CustomPainter {
+  final double openT; // koridor belirir
+  final double flat; // 0..1 hedef tarafa donus (zemin solar)
+  final bool targetIsLeft;
   final Color accent;
   final bool isLight;
-  _CorridorFloorPainter({
+  _CorridorPainter({
     required this.openT,
-    required this.walk,
+    required this.flat,
+    required this.targetIsLeft,
     required this.accent,
     required this.isLight,
   });
@@ -870,60 +907,80 @@ class _CorridorFloorPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (openT <= 0) return;
     final w = size.width, h = size.height;
-    final vp = Offset(w / 2, h * 0.42); // kaçış noktası
-    // Zemin: yakın kenar tüm alt genişlik, uzak kenar kaçış noktasında dar.
-    final nearHalf = w * 0.30 * openT; // yakın yarı genişlik
-    final farHalf = w * 0.03;
-    final nearY = h;
-    final farY = vp.dy + (h - vp.dy) * 0.12;
+    final vis = openT * (1 - flat * 0.9); // duzlesince kaybol
+    if (vis <= 0.02) return;
 
-    final floor = Path()
+    // Kacis noktasi ust-orta.
+    final vpY = h * 0.30;
+    // Koridor GECIDI: yakin uc genis, uzak uc kacis noktasinda dar.
+    final nearHalf = w * 0.14; // ortadaki boslugun yakin yari genisligi
+    final farHalf = w * 0.015;
+    final nearY = h;
+    final farY = vpY + (h - vpY) * 0.06;
+
+    // Gecit zemini (koyu, parlak kenarli).
+    final aisle = Path()
       ..moveTo(w / 2 - nearHalf, nearY)
       ..lineTo(w / 2 - farHalf, farY)
       ..lineTo(w / 2 + farHalf, farY)
       ..lineTo(w / 2 + nearHalf, nearY)
       ..close();
-    final basePaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: isLight
-            ? [const Color(0xFFD8DBE2), const Color(0xFFB9BDC7)]
-            : [const Color(0xFF23262E), const Color(0xFF12141A)],
-      ).createShader(Rect.fromLTWH(0, farY, w, nearY - farY));
-    canvas.drawPath(floor, basePaint);
+    canvas.drawPath(
+      aisle,
+      Paint()
+        ..color = (isLight ? const Color(0xFFB9BDC7) : const Color(0xFF171A22))
+            .withOpacity(vis),
+    );
 
-    // Kenar şeritleri (sarı depo çizgisi hissi).
+    // Gecit kenar cizgileri (sari depo seridi).
     final edge = Paint()
-      ..color = accent.withOpacity(0.55 * openT)
-      ..strokeWidth = 2.2
+      ..color = accent.withOpacity(0.6 * vis)
+      ..strokeWidth = 2.4
       ..style = PaintingStyle.stroke;
     canvas.drawLine(
         Offset(w / 2 - nearHalf, nearY), Offset(w / 2 - farHalf, farY), edge);
     canvas.drawLine(
         Offset(w / 2 + nearHalf, nearY), Offset(w / 2 + farHalf, farY), edge);
 
-    // Enine akış çizgileri: perspektif aralıklı; walk ile yakına akar.
+    // Enine zemin cizgileri (derinlik/mesafe hissi).
     final line = Paint()
-      ..color = (isLight ? Colors.black : Colors.white)
-          .withOpacity(0.10 * openT)
-      ..strokeWidth = 1.4;
-    const nLines = 7;
-    for (int i = 0; i < nLines; i++) {
-      // 0..1 derinlik parametresi; walk kayması mod 1 ile döngü.
-      final d = ((i / nLines) + walk * 1.6) % 1.0;
-      // Perspektif: derinlik d=0 uzak, d=1 yakın; kare hızlanma.
+      ..color = (isLight ? Colors.black : Colors.white).withOpacity(0.10 * vis)
+      ..strokeWidth = 1.2;
+    const nLines = 6;
+    for (int i = 1; i <= nLines; i++) {
+      final d = i / (nLines + 1);
       final tY = farY + (nearY - farY) * (d * d);
       final half = farHalf + (nearHalf - farHalf) * (d * d);
       canvas.drawLine(
           Offset(w / 2 - half, tY), Offset(w / 2 + half, tY), line);
     }
+
+    // Hedef taraf yon oku: koridorda hangi depoya gidilecegini isaret eder.
+    if (openT > 0.6 && flat < 0.5) {
+      final arrowPaint = Paint()
+        ..color = accent.withOpacity((0.8 * (1 - flat)).clamp(0.0, 1.0));
+      final cx = targetIsLeft ? w * 0.30 : w * 0.70;
+      final cy = h * 0.5;
+      final dir = targetIsLeft ? -1.0 : 1.0;
+      final path = Path()
+        ..moveTo(cx - 14 * dir, cy - 16)
+        ..lineTo(cx + 10 * dir, cy)
+        ..lineTo(cx - 14 * dir, cy + 16);
+      canvas.drawPath(
+          path,
+          arrowPaint
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 4
+            ..strokeCap = StrokeCap.round
+            ..strokeJoin = StrokeJoin.round);
+    }
   }
 
   @override
-  bool shouldRepaint(_CorridorFloorPainter old) =>
+  bool shouldRepaint(_CorridorPainter old) =>
       old.openT != openT ||
-      old.walk != walk ||
+      old.flat != flat ||
+      old.targetIsLeft != targetIsLeft ||
       old.accent != accent ||
       old.isLight != isLight;
 }
