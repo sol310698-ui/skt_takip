@@ -183,7 +183,7 @@ class _WarehouseFlythroughScreenState
   }
 
   void _checkLanding() {
-    if (!_landedHaptic && _main.value >= _tZoomEnd) {
+    if (!_landedHaptic && _main.value >= _tShelfEnd) {
       _landedHaptic = true;
       HapticFeedback.mediumImpact();
     }
