@@ -531,11 +531,15 @@ class _WarehouseFlythroughScreenState
       child: Opacity(
         opacity: opacity,
         child: Transform(
+          // İÇBÜKEY (çukur): menteşe DIŞ kenarda. Sol duvarın SOL kenarı,
+          // sağ duvarın SAĞ kenarı sabit + yüze dönük geniş kalır; İÇ (koridora
+          // bakan) kenar derinliğe kaçar. Böylece iki duvar karşıya doğru
+          // içeri bükülüp çukur/tünel hissi verir (dışa taşan V değil).
           alignment:
-              isLeftSide ? Alignment.centerRight : Alignment.centerLeft,
+              isLeftSide ? Alignment.centerLeft : Alignment.centerRight,
           transform: Matrix4.identity()
             ..setEntry(3, 2, 0.0016)
-            ..rotateY(isLeftSide ? angle : -angle),
+            ..rotateY(isLeftSide ? -angle : angle),
           child: _wallGrid(
             isLeftSide: isLeftSide,
             colCount: colCount,
