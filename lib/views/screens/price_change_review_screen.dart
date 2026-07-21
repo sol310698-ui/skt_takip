@@ -384,8 +384,8 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
                                 onTap: () =>
                                     setState(() => _items.removeAt(i)),
                                 borderRadius: BorderRadius.circular(20),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(6),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
                                   child: Icon(Icons.close_rounded,
                                       size: 18,
                                       color: AppTheme.textTertiary),
