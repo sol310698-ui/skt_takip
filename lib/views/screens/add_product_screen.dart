@@ -61,6 +61,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late final TextEditingController _locationCtrl;
   // Elle hizli tarih girisi icin (gg.aa.yyyy). Numerik klavye + oto nokta.
   late final TextEditingController _dateTextCtrl;
+  late final TextEditingController _qtyCtrl;
   late int _quantity;
   DateTime? _expiryDate;
 
@@ -98,6 +99,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _categoryCtrl = TextEditingController(text: e?.category ?? '');
     _locationCtrl = TextEditingController(text: e?.location ?? '');
     _quantity = e?.quantity ?? 1;
+    _qtyCtrl = TextEditingController(text: '$_quantity');
     _expiryDate = widget.scannedExpiry ?? e?.expiryDate;
     // Mevcut tarih varsa metin kutusunu da doldur (gg.aa.yyyy).
     _dateTextCtrl = TextEditingController(
@@ -155,6 +157,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _locationCtrl.dispose();
     _dateTextCtrl.removeListener(_onDateTextChanged);
     _dateTextCtrl.dispose();
+    _qtyCtrl.dispose();
     _dateFocus.dispose();
     super.dispose();
   }
@@ -831,7 +834,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Widget _buildHeader(bool isEdit) {
     final hasImage = _previewImageUrl != null || _localImagePath != null;
     return SliverAppBar(
-      expandedHeight: hasImage ? 240 : kToolbarHeight,
+      expandedHeight: hasImage ? 320 : kToolbarHeight,
       pinned: true,
       stretch: hasImage,
       backgroundColor: AppTheme.primary,
@@ -848,51 +851,131 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           ? FlexibleSpaceBar(
               titlePadding: EdgeInsets.zero,
               stretchModes: const [StretchMode.zoomBackground],
-              background: Container(
-                decoration: const BoxDecoration(
-                    gradient: AppTheme.bannerGradient),
-                child: SafeArea(
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 28, bottom: 44),
-                      child: Column(
+              // ÜST KISIM FOTO: fotograf tum banner'i kaplar; dokununca
+              // tam ekran acilir. Altta durum rozeti (Kayitlardan bulundu).
+              background: GestureDetector(
+                onTap: _openHeroFullscreen,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Hero(
+                      tag: 'product_img',
+                      child: _localImagePath != null
+                          ? Image.file(File(_localImagePath!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  _heroBgPlaceholder())
+                          : (_previewImageUrl != null
+                              ? CachedImage(
+                                  url: _previewImageUrl!,
+                                  fit: BoxFit.cover,
+                                  placeholder: _heroBgPlaceholder)
+                              : _heroBgPlaceholder()),
+                    ),
+                    // Alttan koyu perde (durum yazisi okunakli kalsin).
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.center,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Color(0xCC000000),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // "Tam ekran" ipucu (sag ust).
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 6,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.fullscreen_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                    ),
+                    // Durum rozeti (altta).
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 14,
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildHeroImage(),
-                          const SizedBox(height: 10),
                           if (_looking)
                             const Text('Ürün bilgisi aranıyor...',
                                 style: TextStyle(
                                     color: Colors.white, fontSize: 12.5))
                           else if (_lookupInfo != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _lookupInfo!.contains('bulundu')
-                                      ? Icons.check_circle_rounded
-                                      : Icons.info_outline_rounded,
-                                  color: Colors.white,
-                                  size: 14,
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.4),
+                                  borderRadius:
+                                      BorderRadius.circular(AppTheme.rPill),
                                 ),
-                                const SizedBox(width: 5),
-                                Text(_lookupInfo!,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12.5)),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _lookupInfo!.contains('bulundu')
+                                          ? Icons.check_circle_rounded
+                                          : Icons.info_outline_rounded,
+                                      color: _lookupInfo!.contains('bulundu')
+                                          ? AppTheme.statusSafe
+                                          : Colors.white,
+                                      size: 15,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(_lookupInfo!,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12.5,
+                                              fontWeight:
+                                                  FontWeight.w600)),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                         ],
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             )
           : null,
     );
   }
+
+  void _openHeroFullscreen() {
+    if (_localImagePath != null) {
+      openImageZoom(context,
+          filePath: _localImagePath, heroTag: 'product_img');
+    } else if (_previewImageUrl != null) {
+      openImageZoom(context,
+          networkUrl: _previewImageUrl, heroTag: 'product_img');
+    }
+  }
+
+  Widget _heroBgPlaceholder() => Container(
+        decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
+        child: const Center(
+          child: Icon(Icons.inventory_2_rounded,
+              color: Colors.white, size: 56),
+        ),
+      );
 
   /// Form icindeki arama durumu baneri (gorsel YOK; gorsel ustteki header'da).
   Widget _buildInlinePreview() {
@@ -940,50 +1023,6 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       ),
     );
   }
-
-  Widget _buildHeroImage() {
-    final localOk = _localImagePath != null;
-    return GestureDetector(
-      onTap: () {
-        if (localOk) {
-          openImageZoom(context,
-              filePath: _localImagePath, heroTag: 'product_img');
-        } else if (_previewImageUrl != null) {
-          openImageZoom(context,
-              networkUrl: _previewImageUrl, heroTag: 'product_img');
-        }
-      },
-      child: Hero(
-        tag: 'product_img',
-        child: Container(
-          width: 92,
-          height: 92,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: localOk
-              ? Image.file(
-                  File(_localImagePath!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _heroPlaceholder(),
-                )
-              : (_previewImageUrl != null
-                  ? CachedImage(
-                      url: _previewImageUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: _heroPlaceholder,
-                    )
-                  : _heroPlaceholder()),
-        ),
-      ),
-    );
-  }
-
-  Widget _heroPlaceholder() => const Icon(Icons.inventory_2_rounded,
-      color: Colors.white, size: 40);
 
   Widget _label(String t) => Padding(
         padding: const EdgeInsets.only(left: 4, bottom: 8),
@@ -1119,38 +1158,68 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Widget _buildQuantitySelector() {
+    // Klavye girisi ile senkron: alan degistikce _quantity guncellenir;
+    // -/+ butonlari da alani gunceller. Bos/gecersiz -> 1.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         color: AppTheme.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text('Adet',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline),
-                color: AppTheme.primary,
-                onPressed:
-                    _quantity > 1 ? () => setState(() => _quantity--) : null,
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline),
+            color: AppTheme.primary,
+            onPressed: _quantity > 1
+                ? () {
+                    setState(() => _quantity--);
+                    _qtyCtrl.text = '$_quantity';
+                    _qtyCtrl.selection = TextSelection.collapsed(
+                        offset: _qtyCtrl.text.length);
+                  }
+                : null,
+          ),
+          // KLAVYE GIRISI: sayiyi elle yazabilirsin.
+          SizedBox(
+            width: 64,
+            child: TextField(
+              controller: _qtyCtrl,
+              textAlign: TextAlign.center,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              style: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 8),
+                border: InputBorder.none,
               ),
-              SizedBox(
-                width: 32,
-                child: Text('$_quantity',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                color: AppTheme.primary,
-                onPressed: () => setState(() => _quantity++),
-              ),
-            ],
+              onChanged: (v) {
+                final n = int.tryParse(v.trim());
+                if (n != null && n >= 1) _quantity = n;
+              },
+              onSubmitted: (v) {
+                final n = int.tryParse(v.trim());
+                setState(() => _quantity = (n == null || n < 1) ? 1 : n);
+                _qtyCtrl.text = '$_quantity';
+              },
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            color: AppTheme.primary,
+            onPressed: () {
+              setState(() => _quantity++);
+              _qtyCtrl.text = '$_quantity';
+              _qtyCtrl.selection = TextSelection.collapsed(
+                  offset: _qtyCtrl.text.length);
+            },
           ),
         ],
       ),

@@ -112,6 +112,186 @@ class LoadingState extends StatelessWidget {
   }
 }
 
+/// ════════════════════════════════════════════════════════════════════
+///  SKELETON SHIMMER — veri yuklenirken gercek kart sekillerinde parlayan
+///  gri placeholder'lar (donen cember yerine). Paket gerektirmez; kendi
+///  gradyan animasyonuyla soldan saga akan bir isik bandi cizer.
+/// ════════════════════════════════════════════════════════════════════
+
+/// Tek bir shimmer bloku — verilen boyut/yuvarlaklikta parlayan dikdortgen.
+class SkeletonBox extends StatelessWidget {
+  final double? width;
+  final double height;
+  final double radius;
+  const SkeletonBox({
+    super.key,
+    this.width,
+    this.height = 14,
+    this.radius = 8,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Shimmer(
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(radius),
+        ),
+      ),
+    );
+  }
+}
+
+/// Liste iskeleti: [count] adet kart-benzeri satir (sol kare + iki metin
+/// cizgisi). Cogu liste ekraninin yuklenme hali icin hazir sablon.
+class SkeletonList extends StatelessWidget {
+  final int count;
+  final EdgeInsets padding;
+  const SkeletonList({
+    super.key,
+    this.count = 6,
+    this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: padding,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: count,
+      itemBuilder: (_, __) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          border: Border.all(color: AppTheme.hairline),
+        ),
+        child: Row(
+          children: [
+            const SkeletonBox(width: 46, height: 46, radius: 12),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  SkeletonBox(width: 180, height: 13),
+                  SizedBox(height: 8),
+                  SkeletonBox(width: 110, height: 11),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            const SkeletonBox(width: 40, height: 22, radius: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Kart izgarasi iskeleti (reyon listesi gibi galeri/grid ekranlar icin).
+class SkeletonGrid extends StatelessWidget {
+  final int count;
+  final int crossAxisCount;
+  final double childAspectRatio;
+  const SkeletonGrid({
+    super.key,
+    this.count = 6,
+    this.crossAxisCount = 2,
+    this.childAspectRatio = 1.6,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: childAspectRatio,
+      ),
+      itemCount: count,
+      itemBuilder: (_, __) => _Shimmer(
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(AppTheme.rLg),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Soldan saga akan isik bandiyla cocugunu parlatan sarici.
+class _Shimmer extends StatefulWidget {
+  final Widget child;
+  const _Shimmer({required this.child});
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = AppTheme.isLight
+        ? Colors.white.withOpacity(0.55)
+        : Colors.white.withOpacity(0.06);
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (rect) {
+            final dx = (rect.width + 200) * _c.value - 100;
+            return LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Colors.transparent,
+                base,
+                Colors.transparent,
+              ],
+              stops: const [0.35, 0.5, 0.65],
+              transform: _SlideGradient(dx / rect.width),
+            ).createShader(rect);
+          },
+          child: child,
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+/// Gradyani yatayda kaydiran yardimci transform.
+class _SlideGradient extends GradientTransform {
+  final double t; // -1..1 civari, gradyanin merkez konumu
+  const _SlideGradient(this.t);
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(bounds.width * t, 0, 0);
+  }
+}
+
 /// Hata durumu gostergesi.
 class ErrorStateView extends StatelessWidget {
   final String message;

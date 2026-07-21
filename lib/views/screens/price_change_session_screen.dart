@@ -28,6 +28,9 @@ import 'price_change_review_screen.dart';
 import 'quick_photo_capture_screen.dart';
 import 'price_review_guide_screen.dart';
 import 'web_search_screen.dart';
+import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/location_reveal_prefs.dart';
+import '../widgets/location_reveal.dart';
 
 /// Tek fiyat degisim oturumunun detayi.
 /// Aktif: kamera ile uygula (foto kanitli). Tamamlanmis: rapor + kanitlar.
@@ -817,50 +820,182 @@ class _PriceChangeSessionScreenState
     );
   }
 
+  /// REYONDA GOSTER: bu barkodun reyon dizilimindeki yerini bulup
+  /// canlandirmayi oynatir. Fiyat degisim sirasinda "urun rafta nerede"
+  /// gormek icin — etiketi degistirirken dogru rafa gitmeyi kolaylastirir.
+  Future<void> _showInShelf(PriceChangeItem item) async {
+    final hit =
+        await ShelfLayoutService.instance.locateBarcode(item.barcode);
+    if (!mounted) return;
+    if (hit == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${item.productName ?? item.barcode} reyon diziliminde kayıtlı değil.')));
+      return;
+    }
+    if (!LocationRevealPrefs.instance.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Konum canlandırması Ayarlar > Görünüm’den kapalı.')));
+    }
+    showLocationFlythrough(
+      context,
+      title: hit.unitName,
+      cols: hit.cols,
+      rows: hit.rows,
+      targetCol: hit.section,
+      targetRow: hit.row,
+      subtitle: 'Sütun ${hit.section} · Raf ${hit.row}',
+      productName: hit.productName ?? item.productName,
+      photoPath: hit.photoPath,
+      allAisles: hit.allUnitNames,
+      targetAisleIndex: hit.unitIndex,
+      shelfProducts: hit.shelf
+          .map((e) => RevealShelfProduct(
+                name: e.name,
+                photoPath: e.photoPath,
+                sectionNo: e.sectionNo,
+                isTarget: e.isTarget,
+              ))
+          .toList(),
+    );
+  }
+
   // ─────────────────────────── UI ────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final fmt = DateFormat('dd MMM', 'tr');
-    return Scaffold(
+    final base = _completed ? AppTheme.statusSafe : AppTheme.primary;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(base),
+      child: Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Text(_session != null
-            ? 'Oturum — ${fmt.format(_session!.createdAt)}'
-            : 'Oturum'),
-        backgroundColor:
-            _completed ? AppTheme.statusSafe : AppTheme.primary,
-        foregroundColor: _completed ? Colors.black : Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(
-            _completed ? AppTheme.statusSafe : AppTheme.primary),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.visibility_rounded),
-            tooltip: 'Rehberle Gör (büyük görünüm)',
-            onPressed: _items.isEmpty ? null : _openGuide,
+      body: Column(
+        children: [
+          _sessionHero(fmt),
+          Expanded(
+            child: _session == null
+                ? const LoadingState()
+                : (_completed
+                    ? _buildCompletedView()
+                    : _buildActiveView()),
           ),
-          IconButton(
-            icon: const Icon(Icons.photo_library_rounded),
-            tooltip: 'Kanıtlar',
-            onPressed: _openEvidence,
-          ),
-          IconButton(
-            icon: const Icon(Icons.share_rounded),
-            tooltip: 'Raporu Paylaş',
-            onPressed: _items.isEmpty ? null : _shareReport,
-          ),
-          if (!_completed)
-            IconButton(
-              icon: const Icon(Icons.flag_rounded),
-              tooltip: 'Oturumu Bitir',
-              onPressed: _items.isEmpty ? null : () => _finishSession(),
-            ),
         ],
       ),
-      body: _session == null
-          ? const LoadingState()
-          : (_completed ? _buildCompletedView() : _buildActiveView()),
+    ),
     );
   }
+
+  Widget _sessionHero(DateFormat fmt) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final base = _completed ? AppTheme.statusSafe : AppTheme.primary;
+    final onColor = _completed ? Colors.black : Colors.white;
+    final done = _items.where((i) => i.changed).length;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 8, 8, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [base, Color.lerp(base, AppTheme.coral, 0.4)!],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: Icon(Icons.arrow_back_rounded, color: onColor),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        _session != null
+                            ? 'Oturum — ${fmt.format(_session!.createdAt)}'
+                            : 'Oturum',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: onColor)),
+                    Text(_completed ? 'Tamamlandı' : 'Devam ediyor',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: onColor.withOpacity(0.8))),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.visibility_rounded, color: onColor),
+                tooltip: 'Rehberle Gör (büyük görünüm)',
+                onPressed: _items.isEmpty ? null : _openGuide,
+              ),
+              IconButton(
+                icon: Icon(Icons.photo_library_rounded, color: onColor),
+                tooltip: 'Kanıtlar',
+                onPressed: _openEvidence,
+              ),
+              IconButton(
+                icon: Icon(Icons.share_rounded, color: onColor),
+                tooltip: 'Raporu Paylaş',
+                onPressed: _items.isEmpty ? null : _shareReport,
+              ),
+              if (!_completed)
+                IconButton(
+                  icon: Icon(Icons.flag_rounded, color: onColor),
+                  tooltip: 'Oturumu Bitir',
+                  onPressed: _items.isEmpty ? null : () => _finishSession(),
+                ),
+            ],
+          ),
+          if (_items.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                decoration: BoxDecoration(
+                  color: onColor.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                ),
+                child: Row(
+                  children: [
+                    _shStat('${_items.length}', 'ürün', onColor),
+                    _shDiv(onColor),
+                    _shStat('$done', 'değişti', onColor),
+                    _shDiv(onColor),
+                    _shStat('${_items.length - done}', 'kalan', onColor),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _shStat(String v, String l, Color c) => Expanded(
+        child: Column(children: [
+          Text(v,
+              style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: c)),
+          Text(l,
+              style: TextStyle(fontSize: 10.5, color: c.withOpacity(0.8))),
+        ]),
+      );
+
+  Widget _shDiv(Color c) =>
+      Container(width: 1, height: 24, color: c.withOpacity(0.25));
 
   Widget _buildActiveView() {
     final pending = _items.where((i) => !i.changed).length;
@@ -1102,6 +1237,18 @@ class _PriceChangeSessionScreenState
             ),
           ),
           const SizedBox(height: 8),
+          // REYONDA GOSTER: bu urun rafta nerede? canlandirma oynatir.
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _showInShelf(_matched!),
+            icon: const Icon(Icons.travel_explore_rounded, size: 18),
+            label: const Text('Reyonda göster'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.primary,
+              side: BorderSide(color: AppTheme.primary.withOpacity(0.5)),
+              minimumSize: const Size.fromHeight(42),
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -1331,6 +1478,16 @@ class _PriceChangeSessionScreenState
                           color: item.changed
                               ? AppTheme.textTertiary
                               : AppTheme.statusSafe)),
+                // Reyonda göster (animasyon) — ürünün rafta yerini canlandırır.
+                InkWell(
+                  onTap: () => _showInShelf(item),
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 6),
+                    child: Icon(Icons.travel_explore_rounded,
+                        size: 19, color: AppTheme.primary),
+                  ),
+                ),
               ],
             ),
           ),

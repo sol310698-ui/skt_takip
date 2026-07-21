@@ -301,16 +301,10 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       if (code != null) _lastBarcode = code; // sonraki karsilastirma icin
     });
 
-    // KONUM CANLANDIRMASI: urunun reyondaki yeri bulunduysa "kamera inisi"
-    // gosterisi OTOMATIK oynar (kullanici istegi). Karta dokununca da
-    // yeniden oynatilabilir. Reyonda yoksa ama DEPODA varsa, tam ekran
-    // depo canlandirmasi oynar (once genel bakis, sonra sola/saga kayma,
-    // sonra sutun/raf/palete yakinlasma).
-    if (shelfLoc != null && mounted) {
-      _playLocationReveal(shelfLoc);
-    } else if (palletLocs.isNotEmpty && mounted) {
-      _playWarehouseReveal(palletLocs.first);
-    }
+    // KONUM CANLANDIRMASI OTOMATIK OYNAMAZ. Kullanici kendi tetikler:
+    // reyon konum kartina ya da "Depoda Bul" / palet kartina dokununca
+    // tam ekran canlandirma acilir. Konum bilgisi karttaki duz metinle
+    // her zaman gorunur; animasyon istege bagli.
   }
 
   void _playWarehouseReveal(_PalletLocation loc) {
@@ -942,6 +936,19 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                   children: [
                     badge('Sütun', '${loc.section}', 150),
                     badge('Raf', '${loc.row}', 300),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: const [
+                    Icon(Icons.play_circle_outline_rounded,
+                        color: Colors.white70, size: 14),
+                    SizedBox(width: 4),
+                    Text('Dokun · reyonda canlandır',
+                        style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
                   ],
                 ),
               ],

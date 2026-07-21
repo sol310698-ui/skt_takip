@@ -198,7 +198,7 @@ class _BarcodeListScreenState extends ConsumerState<BarcodeListScreen> {
                   _buildHeader(),
                   Expanded(
                     child: _loading
-                        ? const LoadingState()
+                        ? const SkeletonList()
                         : _all.isEmpty
                             ? _buildEmpty()
                             : _fragmentMode

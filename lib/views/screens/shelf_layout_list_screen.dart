@@ -194,7 +194,7 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
           _hero(),
           Expanded(
             child: _loading
-                ? const LoadingState()
+                ? const SkeletonList()
                 : RefreshIndicator(
                     onRefresh: _load,
                     child: ListView(

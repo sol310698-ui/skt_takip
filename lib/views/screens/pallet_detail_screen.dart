@@ -241,7 +241,31 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     if (result != null && result > 0) {
       await WarehouseService.instance
           .removeItemQuantity(item.id!, result);
-      _load();
+      await _load();
+      if (!mounted) return;
+      // GERİ AL: yanlışlıkla çıkarılan adedi tek dokunuşla geri ekle.
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '$result adet çıkarıldı: ${item.productName ?? item.barcode}'),
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Geri Al',
+            textColor: AppTheme.accent,
+            onPressed: () async {
+              await WarehouseService.instance.addItemToPallet(
+                palletId: widget.palletId,
+                barcode: item.barcode,
+                quantity: result,
+                productName: item.productName,
+              );
+              _load();
+            },
+          ),
+        ),
+      );
     }
   }
 
@@ -762,176 +786,13 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final loc = _shelf != null
-        ? 'Sütun ${_shelf!.columnNo} • Raf ${_shelf!.shelfNo}'
-        : 'Bekleme alanı';
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Text(_pallet?.code ?? 'Palet'),
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.black,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
-        actions: [
-          // Resim göster (varsa)
-          if (_pallet?.imagePath != null)
-            IconButton(
-              icon: const Icon(Icons.image_rounded),
-              tooltip: 'Resmi Göster',
-              onPressed: _showImage,
-            ),
-          // Resim çek/ekle
-          IconButton(
-            icon: Icon(_pallet?.imagePath != null
-                ? Icons.add_a_photo_rounded
-                : Icons.photo_camera_rounded),
-            tooltip: _pallet?.imagePath != null ? 'Resmi Değiştir' : 'Resim Çek',
-            onPressed: _loading ? null : _capturePalletImage,
-          ),
-          // Barkodla urun bul & cikar (el terminali / elle giris)
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-            tooltip: 'Barkodla Ürün Bul/Çıkar',
-            onPressed: _loading ? null : _findAndRemoveByBarcode,
-          ),
-          // Depo ici transfer
-          IconButton(
-            icon: const Icon(Icons.swap_horiz_rounded),
-            tooltip: 'Depo İçi Taşı',
-            onPressed: _loading ? null : _transfer,
-          ),
-          // Transfer gecmisi + Magaza disi + Sil
-          PopupMenuButton<String>(
-            onSelected: (v) {
-              if (v == 'qr') _printPalletQr();
-              if (v == 'history') _showTransferHistory();
-              if (v == 'external') _externalTransfer();
-              if (v == 'delete') _deletePallet();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'qr',
-                child: Row(children: [
-                  Icon(Icons.qr_code_2_rounded,
-                      size: 18, color: AppTheme.primary),
-                  SizedBox(width: 8),
-                  Text('QR Etiketi Yazdır'),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'external',
-                child: Row(children: [
-                  Icon(Icons.local_shipping_rounded,
-                      size: 18, color: AppTheme.coral),
-                  SizedBox(width: 8),
-                  Text('Mağaza Dışı Sevk'),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'history',
-                child: Row(children: [
-                  Icon(Icons.history_rounded,
-                      size: 18, color: AppTheme.accent),
-                  SizedBox(width: 8),
-                  Text('Transfer Geçmişi'),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(children: [
-                  Icon(Icons.delete_outline_rounded,
-                      size: 18, color: AppTheme.statusExpired),
-                  SizedBox(width: 8),
-                  Text('Paleti Sil'),
-                ]),
-              ),
-            ],
-          ),
-        ],
-      ),
       body: _loading
-          ? const LoadingState()
+          ? const SkeletonList()
           : Column(
               children: [
-                // Ozet — gradient kart + istatistik seridi
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppTheme.rLg),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppTheme.accent.withOpacity(0.16),
-                        AppTheme.accent.withOpacity(0.04),
-                      ],
-                    ),
-                    border:
-                        Border.all(color: AppTheme.accent.withOpacity(0.25)),
-                  ),
-                  child: Column(
-                    children: [
-                      // Konum satiri
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(9),
-                              decoration: BoxDecoration(
-                                color: (_shelf != null
-                                        ? AppTheme.accent
-                                        : AppTheme.amber)
-                                    .withOpacity(0.18),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                  _shelf != null
-                                      ? Icons.place_rounded
-                                      : Icons.pending_rounded,
-                                  size: 18,
-                                  color: _shelf != null
-                                      ? AppTheme.accent
-                                      : AppTheme.amber),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(loc,
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14.5,
-                                      color: _shelf != null
-                                          ? AppTheme.accent
-                                          : AppTheme.amber)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Istatistik seridi
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppTheme.accent.withOpacity(0.08),
-                          borderRadius: const BorderRadius.vertical(
-                              bottom: Radius.circular(AppTheme.rLg)),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 12),
-                        child: Row(
-                          children: [
-                            _pStat(Icons.category_rounded,
-                                '${_items.length}', 'çeşit'),
-                            Container(
-                                width: 1,
-                                height: 28,
-                                color: AppTheme.accent.withOpacity(0.18)),
-                            _pStat(Icons.numbers_rounded, '$_totalQty',
-                                'toplam adet'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _hero(),
                 Expanded(
                   child: _items.isEmpty
                       ? EmptyState(
@@ -950,8 +811,8 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                           ),
                         )
                       : ListView.builder(
-                          padding: EdgeInsets.fromLTRB(16, 0, 16,
-                              MediaQuery.of(context).padding.bottom + 16),
+                          padding: EdgeInsets.fromLTRB(16, 4, 16,
+                              MediaQuery.of(context).padding.bottom + 90),
                           itemCount: _items.length,
                           itemBuilder: (_, i) => _itemTile(_items[i]),
                         ),
@@ -970,23 +831,232 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     );
   }
 
-  Widget _pStat(IconData icon, String value, String label) {
+  /// ── GRADYAN HERO: palet kodu + aksiyon ikonları + konum & özet ──
+  Widget _hero() {
+    final topPad = MediaQuery.of(context).padding.top;
+    final onShelf = _shelf != null;
+    final locLabel = onShelf
+        ? 'Sütun ${_shelf!.columnNo} · Raf ${_shelf!.shelfNo}'
+        : 'Bekleme alanı';
+    final hasPhoto =
+        _pallet?.imagePath != null && File(_pallet!.imagePath!).existsSync();
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.accent,
+            Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        children: [
+          // Üst bar: geri + kod + aksiyon ikonları.
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded,
+                    color: Colors.black),
+              ),
+              Expanded(
+                child: Text(_pallet?.code ?? 'Palet',
+                    style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black)),
+              ),
+              IconButton(
+                icon: Icon(
+                    hasPhoto
+                        ? Icons.add_a_photo_rounded
+                        : Icons.photo_camera_rounded,
+                    color: Colors.black),
+                tooltip: hasPhoto ? 'Resmi Değiştir' : 'Resim Çek',
+                onPressed: _capturePalletImage,
+              ),
+              IconButton(
+                icon: const Icon(Icons.qr_code_scanner_rounded,
+                    color: Colors.black),
+                tooltip: 'Barkodla Ürün Bul/Çıkar',
+                onPressed: _findAndRemoveByBarcode,
+              ),
+              IconButton(
+                icon: const Icon(Icons.swap_horiz_rounded,
+                    color: Colors.black),
+                tooltip: 'Depo İçi Taşı',
+                onPressed: _transfer,
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded,
+                    color: Colors.black),
+                onSelected: (v) {
+                  if (v == 'qr') _printPalletQr();
+                  if (v == 'history') _showTransferHistory();
+                  if (v == 'external') _externalTransfer();
+                  if (v == 'delete') _deletePallet();
+                  if (v == 'image' && hasPhoto) _showImage();
+                },
+                itemBuilder: (_) => [
+                  if (hasPhoto)
+                    const PopupMenuItem(
+                      value: 'image',
+                      child: Row(children: [
+                        Icon(Icons.image_rounded,
+                            size: 18, color: AppTheme.accent),
+                        SizedBox(width: 8),
+                        Text('Resmi Göster'),
+                      ]),
+                    ),
+                  const PopupMenuItem(
+                    value: 'qr',
+                    child: Row(children: [
+                      Icon(Icons.qr_code_2_rounded,
+                          size: 18, color: AppTheme.primary),
+                      SizedBox(width: 8),
+                      Text('QR Etiketi Yazdır'),
+                    ]),
+                  ),
+                  const PopupMenuItem(
+                    value: 'external',
+                    child: Row(children: [
+                      Icon(Icons.local_shipping_rounded,
+                          size: 18, color: AppTheme.coral),
+                      SizedBox(width: 8),
+                      Text('Mağaza Dışı Sevk'),
+                    ]),
+                  ),
+                  const PopupMenuItem(
+                    value: 'history',
+                    child: Row(children: [
+                      Icon(Icons.history_rounded,
+                          size: 18, color: AppTheme.accent),
+                      SizedBox(width: 8),
+                      Text('Transfer Geçmişi'),
+                    ]),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(children: [
+                      Icon(Icons.delete_outline_rounded,
+                          size: 18, color: AppTheme.statusExpired),
+                      SizedBox(width: 8),
+                      Text('Paleti Sil'),
+                    ]),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Konum + özet paneli (tek kart, cam efektli).
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
+            ),
+            child: Column(
+              children: [
+                // Konum satırı + hızlı foto küçük görsel.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                            onShelf
+                                ? Icons.place_rounded
+                                : Icons.pending_rounded,
+                            size: 18,
+                            color: Colors.black),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(locLabel,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: Colors.black)),
+                      ),
+                      if (hasPhoto)
+                        GestureDetector(
+                          onTap: _showImage,
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: Colors.black.withOpacity(0.3),
+                                  width: 1.5),
+                            ),
+                            child: Image.file(File(_pallet!.imagePath!),
+                                fit: BoxFit.cover),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                // İstatistik şeridi.
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.10),
+                    borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(AppTheme.rMd)),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      _heroStat(Icons.category_rounded,
+                          '${_items.length}', 'çeşit'),
+                      Container(
+                          width: 1,
+                          height: 28,
+                          color: Colors.black.withOpacity(0.18)),
+                      _heroStat(Icons.numbers_rounded, '$_totalQty',
+                          'toplam adet'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroStat(IconData icon, String value, String label) {
     return Expanded(
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16, color: AppTheme.accent),
+              Icon(icon, size: 16, color: Colors.black),
               const SizedBox(width: 6),
               Text(value,
                   style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w800)),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black)),
             ],
           ),
-          const SizedBox(height: 1),
           Text(label,
-              style: TextStyle(fontSize: 11, color: AppTheme.textTertiary)),
+              style: const TextStyle(fontSize: 11, color: Colors.black87)),
         ],
       ),
     );
@@ -1098,13 +1168,44 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                     borderRadius: BorderRadius.circular(2)),
               ),
             ),
-            Text(item.productName ?? item.barcode,
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w700),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text('${item.quantity} adet',
-                style: TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13)),
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text('${item.quantity}',
+                      style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.accent)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.productName ?? item.barcode,
+                          style: const TextStyle(
+                              fontSize: 15.5, fontWeight: FontWeight.w800),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                      Text('${item.quantity} adet · ${item.barcode}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: AppTheme.textTertiary,
+                              fontSize: 11.5,
+                              fontFamily: 'monospace')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             _optionTile(
               icon: Icons.photo_camera_back_outlined,

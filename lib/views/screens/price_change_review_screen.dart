@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/price_change_service.dart';
+import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/location_reveal.dart';
 import '../widgets/ui_kit.dart';
 
 /// OCR sonucu onizleme + duzeltme.
@@ -50,6 +53,48 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
     if (result != null && result.barcode.length >= 12) {
       setState(() => _items.add(result));
     }
+  }
+
+  /// REYONDA GÖSTER: bu barkodun reyon dizilimindeki yerini bulup
+  /// konum canlandırmasını oynatır — etiketi değiştirirken doğru rafa
+  /// gitmeyi kolaylaştırır.
+  Future<void> _showInShelf(PriceChangeItem item) async {
+    if (item.barcode.trim().isEmpty) return;
+    final hit =
+        await ShelfLayoutService.instance.locateBarcode(item.barcode);
+    if (!mounted) return;
+    if (hit == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${item.productName ?? item.barcode} reyon diziliminde kayıtlı değil.')));
+      return;
+    }
+    if (!LocationRevealPrefs.instance.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Konum canlandırması Ayarlar > Görünüm’den kapalı.')));
+    }
+    showLocationFlythrough(
+      context,
+      title: hit.unitName,
+      cols: hit.cols,
+      rows: hit.rows,
+      targetCol: hit.section,
+      targetRow: hit.row,
+      subtitle: 'Sütun ${hit.section} · Raf ${hit.row}',
+      productName: hit.productName ?? item.productName,
+      photoPath: hit.photoPath,
+      allAisles: hit.allUnitNames,
+      targetAisleIndex: hit.unitIndex,
+      shelfProducts: hit.shelf
+          .map((e) => RevealShelfProduct(
+                name: e.name,
+                photoPath: e.photoPath,
+                sectionNo: e.sectionNo,
+                isTarget: e.isTarget,
+              ))
+          .toList(),
+    );
   }
 
   Future<PriceChangeItem?> _showEditDialog(PriceChangeItem item,
@@ -146,32 +191,93 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final issues = _items
+        .where((i) => i.newPrice == null || i.productName == null)
+        .length;
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Okunan Liste — Kontrol'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-      ),
       body: Column(
         children: [
-          // Kaynak + sayi bilgisi
+          // ── GRADYAN HERO ──
           Container(
-            margin: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(8, topPad + 8, 16, 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.primary,
+                  Color.lerp(AppTheme.primary, AppTheme.accent, 0.5)!,
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppTheme.rLg)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.white),
+                    ),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Okunan Liste — Kontrol',
+                              style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white)),
+                          Text('Satıra dokunup düzeltebilirsiniz',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.white70)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  ),
+                  child: Row(
+                    children: [
+                      _heroStat('${_items.length}', 'satır'),
+                      _heroDivider(),
+                      _heroStat('${_items.length - issues}', 'tam'),
+                      _heroDivider(),
+                      _heroStat('$issues', 'eksik'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Kaynak bilgisi.
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: AppTheme.card(accentColor: AppTheme.accent),
             child: Row(
               children: [
-                const Icon(Icons.fact_check_rounded,
-                    color: AppTheme.accent, size: 20),
+                const Icon(Icons.auto_awesome_rounded,
+                    color: AppTheme.accent, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '${widget.source} ile ${_items.length} satır okundu. '
-                    'Satıra dokunup düzeltebilirsiniz.',
-                    style: const TextStyle(fontSize: 12.5),
+                    '${widget.source} ile okundu. Eksik/yanlış satırları '
+                    'düzeltin, ürünün reyondaki yerini görmek için '
+                    'konum ikonuna dokunun.',
+                    style: const TextStyle(fontSize: 12),
                   ),
                 ),
               ],
@@ -261,12 +367,25 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
                                                 AppTheme.textTertiary)),
                                 ],
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 4),
+                              // Reyonda göster (animasyon).
+                              InkWell(
+                                onTap: () => _showInShelf(item),
+                                borderRadius: BorderRadius.circular(20),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                      Icons.travel_explore_rounded,
+                                      size: 20,
+                                      color: AppTheme.primary),
+                                ),
+                              ),
                               InkWell(
                                 onTap: () =>
                                     setState(() => _items.removeAt(i)),
-                                child: Padding(
-                                  padding: EdgeInsets.all(4),
+                                borderRadius: BorderRadius.circular(20),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
                                   child: Icon(Icons.close_rounded,
                                       size: 18,
                                       color: AppTheme.textTertiary),
@@ -317,4 +436,22 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
       ),
     );
   }
+
+  Widget _heroStat(String value, String label) => Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white)),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 11, color: Colors.white70)),
+          ],
+        ),
+      );
+
+  Widget _heroDivider() => Container(
+      width: 1, height: 26, color: Colors.white.withOpacity(0.25));
 }

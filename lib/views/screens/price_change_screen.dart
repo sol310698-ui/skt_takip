@@ -592,46 +592,113 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final done = _sessions.where((s) => s.session.isCompleted).length;
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Fiyat Değişim'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.manage_search_rounded, color: Colors.white),
-            tooltip: 'Fiyat Geçmişi Sorgula',
-            onPressed: _queryBarcode,
-          ),
-          IconButton(
-            icon: Icon(
-              _hasKey ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-              color: _hasKey ? Colors.white : Colors.white70,
+      body: Column(
+        children: [
+          // ── HERO ──
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(8, topPad + 8, 12, 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.primary,
+                  Color.lerp(AppTheme.primary, AppTheme.coral, 0.5)!,
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(AppTheme.rLg)),
             ),
-            tooltip: 'Online OCR Ayarı',
-            onPressed: _openKeySettings,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded,
+                          color: Colors.white),
+                    ),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Fiyat Değişim',
+                              style: TextStyle(
+                                  fontSize: 21,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white)),
+                          Text('A4 tara · etiket değiştir · raporla',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.white70)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.manage_search_rounded,
+                          color: Colors.white),
+                      tooltip: 'Fiyat Geçmişi Sorgula',
+                      onPressed: _queryBarcode,
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _hasKey
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
+                        color: _hasKey ? Colors.white : Colors.white70,
+                      ),
+                      tooltip: 'Online OCR Ayarı',
+                      onPressed: _openKeySettings,
+                    ),
+                  ],
+                ),
+                if (!_loading && _sessions.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(AppTheme.rMd),
+                    ),
+                    child: Row(
+                      children: [
+                        _heroStat('${_sessions.length}', 'oturum'),
+                        _heroDivider(),
+                        _heroStat('$done', 'tamamlanan'),
+                        _heroDivider(),
+                        _heroStat('${_sessions.length - done}', 'devam eden'),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const SkeletonList()
+                : _sessions.isEmpty
+                    ? _buildEmpty()
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView.builder(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                          itemCount: _sessions.length + (_hasKey ? 0 : 1),
+                          itemBuilder: (_, i) {
+                            if (!_hasKey && i == 0) return _buildKeyBanner();
+                            final s = _sessions[_hasKey ? i : i - 1];
+                            return _sessionCard(s);
+                          },
+                        ),
+                      ),
           ),
         ],
       ),
-      body: _loading
-          ? const LoadingState()
-          : _sessions.isEmpty
-              ? _buildEmpty()
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    itemCount: _sessions.length + (_hasKey ? 0 : 1),
-                    itemBuilder: (_, i) {
-                      // Key yoksa en ustte uyari karti.
-                      if (!_hasKey && i == 0) return _buildKeyBanner();
-                      final s = _sessions[_hasKey ? i : i - 1];
-                      return _sessionCard(s);
-                    },
-                  ),
-                ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _newSession,
         backgroundColor: AppTheme.primary,
@@ -641,6 +708,24 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
       ),
     );
   }
+
+  Widget _heroStat(String value, String label) => Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white)),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 10.5, color: Colors.white70)),
+          ],
+        ),
+      );
+
+  Widget _heroDivider() => Container(
+      width: 1, height: 26, color: Colors.white.withOpacity(0.25));
 
   Widget _buildEmpty() {
     return ListView(

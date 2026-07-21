@@ -432,4 +432,76 @@ class ShelfLayoutService {
       return slots.length;
     });
   }
+
+  /// Bir BARKODUN reyon dizilimindeki yerini cozer (canlandirma icin).
+  /// Bulamazsa null. Fiyat Degisim gibi ekranlardan animasyon tetiklemek
+  /// icin label_inspect mantiginin tekrar kullanilabilir hali.
+  Future<ShelfLocationHit?> locateBarcode(String barcode) async {
+    final code = barcode.trim();
+    if (code.isEmpty) return null;
+    final units = await getUnitSummaries();
+    for (var ui = 0; ui < units.length; ui++) {
+      final u = units[ui];
+      final slots = await getSlots(u.unit.id!);
+      for (final s in slots) {
+        if (s.barcode != code) continue;
+        int maxRow = s.rowNo;
+        for (final o in slots) {
+          if (o.rowNo > maxRow) maxRow = o.rowNo;
+        }
+        final rafSlots = slots.where((o) => o.rowNo == s.rowNo).toList()
+          ..sort((a, b) {
+            final c = a.sectionNo.compareTo(b.sectionNo);
+            return c != 0 ? c : a.seq.compareTo(b.seq);
+          });
+        return ShelfLocationHit(
+          unitName: u.unit.name,
+          section: s.sectionNo,
+          row: s.rowNo,
+          cols: u.unit.sections,
+          rows: maxRow,
+          photoPath: s.photoPath,
+          productName: s.productName,
+          allUnitNames: units.map((x) => x.unit.name).toList(),
+          unitIndex: ui,
+          shelf: rafSlots
+              .map((o) => (
+                    name: o.productName,
+                    photoPath: o.photoPath,
+                    sectionNo: o.sectionNo,
+                    isTarget: o.id == s.id,
+                  ))
+              .toList(),
+        );
+      }
+    }
+    return null;
+  }
+}
+
+/// locateBarcode sonucu — showLocationFlythrough'a beslenmeye hazir.
+class ShelfLocationHit {
+  final String unitName;
+  final int section;
+  final int row;
+  final int cols;
+  final int rows;
+  final String? photoPath;
+  final String? productName;
+  final List<String> allUnitNames;
+  final int unitIndex;
+  final List<({String? name, String? photoPath, int sectionNo, bool isTarget})>
+      shelf;
+  const ShelfLocationHit({
+    required this.unitName,
+    required this.section,
+    required this.row,
+    required this.cols,
+    required this.rows,
+    required this.photoPath,
+    required this.productName,
+    required this.allUnitNames,
+    required this.unitIndex,
+    required this.shelf,
+  });
 }
