@@ -414,23 +414,28 @@ class _ShelfLayoutViewScreenState extends State<ShelfLayoutViewScreen> {
           ),
           // Urunlerin uzerinde durdugu 3D raf.
           _ShelfDeck(
-            child: items.isEmpty
-                ? SizedBox(
-                    height: 90,
-                    child: Center(
+            child: SizedBox(
+              // KRITIK: yatay ListView'in sinirli bir yuksekligi olmali;
+              // yoksa "unbounded height" render hatasi olusur ve urunler
+              // HIC CIZILMEZ (raf boyle bos gorunur). Bu yukseklik urun
+              // karosu (92) + ust bosluktan (6) biraz fazla olmali.
+              height: 100,
+              child: items.isEmpty
+                  ? Center(
                       child: Text('Boş raf',
                           style: TextStyle(
                               fontSize: 12.5,
                               color: AppTheme.textTertiary)),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(width: 10),
+                      itemBuilder: (_, i) => _product3d(items, i),
                     ),
-                  )
-                : ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (_, i) => _product3d(items, i),
-                  ),
+            ),
           ),
         ],
       ),
