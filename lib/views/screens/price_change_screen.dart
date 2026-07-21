@@ -7,6 +7,7 @@ import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_change_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/scan_overlay.dart';
+import '../widgets/ai_model_picker.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
 import 'price_change_session_screen.dart';
@@ -545,6 +546,17 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                 hintText: 'AIza...',
               ),
             ),
+            const SizedBox(height: 14),
+            // Model secimi: anahtardaki desteklenen tum modelleri tara + sec.
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx, 'models');
+              },
+              icon: const Icon(Icons.psychology_rounded, size: 18),
+              label: const Text('Yapay Zeka Modelini Seç'),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(42)),
+            ),
           ],
         ),
         actions: [
@@ -568,6 +580,12 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
       await GeminiOcrService.instance.setApiKey(ctrl.text);
     } else if (action == 'clear') {
       await GeminiOcrService.instance.clearApiKey();
+    } else if (action == 'models') {
+      // Anahtari once kaydet (girildiyse) ki tarama calisabilsin.
+      if (ctrl.text.trim().isNotEmpty) {
+        await GeminiOcrService.instance.setApiKey(ctrl.text);
+      }
+      if (mounted) await showAiModelPicker(context);
     }
     _load();
   }

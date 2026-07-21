@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'ai_model_prefs.dart';
 import 'price_change_service.dart';
 
 /// Gemini Flash ile A4 fiyat degisim tablosunu yapilandirilmis JSON'a cevirir.
@@ -47,7 +48,15 @@ class GeminiOcrService {
   Future<String> _generate(String apiKey, String bodyJson) async {
     GeminiOcrException? lastError;
 
-    for (final model in _models) {
+    // Kullanici Ayarlar'dan bir model sectiyse ONU ilk sirada dene; kalan
+    // otomatik yedekler ardindan gelir (secili model tekrar edilmez).
+    final selected = AiModelPrefs.instance.selected;
+    final tryModels = <String>[
+      if (selected != null && selected.isNotEmpty) selected,
+      ..._models.where((m) => m != selected),
+    ];
+
+    for (final model in tryModels) {
       final uri = Uri.parse(
           'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey');
 

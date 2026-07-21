@@ -184,6 +184,16 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
           }
         }
       } catch (_) {}
+      // REYON DIZILIM FOTOGRAFI: urun bir reyon slotunda fotografli
+      // kayitliysa (yukarida bulundu), bu foto urun sayfasinda EN ONCE
+      // gosterilsin. Fiyat Kontrol kanit fotograflarindan onde gelir.
+      if (shelfLoc?.photoPath != null) {
+        try {
+          if (await File(shelfLoc!.photoPath!).exists()) {
+            localPhotos.add(shelfLoc.photoPath!);
+          }
+        } catch (_) {}
+      }
       // YEREL FOTOGRAFLAR: Fiyat Kontrol'de bu barkod icin cekilmis
       // etiket/kanit fotograflari varsa (dosyasi hala mevcutsa) topla.
       // OFF'un ag gorseli yerine/yaninda oncelikli gosterilir.
@@ -193,6 +203,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
         for (final h in history) {
           final p = h.photoPath;
           if (p == null) continue;
+          if (localPhotos.contains(p)) continue; // ayni foto tekrar eklenmesin
           if (await File(p).exists()) {
             localPhotos.add(p);
             if (localPhotos.length >= 8) break;

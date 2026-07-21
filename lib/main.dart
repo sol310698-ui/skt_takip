@@ -8,6 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
+import 'core/services/ai_model_prefs.dart';
 import 'core/services/db_source_prefs.dart';
 import 'core/services/flow_prefs.dart';
 import 'core/services/label_inspect_button_prefs.dart';
@@ -121,6 +122,7 @@ Future<void> main() async {
 
   // 9) Reyon konum canlandirmasi (kamera inisi) tercihini yukle.
   await LocationRevealPrefs.instance.load();
+  await AiModelPrefs.instance.load();
 
   runApp(const ProviderScope(child: SktTakipApp()));
 
