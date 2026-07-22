@@ -19,8 +19,18 @@ class WarehouseDetailScreen extends StatefulWidget {
 }
 
 class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tab;
+  // ── 3D HARITA durumu ──────────────────────────────────────────────
+  // pan: -1 = SOL duvar yuze donuk, 0 = koridor (ikiye bolunmus), +1 = SAG.
+  double _mapPan = 0.0;
+  late final AnimationController _snapCtrl = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 320));
+  Animation<double>? _snapAnim;
+  // Zemin paletlerinin ortadaki canlandirmasi (nabiz + suzulme).
+  late final AnimationController _aislePulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1800))
+    ..repeat(reverse: true);
   Warehouse? _warehouse;
   List<ShelfSummary> _shelves = [];
   List<PalletSummary> _allPallets = [];
@@ -36,7 +46,28 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   @override
   void dispose() {
     _tab.dispose();
+    _snapCtrl.dispose();
+    _aislePulse.dispose();
     super.dispose();
+  }
+
+  /// Pan'i en yakin duraga (-1 / 0 / +1) yumusakca oturt.
+  void _snapPan(double velocity) {
+    double target;
+    if (velocity.abs() > 500) {
+      // Hizli savurma: yon neredeyse oraya. Saga savurma SOL'u getirir.
+      target = velocity > 0
+          ? (_mapPan - 1).clamp(-1.0, 1.0).roundToDouble()
+          : (_mapPan + 1).clamp(-1.0, 1.0).roundToDouble();
+    } else {
+      target = _mapPan.roundToDouble().clamp(-1.0, 1.0);
+    }
+    _snapAnim = Tween<double>(begin: _mapPan, end: target).animate(
+        CurvedAnimation(parent: _snapCtrl, curve: Curves.easeOutCubic));
+    _snapAnim!.addListener(() {
+      if (mounted) setState(() => _mapPan = _snapAnim!.value);
+    });
+    _snapCtrl.forward(from: 0);
   }
 
   Future<void> _load() async {
@@ -328,31 +359,138 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         subtitle: 'Bu depoda tanımlı raf bulunamadı.',
       );
     }
-    // Sutunlara grupla.
+    // Sutunlara grupla, ortadan ikiye bol: ilk yari SOL duvar, kalan SAG.
     final cols = <int, List<ShelfSummary>>{};
     for (final s in _shelves) {
       cols.putIfAbsent(s.shelf.columnNo, () => []).add(s);
     }
     final colNos = cols.keys.toList()..sort();
+    final leftCount = (colNos.length / 2).ceil();
+    final leftCols = colNos.take(leftCount).toList();
+    final rightCols = colNos.skip(leftCount).toList();
+    final floorPallets =
+        _allPallets.where((p) => p.pallet.isOnFloor).toList();
 
     return Column(
       children: [
         _buildLegend(),
+        // Kaydirma ipucu.
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Text(
+            _mapPan.abs() > 0.5
+                ? 'Koridora dönmek için ters yöne kaydır'
+                : '◀ kaydır: sol depo · sağ depo: kaydır ▶',
+            style: TextStyle(fontSize: 11, color: AppTheme.textTertiary),
+          ),
+        ),
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16,
-                  MediaQuery.of(context).padding.bottom + 16),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: colNos.map((cn) {
-                  final shelves = cols[cn]!
-                    ..sort((a, b) =>
-                        b.shelf.shelfNo.compareTo(a.shelf.shelfNo));
-                  return _buildColumn(cn, shelves);
-                }).toList(),
-              ),
+          // 3D KORIDOR: yatay surukleme pan'i degistirir — nereye
+          // kaydirirsa O TARAF one doner (saga kaydir -> sol duvar gelir).
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragUpdate: (d) {
+              _snapCtrl.stop();
+              setState(() => _mapPan =
+                  (_mapPan - d.delta.dx / 220).clamp(-1.0, 1.0));
+            },
+            onHorizontalDragEnd: (d) =>
+                _snapPan(d.velocity.pixelsPerSecond.dx),
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final w = c.maxWidth;
+                final pan = _mapPan;
+                final focusL = (-pan).clamp(0.0, 1.0); // sol odak 0..1
+                final focusR = pan.clamp(0.0, 1.0); // sag odak 0..1
+                final aisleVis = (1 - pan.abs()).clamp(0.0, 1.0);
+
+                // Duvar geometrisi: koridorda her duvar ~%46; odaklaninca
+                // ~%96'ya buyur. Icbukey durus (mentese DIS kenarda).
+                const baseAngle = 0.72;
+                final leftW = w * (0.46 + 0.50 * focusL);
+                final rightW = w * (0.46 + 0.50 * focusR);
+                final leftAngle =
+                    baseAngle * (1 - focusL) + baseAngle * 0.8 * focusR;
+                final rightAngle =
+                    baseAngle * (1 - focusR) + baseAngle * 0.8 * focusL;
+                final leftX = -w * 0.42 * focusR; // sag odaklaninca disari
+                final rightX = w * 0.42 * focusL;
+
+                return Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    // ── ORTA KORIDOR ZEMINI ──
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: aisleVis,
+                          child: CustomPaint(
+                            painter: _MapAislePainter(
+                                accent: AppTheme.accent,
+                                isLight: AppTheme.isLight),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // ── ZEMIN PALETLERI: ortada canlandirilir ──
+                    if (floorPallets.isNotEmpty)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          ignoring: aisleVis < 0.4,
+                          child: Opacity(
+                            opacity: aisleVis,
+                            child: Center(
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    for (int i = 0;
+                                        i < floorPallets.length;
+                                        i++)
+                                      _floorPalletChip(
+                                          floorPallets[i], i),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    // ── SOL DUVAR ──
+                    if (leftCols.isNotEmpty)
+                      Positioned(
+                        left: leftX,
+                        top: 0,
+                        bottom: 0,
+                        width: leftW,
+                        child: Transform(
+                          alignment: Alignment.centerLeft,
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.0016)
+                            ..rotateY(-leftAngle),
+                          child: _mapWall(leftCols, cols,
+                              title: 'Sol', focused: focusL > 0.6),
+                        ),
+                      ),
+                    // ── SAG DUVAR ──
+                    if (rightCols.isNotEmpty)
+                      Positioned(
+                        left: w - rightW + rightX,
+                        top: 0,
+                        bottom: 0,
+                        width: rightW,
+                        child: Transform(
+                          alignment: Alignment.centerRight,
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.0016)
+                            ..rotateY(rightAngle),
+                          child: _mapWall(rightCols, cols,
+                              title: 'Sağ', focused: focusR > 0.6),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -360,10 +498,114 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     );
   }
 
-  Widget _buildColumn(int colNo, List<ShelfSummary> shelves) {
+  /// Bir duvarin icerigi: koyu panel + o taraftaki sutunlar (esit bolusur).
+  Widget _mapWall(List<int> colNos, Map<int, List<ShelfSummary>> cols,
+      {required String title, required bool focused}) {
     return Container(
-      width: 130,
-      margin: const EdgeInsets.only(right: 12),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: AppTheme.isLight
+              ? [const Color(0xFFE7E9EF), const Color(0xFFD5D8E0)]
+              : [const Color(0xFF1A1D26), const Color(0xFF10121A)],
+        ),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(
+            color: focused
+                ? AppTheme.accent.withOpacity(0.5)
+                : Colors.white.withOpacity(0.06)),
+        boxShadow: AppTheme.shadowMd,
+      ),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).padding.bottom + 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final cn in colNos)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: _buildColumn(
+                      cn,
+                      (cols[cn]!
+                        ..sort((a, b) =>
+                            b.shelf.shelfNo.compareTo(a.shelf.shelfNo))),
+                      flexible: true),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Ortada CANLANAN zemin paleti cipi: yumusak suzulme + nabiz parlama.
+  Widget _floorPalletChip(PalletSummary p, int index) {
+    return AnimatedBuilder(
+      animation: _aislePulse,
+      builder: (context, child) {
+        // Her cip hafif faz farkiyla suzulur (canli koridor hissi).
+        final t = (_aislePulse.value + index * 0.25) % 1.0;
+        final bob = (t < 0.5 ? t : 1 - t) * 2; // 0..1..0
+        return Transform.translate(
+          offset: Offset(0, -4 * bob),
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 5),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: AppTheme.amber.withOpacity(0.16),
+              borderRadius: BorderRadius.circular(AppTheme.rPill),
+              border: Border.all(
+                  color: AppTheme.amber
+                      .withOpacity(0.5 + 0.4 * bob)),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.amber.withOpacity(0.25 * bob),
+                  blurRadius: 14,
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: GestureDetector(
+        onTap: () {
+          if (p.pallet.id != null) _openPallet(p.pallet.id!);
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.vertical_align_bottom_rounded,
+                size: 16, color: AppTheme.amber),
+            const SizedBox(width: 7),
+            Text(p.pallet.code,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: AppTheme.amber)),
+            const SizedBox(width: 6),
+            Text('${p.totalQty} adet',
+                style: TextStyle(
+                    fontSize: 11.5, color: AppTheme.textSecondary)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColumn(int colNo, List<ShelfSummary> shelves,
+      {bool flexible = false}) {
+    return Container(
+      width: flexible ? double.infinity : 130,
+      margin: flexible
+          ? EdgeInsets.zero
+          : const EdgeInsets.only(right: 12),
       child: Column(
         children: [
           Container(
@@ -1101,4 +1343,49 @@ class _SearchScreenState extends State<_SearchScreen> {
       ),
     );
   }
+}
+
+
+/// 3D harita ORTA KORIDORU: perspektifle daralan zemin + vurgu serit.
+class _MapAislePainter extends CustomPainter {
+  final Color accent;
+  final bool isLight;
+  _MapAislePainter({required this.accent, required this.isLight});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    final nearHalf = w * 0.16;
+    final farHalf = w * 0.03;
+    final farY = h * 0.06;
+    final aisle = Path()
+      ..moveTo(w / 2 - nearHalf, h)
+      ..lineTo(w / 2 - farHalf, farY)
+      ..lineTo(w / 2 + farHalf, farY)
+      ..lineTo(w / 2 + nearHalf, h)
+      ..close();
+    canvas.drawPath(
+      aisle,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: isLight
+              ? [const Color(0xFFC9CDD7), const Color(0xFFB2B7C3)]
+              : [const Color(0xFF191C25), const Color(0xFF0E1016)],
+        ).createShader(Rect.fromLTWH(0, farY, w, h - farY)),
+    );
+    final edge = Paint()
+      ..color = accent.withOpacity(0.45)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(
+        Offset(w / 2 - nearHalf, h), Offset(w / 2 - farHalf, farY), edge);
+    canvas.drawLine(
+        Offset(w / 2 + nearHalf, h), Offset(w / 2 + farHalf, farY), edge);
+  }
+
+  @override
+  bool shouldRepaint(_MapAislePainter old) =>
+      old.accent != accent || old.isLight != isLight;
 }
