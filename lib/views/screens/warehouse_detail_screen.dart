@@ -31,6 +31,10 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   late final AnimationController _aislePulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1800))
     ..repeat(reverse: true);
+  // GIRIS: harita ilk acildiginda duvarlar disaridan sahneye suzulur.
+  late final AnimationController _introCtrl = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 750))
+    ..forward();
   Warehouse? _warehouse;
   List<ShelfSummary> _shelves = [];
   List<PalletSummary> _allPallets = [];
@@ -48,6 +52,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     _tab.dispose();
     _snapCtrl.dispose();
     _aislePulse.dispose();
+    _introCtrl.dispose();
     super.dispose();
   }
 
@@ -399,27 +404,37 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
             child: LayoutBuilder(
               builder: (context, c) {
                 final w = c.maxWidth;
+                return AnimatedBuilder(
+                  animation:
+                      Listenable.merge([_aislePulse, _introCtrl]),
+                  builder: (context, _) {
+                final intro = Curves.easeOutCubic
+                    .transform(_introCtrl.value); // 0..1 giris
                 final pan = _mapPan;
                 final focusL = (-pan).clamp(0.0, 1.0); // sol odak 0..1
                 final focusR = pan.clamp(0.0, 1.0); // sag odak 0..1
-                final aisleVis = (1 - pan.abs()).clamp(0.0, 1.0);
+                final aisleVis =
+                    ((1 - pan.abs()) * intro).clamp(0.0, 1.0);
 
                 // Duvar geometrisi: koridorda her duvar ~%46; odaklaninca
                 // ~%96'ya buyur. Icbukey durus (mentese DIS kenarda).
+                // GIRIS: duvarlar disaridan iceri suzulur (intro 0->1).
                 const baseAngle = 0.72;
+                final introSlide = (1 - intro) * w * 0.5;
                 final leftW = w * (0.46 + 0.50 * focusL);
                 final rightW = w * (0.46 + 0.50 * focusR);
                 final leftAngle =
                     baseAngle * (1 - focusL) + baseAngle * 0.8 * focusR;
                 final rightAngle =
                     baseAngle * (1 - focusR) + baseAngle * 0.8 * focusL;
-                final leftX = -w * 0.42 * focusR; // sag odaklaninca disari
-                final rightX = w * 0.42 * focusL;
+                final leftX =
+                    -w * 0.42 * focusR - introSlide; // giris + odak
+                final rightX = w * 0.42 * focusL + introSlide;
 
                 return Stack(
                   clipBehavior: Clip.hardEdge,
                   children: [
-                    // ── ORTA KORIDOR ZEMINI ──
+                    // ── ORTA KORIDOR SAHNESI (tavan+zemin+atmosfer) ──
                     Positioned.fill(
                       child: IgnorePointer(
                         child: Opacity(
@@ -427,7 +442,9 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                           child: CustomPaint(
                             painter: _MapAislePainter(
                                 accent: AppTheme.accent,
-                                isLight: AppTheme.isLight),
+                                isLight: AppTheme.isLight,
+                                pulse: _aislePulse.value,
+                                pan: pan),
                           ),
                         ),
                       ),
@@ -469,7 +486,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                             ..setEntry(3, 2, 0.0016)
                             ..rotateY(-leftAngle),
                           child: _mapWall(leftCols, cols,
-                              title: 'Sol', focused: focusL > 0.6),
+                              title: 'Sol', focused: focusL > 0.55),
                         ),
                       ),
                     // ── SAG DUVAR ──
@@ -485,10 +502,12 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                             ..setEntry(3, 2, 0.0016)
                             ..rotateY(rightAngle),
                           child: _mapWall(rightCols, cols,
-                              title: 'Sağ', focused: focusR > 0.6),
+                              title: 'Sağ', focused: focusR > 0.55),
                         ),
                       ),
                   ],
+                );
+                  },
                 );
               },
             ),
@@ -519,25 +538,51 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                 : Colors.white.withOpacity(0.06)),
         boxShadow: AppTheme.shadowMd,
       ),
-      child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom + 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final cn in colNos)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: _buildColumn(
-                      cn,
-                      (cols[cn]!
-                        ..sort((a, b) =>
-                            b.shelf.shelfNo.compareTo(a.shelf.shelfNo))),
-                      flexible: true),
-                ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // CELIK DIKME (sol) — gercek raf ayagi hissi.
+          _upright(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).padding.bottom + 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final cn in colNos)
+                    Expanded(
+                      child: Padding(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 3),
+                        child: _buildColumn(
+                            cn,
+                            (cols[cn]!
+                              ..sort((a, b) => b.shelf.shelfNo
+                                  .compareTo(a.shelf.shelfNo))),
+                            flexible: true,
+                            compact: !focused),
+                      ),
+                    ),
+                ],
               ),
-          ],
+            ),
+          ),
+          _upright(),
+        ],
+      ),
+    );
+  }
+
+  /// Turuncu celik raf dikmesi (duvarin dis iskeleti).
+  Widget _upright() {
+    return Container(
+      width: 5,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFFE8862E), Color(0xFFB05F17)],
         ),
       ),
     );
@@ -600,7 +645,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   }
 
   Widget _buildColumn(int colNo, List<ShelfSummary> shelves,
-      {bool flexible = false}) {
+      {bool flexible = false, bool compact = false}) {
     return Container(
       width: flexible ? double.infinity : 130,
       margin: flexible
@@ -610,19 +655,24 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding:
+                EdgeInsets.symmetric(vertical: compact ? 5 : 8),
             decoration: BoxDecoration(
               color: AppTheme.accent.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Text('Sütun $colNo',
+            // KOMPAKT (koridor) modda sadece numara — metin cakismaz.
+            child: Text(compact ? '$colNo' : 'Sütun $colNo',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: TextStyle(
                     fontWeight: FontWeight.w800,
+                    fontSize: compact ? 12 : 14,
                     color: AppTheme.accent)),
           ),
           const SizedBox(height: 8),
-          ...shelves.map(_buildShelfCell),
+          ...shelves.map((x) => _buildShelfCell(x, compact: compact)),
           InkWell(
             borderRadius: BorderRadius.circular(10),
             onTap: () => _addShelfToColumn(
@@ -647,12 +697,59 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     );
   }
 
-  Widget _buildShelfCell(ShelfSummary s) {
+  Widget _buildShelfCell(ShelfSummary s, {bool compact = false}) {
     // Dolu raf icin KIRMIZI kullanilmaz — dolu "hata" degil, sadece tam.
     // Amber (dikkat cekici ama alarm degil) kullanilir.
     final color = s.isEmpty
         ? AppTheme.textTertiary
         : (s.isFull ? AppTheme.amber : AppTheme.statusSafe);
+    // KOMPAKT (koridor) mod: metinsiz mini hucre — raf no + doluluk
+    // noktalari. Uzaktan okunur, cakisma olmaz; dokunma ayni calisir.
+    if (compact) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _onShelfTap(s),
+        child: Container(
+          width: double.infinity,
+          height: 34,
+          margin: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(s.isEmpty ? 0.10 : 0.16),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.45)),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('${s.shelf.shelfNo}',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: color)),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (int i = 0; i < s.shelf.capacity; i++)
+                    Container(
+                      width: 4,
+                      height: 4,
+                      margin:
+                          const EdgeInsets.symmetric(horizontal: 1),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: i < s.palletCount
+                            ? color
+                            : color.withOpacity(0.25),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () => _onShelfTap(s),
@@ -1346,46 +1443,173 @@ class _SearchScreenState extends State<_SearchScreen> {
 }
 
 
-/// 3D harita ORTA KORIDORU: perspektifle daralan zemin + vurgu serit.
+/// 3D harita ORTA KORIDORU — tam sahne: perspektif tavan floresanlari,
+/// beton zemin + isik yansimalari, kesikli yuruyus seridi, kacis noktasi
+/// derinligi, toz zerreleri ve vinyet. [pulse] canli isik salinimi verir;
+/// [pan] hafif paralaks kaydirmasi yapar (derinlik hissi).
 class _MapAislePainter extends CustomPainter {
   final Color accent;
   final bool isLight;
-  _MapAislePainter({required this.accent, required this.isLight});
+  final double pulse; // 0..1 dongusel
+  final double pan; // -1..+1
+  _MapAislePainter({
+    required this.accent,
+    required this.isLight,
+    required this.pulse,
+    required this.pan,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final nearHalf = w * 0.16;
-    final farHalf = w * 0.03;
-    final farY = h * 0.06;
-    final aisle = Path()
-      ..moveTo(w / 2 - nearHalf, h)
-      ..lineTo(w / 2 - farHalf, farY)
-      ..lineTo(w / 2 + farHalf, farY)
-      ..lineTo(w / 2 + nearHalf, h)
+    // Paralaks: pan ile kacis noktasi hafif ters yone kayar.
+    final cx = w / 2 - pan * w * 0.06;
+    final vpY = h * 0.06; // kacis noktasi yuksekligi
+    final nearHalf = w * 0.17;
+    final farHalf = w * 0.028;
+
+    // ── ZEMIN: beton gradyan trapez ──
+    final floor = Path()
+      ..moveTo(cx - nearHalf, h)
+      ..lineTo(cx - farHalf, vpY)
+      ..lineTo(cx + farHalf, vpY)
+      ..lineTo(cx + nearHalf, h)
       ..close();
     canvas.drawPath(
-      aisle,
+      floor,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.bottomCenter,
           end: Alignment.topCenter,
           colors: isLight
-              ? [const Color(0xFFC9CDD7), const Color(0xFFB2B7C3)]
-              : [const Color(0xFF191C25), const Color(0xFF0E1016)],
-        ).createShader(Rect.fromLTWH(0, farY, w, h - farY)),
+              ? [const Color(0xFFC9CDD7), const Color(0xFFA9AFBC)]
+              : [const Color(0xFF1B1E28), const Color(0xFF0C0E14)],
+        ).createShader(Rect.fromLTWH(0, vpY, w, h - vpY)),
     );
-    final edge = Paint()
+
+    // ── TAVAN FLORESANLARI: derinlige dizili 4 isik + hale ──
+    final glow = 0.8 + 0.2 * (0.5 + 0.5 * (pulse * 2 - 1).abs());
+    for (int i = 0; i < 4; i++) {
+      final d = (i + 0.6) / 4.6; // 0 yakin .. 1 uzak
+      final y = vpY + (h * 0.30 - vpY) * (1 - d) * 0.35; // ust bolgede
+      final half = (nearHalf + (farHalf - nearHalf) * d) * 0.62;
+      final lw = (7.0 - 5.0 * d).clamp(1.6, 7.0);
+      final rect = Rect.fromCenter(
+          center: Offset(cx, y), width: half * 2, height: lw);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect.inflate(lw), Radius.circular(lw)),
+        Paint()
+          ..color = Colors.white.withOpacity(0.08 * glow)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(lw / 2)),
+        Paint()..color = Colors.white.withOpacity(0.75 * glow),
+      );
+    }
+
+    // ── ZEMINDE ISIK YANSIMALARI: parlak beton bantlari ──
+    final refl = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.white.withOpacity(0.14 * glow),
+          Colors.white.withOpacity(0.02),
+        ],
+      ).createShader(Rect.fromLTWH(0, vpY, w, h - vpY));
+    for (final fx in [-0.5, 0.0, 0.5]) {
+      final band = Path()
+        ..moveTo(cx + farHalf * fx - 1.2, vpY)
+        ..lineTo(cx + farHalf * fx + 1.2, vpY)
+        ..lineTo(cx + nearHalf * fx + 6, h)
+        ..lineTo(cx + nearHalf * fx - 6, h)
+        ..close();
+      canvas.drawPath(band, refl);
+    }
+
+    // ── ENINE DERINLIK CIZGILERI ──
+    final line = Paint()
+      ..color =
+          (isLight ? Colors.black : Colors.white).withOpacity(0.08)
+      ..strokeWidth = 1;
+    for (int i = 1; i <= 5; i++) {
+      final d = i / 6;
+      final ty = vpY + (h - vpY) * (d * d);
+      final half = farHalf + (nearHalf - farHalf) * (d * d);
+      canvas.drawLine(
+          Offset(cx - half, ty), Offset(cx + half, ty), line);
+    }
+
+    // ── ORTA KESIKLI YURUYUS SERIDI ──
+    final dash = Paint()
       ..color = accent.withOpacity(0.45)
+      ..strokeWidth = 2.4;
+    for (int i = 0; i < 6; i++) {
+      final d0 = (i + 0.15) / 6;
+      final d1 = (i + 0.55) / 6;
+      final y0 = vpY + (h - vpY) * (d0 * d0);
+      final y1 = vpY + (h - vpY) * (d1 * d1);
+      canvas.drawLine(Offset(cx, y0), Offset(cx, y1), dash);
+    }
+
+    // ── KENAR VURGU SERITLERI ──
+    final edge = Paint()
+      ..color = accent.withOpacity(0.5)
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     canvas.drawLine(
-        Offset(w / 2 - nearHalf, h), Offset(w / 2 - farHalf, farY), edge);
+        Offset(cx - nearHalf, h), Offset(cx - farHalf, vpY), edge);
     canvas.drawLine(
-        Offset(w / 2 + nearHalf, h), Offset(w / 2 + farHalf, farY), edge);
+        Offset(cx + nearHalf, h), Offset(cx + farHalf, vpY), edge);
+
+    // ── KACIS NOKTASI KARARTMASI (derinlik) ──
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, w, h * 0.5),
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment(cx / w * 2 - 1, -0.85),
+          radius: 0.8,
+          colors: [
+            Colors.black.withOpacity(isLight ? 0.12 : 0.45),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.6],
+        ).createShader(Rect.fromLTWH(0, 0, w, h * 0.5)),
+    );
+
+    // ── TOZ ZERRELERI: yavas yukari suzulme ──
+    final dust = Paint()
+      ..color =
+          (isLight ? Colors.black : Colors.white).withOpacity(0.09);
+    for (int i = 0; i < 10; i++) {
+      final fx = ((i * 73) % 97) / 97.0;
+      final base = ((i * 41) % 89) / 89.0;
+      final fy = (base + pulse * (0.05 + (i % 3) * 0.02)) % 1.0;
+      canvas.drawCircle(
+          Offset(fx * w, fy * h), 0.8 + (i % 3) * 0.5, dust);
+    }
+
+    // ── VINYET ──
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
+          colors: [
+            Colors.transparent,
+            Colors.black.withOpacity(isLight ? 0.08 : 0.24),
+          ],
+          stops: const [0.6, 1.0],
+        ).createShader(Offset.zero & size),
+    );
   }
 
   @override
   bool shouldRepaint(_MapAislePainter old) =>
-      old.accent != accent || old.isLight != isLight;
+      old.accent != accent ||
+      old.isLight != isLight ||
+      old.pulse != pulse ||
+      old.pan != pan;
 }
