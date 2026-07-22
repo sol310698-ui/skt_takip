@@ -244,7 +244,7 @@ class AssistantActionService {
             final barcode = (a.args['barcode'] ?? '').toString().trim();
             if (barcode.isEmpty) return '❌ Barkod gerekli.';
             final qty = _int(a.args['quantity'], 1);
-            await WarehouseService.instance.addItemToPallet(
+            final itemId = await WarehouseService.instance.addItemToPallet(
               palletId: pallet.id!,
               barcode: barcode,
               quantity: qty,
@@ -260,6 +260,8 @@ class AssistantActionService {
                 'quantity': qty,
                 'created_at': DateTime.now().millisecondsSinceEpoch,
                 'disposal_status': 'active',
+                'location_type': 'pallet',
+                'location_ref': itemId,
               });
             }
             return '✅ ${pallet.code} paletine $qty adet eklendi.';

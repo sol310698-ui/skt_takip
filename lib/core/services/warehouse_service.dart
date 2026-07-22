@@ -475,7 +475,9 @@ class WarehouseService {
 
   // ── Palet ici urunler ───────────────────────────────────────────────
   /// Palete urun ekle. Ayni barkod varsa adedi artirir.
-  Future<void> addItemToPallet({
+  /// Palete kalem ekler; KALEMIN ID'sini dondurur (mevcutla birlestiyse
+  /// mevcut id). SKT <-> konum bagi kurmak icin kullanilir.
+  Future<int> addItemToPallet({
     required int palletId,
     required String barcode,
     int quantity = 1,
@@ -498,8 +500,9 @@ class WarehouseService {
           {'quantity': cur.quantity + quantity},
           where: 'id = ?',
           whereArgs: [cur.id]);
+      return cur.id!;
     } else {
-      await db.insert(AppConstants.whPalletItemTable, {
+      return db.insert(AppConstants.whPalletItemTable, {
         'pallet_id': palletId,
         'barcode': barcode.trim(),
         'product_name': name,
@@ -544,6 +547,96 @@ class WarehouseService {
   }
 
   /// Paletten urun cikar (adet azalt; 0'a inerse sil).
+  // ── FEFO PARTI YONETIMI (SKT <-> palet bagi uzerinden) ─────────────
+  /// Bir palet kalemine BAGLI aktif SKT partileri (en yakin tarih once).
+  /// Tam satirlar doner (geri alma icin gerekli).
+  Future<List<Map<String, Object?>>> linkedBatches(int itemId) async {
+    final db = await DatabaseService.instance.database;
+    return db.query(AppConstants.productTable,
+        where:
+            "location_type = 'pallet' AND location_ref = ? AND disposal_status = 'active'",
+        whereArgs: [itemId],
+        orderBy: 'expiry_date ASC');
+  }
+
+  /// [amount] adedi partilerden duser — FEFO: en yakin tarihli once.
+  /// [preferredId] verilirse ONCE o partiden, kalan yine FEFO sirayla.
+  /// Donen liste geri alma icindir: {row: <orijinal satir>, taken, deleted}.
+  Future<List<Map<String, Object?>>> consumeLinkedBatches(
+      int itemId, int amount,
+      {int? preferredId}) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await linkedBatches(itemId);
+    if (rows.isEmpty) return const [];
+    final order = <Map<String, Object?>>[...rows];
+    if (preferredId != null) {
+      order.sort((a, b) {
+        if (a['id'] == preferredId) return -1;
+        if (b['id'] == preferredId) return 1;
+        return 0; // digerleri zaten expiry ASC sirali (stabil)
+      });
+    }
+    var left = amount;
+    final consumed = <Map<String, Object?>>[];
+    for (final r in order) {
+      if (left <= 0) break;
+      final q = (r['quantity'] as int?) ?? 0;
+      if (q <= 0) continue;
+      final take = left < q ? left : q;
+      final newQ = q - take;
+      if (newQ <= 0) {
+        await db.delete(AppConstants.productTable,
+            where: 'id = ?', whereArgs: [r['id']]);
+        consumed.add({
+          'row': Map<String, Object?>.from(r),
+          'taken': take,
+          'deleted': true,
+        });
+      } else {
+        await db.update(
+            AppConstants.productTable, {'quantity': newQ},
+            where: 'id = ?', whereArgs: [r['id']]);
+        consumed.add({
+          'row': Map<String, Object?>.from(r),
+          'taken': take,
+          'deleted': false,
+        });
+      }
+      left -= take;
+    }
+    return consumed;
+  }
+
+  /// Geri Al: [consumeLinkedBatches] sonucunu tersine uygular. Kalem
+  /// silinip yeniden olustuysa [relinkItemId] ile baglar tazelenir.
+  Future<void> restoreConsumedBatches(
+      List<Map<String, Object?>> consumed,
+      {int? relinkItemId}) async {
+    final db = await DatabaseService.instance.database;
+    for (final c in consumed) {
+      final row = Map<String, Object?>.from(c['row'] as Map);
+      final taken = (c['taken'] as int?) ?? 0;
+      if (relinkItemId != null) {
+        row['location_type'] = 'pallet';
+        row['location_ref'] = relinkItemId;
+      }
+      if (c['deleted'] == true) {
+        try {
+          await db.insert(AppConstants.productTable, row);
+        } catch (_) {
+          row.remove('id');
+          await db.insert(AppConstants.productTable, row);
+        }
+      } else {
+        await db.rawUpdate(
+            'UPDATE ${AppConstants.productTable} SET quantity = quantity + ?'
+            '${relinkItemId != null ? ", location_type = 'pallet', location_ref = $relinkItemId" : ''}'
+            ' WHERE id = ?',
+            [taken, row['id']]);
+      }
+    }
+  }
+
   Future<void> removeItemQuantity(int itemId, int amount) async {
     final db = await DatabaseService.instance.database;
     final rows = await db.query(AppConstants.whPalletItemTable,
@@ -552,6 +645,13 @@ class WarehouseService {
     final item = WhPalletItem.fromMap(rows.first);
     final newQty = item.quantity - amount;
     if (newQty <= 0) {
+      // BAG TEMIZLIGI: bu kaleme bagli SKT kayitlarinin konumu kalksin
+      // (SKT kaydi silinmez, sadece konumsuz kalir).
+      await db.update(
+          AppConstants.productTable,
+          {'location_type': null, 'location_ref': null},
+          where: "location_type = 'pallet' AND location_ref = ?",
+          whereArgs: [itemId]);
       await db.delete(AppConstants.whPalletItemTable,
           where: 'id = ?', whereArgs: [itemId]);
     } else {
@@ -620,12 +720,21 @@ class WarehouseService {
     if (rows.isEmpty) return;
     final item = WhPalletItem.fromMap(rows.first);
     // Hedef palete ekle (varsa adedi artir)
-    await addItemToPallet(
+    final newItemId = await addItemToPallet(
       palletId: targetPalletId,
       barcode: item.barcode,
       quantity: amount,
       productName: item.productName,
     );
+    // TAM tasima: bagli SKT kayitlarini YENI kaleme tasi (kaynak
+    // silinmeden ONCE — silme unlink yapar, once ref'i tasiyoruz).
+    if (amount >= item.quantity) {
+      await db.update(
+          AppConstants.productTable,
+          {'location_ref': newItemId},
+          where: "location_type = 'pallet' AND location_ref = ?",
+          whereArgs: [sourceItemId]);
+    }
     // Kaynaktan cikar
     await removeItemQuantity(sourceItemId, amount);
   }

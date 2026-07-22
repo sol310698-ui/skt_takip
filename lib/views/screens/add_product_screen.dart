@@ -15,6 +15,7 @@ import '../../core/services/flow_prefs.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/image_preprocess_service.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/services/shelf_layout_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart' as du;
 import '../../core/utils/scan_parser.dart';
@@ -621,8 +622,25 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
     final notifier = ref.read(productListProvider.notifier);
     final base = widget.existing;
+    // KALICI REYON BAGI: yeni kayit + barkod reyon diziliminde varsa
+    // SKT kaydi o slota baglanir (duzenlemede mevcut bag korunur).
+    String? locType = base?.locationType;
+    int? locRef = base?.locationRef;
+    final bcTrim = _barcodeCtrl.text.trim();
+    if (base == null && bcTrim.isNotEmpty) {
+      try {
+        final slotId =
+            await ShelfLayoutService.instance.firstSlotIdByBarcode(bcTrim);
+        if (slotId != null) {
+          locType = 'shelf';
+          locRef = slotId;
+        }
+      } catch (_) {}
+    }
     final product = Product(
       id: base?.id,
+      locationType: locType,
+      locationRef: locRef,
       name: _nameCtrl.text.trim(),
       barcode:
           _barcodeCtrl.text.trim().isEmpty ? null : _barcodeCtrl.text.trim(),

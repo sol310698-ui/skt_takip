@@ -29,6 +29,10 @@ class Product {
   final DateTime? disposalDate;
   final String? disposalNote;
   final String? location; // raf konumu: "Raf A3", "Zemin", "B Koridoru" vb.
+  // KALICI KONUM BAGI (v27): 'pallet' -> wh_pallet_items.id,
+  // 'shelf' -> shelf_slots.id. Tasima/silmede servisler gunceller.
+  final String? locationType;
+  final int? locationRef;
 
   const Product({
     this.id,
@@ -42,6 +46,8 @@ class Product {
     this.disposalDate,
     this.disposalNote,
     this.location,
+    this.locationType,
+    this.locationRef,
   });
 
   ExpiryStatus get status => DateUtils.statusFor(expiryDate);
@@ -60,6 +66,8 @@ class Product {
     DateTime? disposalDate,
     String? disposalNote,
     String? location,
+    String? locationType,
+    int? locationRef,
   }) {
     return Product(
       id: id ?? this.id,
@@ -73,6 +81,8 @@ class Product {
       disposalDate: disposalDate ?? this.disposalDate,
       disposalNote: disposalNote ?? this.disposalNote,
       location: location ?? this.location,
+      locationType: locationType ?? this.locationType,
+      locationRef: locationRef ?? this.locationRef,
     );
   }
 
@@ -89,6 +99,8 @@ class Product {
       'disposal_date': disposalDate?.millisecondsSinceEpoch,
       'disposal_note': disposalNote,
       'location': location,
+      'location_type': locationType,
+      'location_ref': locationRef,
     };
   }
 
@@ -117,6 +129,8 @@ class Product {
           : null,
       disposalNote: map['disposal_note'] as String?,
       location: map['location'] as String?,
+      locationType: map['location_type'] as String?,
+      locationRef: map['location_ref'] as int?,
     );
   }
 }

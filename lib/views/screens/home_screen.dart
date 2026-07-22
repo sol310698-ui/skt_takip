@@ -34,6 +34,17 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  // SKT <-> konum kalici bag etiketleri (urun id -> 'Palet X'/reyon adi).
+  Map<int, String> _locLabels = {};
+
+  Future<void> _loadLocLabels() async {
+    try {
+      final m =
+          await ref.read(productRepositoryProvider).linkedLocationLabels();
+      if (mounted) setState(() => _locLabels = m);
+    } catch (_) {}
+  }
+
   final TextEditingController _searchCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   final FocusNode _searchFocus = FocusNode();
@@ -47,6 +58,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadLocLabels();
     _scrollCtrl.addListener(_onScroll);
     // Klavye odakta oldugu surece arama kutusunu HER ZAMAN gorunur tut.
     // BUG FIX: klavye acilip kapanirken ListView'in boyutu degisir, bu da
@@ -115,7 +127,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   error: (e, _) => ErrorStateView(
                     message: 'Ürünler yüklenemedi',
                     onRetry: () =>
-                        ref.read(productListProvider.notifier).refresh(),
+                        Future.wait([
+                          ref.read(productListProvider.notifier).refresh(),
+                          _loadLocLabels(),
+                        ]),
                   ),
                   data: (products) {
                     final activeFilter = ref.watch(statusFilterProvider);
@@ -155,6 +170,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           final card = ProductCard(
                             key: ValueKey(product.id),
                             product: product,
+                            locationLabel: product.id == null
+                                ? null
+                                : _locLabels[product.id],
                             onDelete: () => _confirmDelete(product),
                             onTap: () => _openEditSheet(product),
                             onDispose: () => _openDisposalSheet(product),

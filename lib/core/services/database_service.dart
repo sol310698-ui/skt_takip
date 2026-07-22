@@ -194,6 +194,15 @@ class DatabaseService {
           'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
       await _createShelfLayoutTables(db);
     }
+    if (oldVersion < 27) {
+      // SKT <-> KONUM KALICI BAGI: SKT kaydi hangi palet kalemine
+      // (location_type='pallet', ref=wh_pallet_items.id) ya da reyon
+      // slotuna (location_type='shelf', ref=shelf_slots.id) bagli.
+      await db.execute(
+          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_type TEXT');
+      await db.execute(
+          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_ref INTEGER');
+    }
   }
 
   /// Reyon dizilim (planogram) tablolari.

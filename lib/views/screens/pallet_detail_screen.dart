@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
 import '../../core/services/database_service.dart';
+import '../../core/services/location_reveal_prefs.dart';
+import '../../core/services/shelf_layout_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/repositories/barcode_directory_repository.dart';
@@ -16,7 +18,9 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/product_packaging.dart';
 import '../../core/utils/scan_parser.dart';
+import '../widgets/location_reveal.dart';
 import '../widgets/ui_kit.dart';
+import 'barcode_detail_screen.dart';
 import 'image_zoom_screen.dart';
 import 'scanner_screen.dart';
 
@@ -239,34 +243,249 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
       ),
     );
     if (result != null && result > 0) {
+      // ── FEFO AKILLI CIKARMA: bagli SKT partileri varsa once sor. ──
+      final batches =
+          await WarehouseService.instance.linkedBatches(item.id!);
+      int? preferredId;
+      if (batches.length > 1) {
+        if (!mounted) return;
+        final picked = await _pickBatchForRemoval(item, result, batches);
+        if (picked == null) return; // iptal
+        preferredId = picked;
+      }
+      // Partilerden dus (FEFO / secilen once), sonra kalemden dus.
+      final consumed = await WarehouseService.instance
+          .consumeLinkedBatches(item.id!, result, preferredId: preferredId);
       await WarehouseService.instance
           .removeItemQuantity(item.id!, result);
       await _load();
       if (!mounted) return;
-      // GERİ AL: yanlışlıkla çıkarılan adedi tek dokunuşla geri ekle.
+      // Ozet: hangi parti(ler)den dustu.
+      String detail = '';
+      if (consumed.isNotEmpty) {
+        final parts = consumed.map((c) {
+          final row = c['row'] as Map;
+          final d = DateTime.fromMillisecondsSinceEpoch(
+              row['expiry_date'] as int);
+          return '${c['taken']}× '
+              '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
+        }).join(', ');
+        detail = ' ($parts)';
+      }
+      // GERİ AL: kalem + parti dusumlerini birlikte geri alir.
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              '$result adet çıkarıldı: ${item.productName ?? item.barcode}'),
-          duration: const Duration(seconds: 5),
+              '$result adet çıkarıldı$detail: ${item.productName ?? item.barcode}'),
+          duration: const Duration(seconds: 6),
           behavior: SnackBarBehavior.floating,
           action: SnackBarAction(
             label: 'Geri Al',
             textColor: AppTheme.accent,
             onPressed: () async {
-              await WarehouseService.instance.addItemToPallet(
+              final newItemId =
+                  await WarehouseService.instance.addItemToPallet(
                 palletId: widget.palletId,
                 barcode: item.barcode,
                 quantity: result,
                 productName: item.productName,
               );
+              await WarehouseService.instance.restoreConsumedBatches(
+                  consumed,
+                  relinkItemId: newItemId);
               _load();
             },
           ),
         ),
       );
     }
+  }
+
+  /// FEFO PARTI SECICI: birden fazla tarihli parti varsa hangi partiden
+  /// cikarilacagini sorar. EN YAKIN tarih onerilir; kullanici uzak tarihi
+  /// secerse acikca uyarilir. Secim yeterli degilse kalan adet otomatik
+  /// FEFO sirayla diger partilerden devam eder.
+  Future<int?> _pickBatchForRemoval(WhPalletItem item, int amount,
+      List<Map<String, Object?>> batches) async {
+    int selected = batches.first['id'] as int; // varsayilan: en yakin
+    final nearestId = selected;
+    return showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) {
+          final warnFar = selected != nearestId;
+          return Container(
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius:
+                  BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: EdgeInsets.fromLTRB(
+                20, 14, 20, 20 + MediaQuery.of(ctx).padding.bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    decoration: BoxDecoration(
+                        color: AppTheme.textTertiary,
+                        borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Text('$amount adet hangi partiden çıksın?',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(
+                    'FEFO: önce en yakın tarihli çıkarılmalı. Seçilen parti '
+                    'yetmezse kalan otomatik sıradaki partiden düşülür.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppTheme.textSecondary)),
+                const SizedBox(height: 12),
+                for (final b in batches)
+                  Builder(builder: (_) {
+                    final id = b['id'] as int;
+                    final d = DateTime.fromMillisecondsSinceEpoch(
+                        b['expiry_date'] as int);
+                    final q = (b['quantity'] as int?) ?? 0;
+                    final days =
+                        d.difference(DateTime.now()).inDays;
+                    final c = days < 0
+                        ? AppTheme.statusExpired
+                        : days <= 7
+                            ? AppTheme.statusCritical
+                            : days <= 30
+                                ? AppTheme.statusWarning
+                                : AppTheme.statusSafe;
+                    final isSel = selected == id;
+                    final isNearest = id == nearestId;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => setSt(() => selected = id),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? c.withOpacity(0.12)
+                              : AppTheme.surfaceAlt,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: isSel
+                                  ? c
+                                  : AppTheme.hairline,
+                              width: isSel ? 1.6 : 1),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                                isSel
+                                    ? Icons.radio_button_checked_rounded
+                                    : Icons.radio_button_off_rounded,
+                                size: 20,
+                                color: isSel
+                                    ? c
+                                    : AppTheme.textTertiary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}',
+                                      style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w900,
+                                          color: c)),
+                                  Text(
+                                      '$q adet · '
+                                      '${days < 0 ? '${-days} gün geçti' : '$days gün kaldı'}',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color:
+                                              AppTheme.textSecondary)),
+                                ],
+                              ),
+                            ),
+                            if (isNearest)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color:
+                                      AppTheme.statusSafe.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(
+                                      AppTheme.rPill),
+                                ),
+                                child: const Text('ÖNERİLEN · FEFO',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.statusSafe)),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                // UZAK TARIH UYARISI.
+                if (warnFar)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.statusExpired.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            size: 18, color: AppTheme.statusExpired),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                              'Dikkat: daha YAKIN tarihli parti dururken '
+                              'uzak tarihliyi çıkarıyorsun!',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.statusExpired)),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('İptal'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(ctx, selected),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.statusExpired),
+                        child: const Text('Çıkar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   // ── Barkodla urun bul & cikar ───────────────────────────────────────
@@ -1144,18 +1363,76 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
     );
   }
 
-  /// Item için seçenek menüsü: Başka Palete Taşı, Yere Al, Çıkar.
+  /// Item için seçenek menüsü — ÜRÜNÜN TAM ERİŞİM NOKTASI.
+  /// Menü açılmadan önce ürünün bağlamı yüklenir (yerel foto, tanımlı SKT,
+  /// reyon konumu) ve başlıkta gösterilir; buradan ürünle ilgili HER ŞEYE
+  /// ulaşılır: Ürün Sayfası (hub), reyon canlandırması, foto+konum, taşı,
+  /// yere al, çıkar.
   Future<void> _showItemOptions(WhPalletItem item) async {
+    // ── BAGLAM YUKLE (hizli yerel sorgular) ──
+    String? photo;
+    try {
+      final repo = BarcodeDirectoryRepository(
+          BarcodeDirectoryDataSource(DatabaseService.instance));
+      final pth = await repo.getLocalImage(item.barcode);
+      if (pth != null && pth.isNotEmpty && File(pth).existsSync()) {
+        photo = pth;
+      }
+    } catch (_) {}
+    DateTime? sktNearest;
+    int sktCount = 0;
+    try {
+      final db = await DatabaseService.instance.database;
+      final rows = await db.query('products',
+          columns: ['expiry_date'],
+          where: "barcode = ? AND disposal_status = 'active'",
+          whereArgs: [item.barcode],
+          orderBy: 'expiry_date ASC');
+      sktCount = rows.length;
+      if (rows.isNotEmpty) {
+        sktNearest = DateTime.fromMillisecondsSinceEpoch(
+            rows.first['expiry_date'] as int);
+      }
+    } catch (_) {}
+    ShelfLocationHit? shelfHit;
+    try {
+      shelfHit =
+          await ShelfLayoutService.instance.locateBarcode(item.barcode);
+    } catch (_) {}
+    if (!mounted) return;
+
+    // SKT cip rengi (kalan gune gore).
+    Color? sktColor;
+    String? sktLabel;
+    if (sktNearest != null) {
+      final days = sktNearest.difference(DateTime.now()).inDays;
+      sktColor = days < 0
+          ? AppTheme.statusExpired
+          : days <= 7
+              ? AppTheme.statusCritical
+              : days <= 30
+                  ? AppTheme.statusWarning
+                  : AppTheme.statusSafe;
+      final d = sktNearest;
+      sktLabel =
+          'SKT ${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}'
+          '${days < 0 ? ' · ${-days}g geçti' : ' · ${days}g'}'
+          '${sktCount > 1 ? ' · $sktCount kayıt' : ''}';
+    }
+
     final choice = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (_) => Container(
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
-        child: Column(
+        padding: EdgeInsets.fromLTRB(
+            20, 14, 20, 20 + MediaQuery.of(context).padding.bottom),
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1170,20 +1447,40 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             ),
             Row(
               children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppTheme.accent.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text('${item.quantity}',
-                      style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.accent)),
-                ),
+                // FOTO (varsa) — dokununca tam ekran; yoksa adet kutusu.
+                photo != null
+                    ? GestureDetector(
+                        onTap: () => openImageZoom(context,
+                            filePath: photo,
+                            title: item.productName ?? item.barcode),
+                        child: Container(
+                          width: 52,
+                          height: 52,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color:
+                                    AppTheme.accent.withOpacity(0.5)),
+                          ),
+                          child:
+                              Image.file(File(photo), fit: BoxFit.cover),
+                        ),
+                      )
+                    : Container(
+                        width: 52,
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text('${item.quantity}',
+                            style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w900,
+                                color: AppTheme.accent)),
+                      ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -1206,7 +1503,85 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 ),
               ],
             ),
+            // BAGLAM CIPLERI: tanimli SKT + reyon konumu bir bakista.
+            if (sktLabel != null || shelfHit != null) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (sktLabel != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: sktColor!.withOpacity(0.14),
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.rPill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.event_rounded,
+                              size: 13, color: sktColor),
+                          const SizedBox(width: 4),
+                          Text(sktLabel,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: sktColor)),
+                        ],
+                      ),
+                    ),
+                  if (shelfHit != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 9, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withOpacity(0.14),
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.rPill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.shelves,
+                              size: 13, color: AppTheme.primary),
+                          const SizedBox(width: 4),
+                          Text(
+                              '${shelfHit!.unitName} · S${shelfHit!.section}·R${shelfHit!.row}',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.primary)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
+            // ── HER SEYE ERISIM: urun hub sayfasi ──
+            _optionTile(
+              icon: Icons.dashboard_rounded,
+              color: AppTheme.statusSafe,
+              title: 'Ürün Sayfası',
+              subtitle:
+                  'Foto, tanımlı SKT, reyon/depo konumları ve canlandırmalar — her şey tek sayfada',
+              value: 'product',
+            ),
+            if (shelfHit != null) ...[
+              const SizedBox(height: 8),
+              _optionTile(
+                icon: Icons.travel_explore_rounded,
+                color: AppTheme.primary,
+                title: 'Reyonda Göster',
+                subtitle:
+                    '${shelfHit!.unitName} · Sütun ${shelfHit!.section} · Raf ${shelfHit!.row} — canlandır',
+                value: 'shelf',
+              ),
+            ],
+            const SizedBox(height: 8),
             _optionTile(
               icon: Icons.photo_camera_back_outlined,
               color: AppTheme.primary,
@@ -1239,14 +1614,69 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               value: 'remove',
             ),
           ],
+          ),
         ),
       ),
     );
 
+    if (choice == 'product') await _openProductHub(item);
+    if (choice == 'shelf' && shelfHit != null) {
+      _playItemShelfReveal(item, shelfHit!);
+    }
     if (choice == 'photo') await _showItemPhotoAndLocation(item);
     if (choice == 'transfer') await _transferItemToPallet(item);
     if (choice == 'floor') await _putItemOnFloor(item);
     if (choice == 'remove') await _removeItem(item);
+  }
+
+  /// ÜRÜN SAYFASI: barkod detay hub'ına git (foto hero + SKT + reyon/depo
+  /// konumları + canlandırmalar — v132). Dizin kaydı yoksa geçici giriş.
+  Future<void> _openProductHub(WhPalletItem item) async {
+    BarcodeEntry? entry;
+    try {
+      final repo = BarcodeDirectoryRepository(
+          BarcodeDirectoryDataSource(DatabaseService.instance));
+      entry = await repo.findEntryByBarcode(item.barcode);
+    } catch (_) {}
+    entry ??= BarcodeEntry(
+      barcode: item.barcode,
+      productName: item.productName ?? item.barcode,
+      importedAt: DateTime.now(),
+    );
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BarcodeDetailScreen(entry: entry!)));
+  }
+
+  /// Reyon canlandırması (menüden, kullanıcı isteğiyle).
+  void _playItemShelfReveal(WhPalletItem item, ShelfLocationHit hit) {
+    if (!LocationRevealPrefs.instance.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Konum canlandırması Ayarlar > Görünüm’den kapalı.')));
+      return;
+    }
+    showLocationFlythrough(
+      context,
+      title: hit.unitName,
+      cols: hit.cols,
+      rows: hit.rows,
+      targetCol: hit.section,
+      targetRow: hit.row,
+      subtitle: 'Sütun ${hit.section} · Raf ${hit.row}',
+      productName: hit.productName ?? item.productName,
+      photoPath: hit.photoPath,
+      allAisles: hit.allUnitNames,
+      targetAisleIndex: hit.unitIndex,
+      shelfProducts: hit.shelf
+          .map((e) => RevealShelfProduct(
+                name: e.name,
+                photoPath: e.photoPath,
+                sectionNo: e.sectionNo,
+                isTarget: e.isTarget,
+              ))
+          .toList(),
+    );
   }
 
   /// KAYAN PENCERE: paletin depo fotoğrafı + raftaki konumu tek bakışta.
@@ -1751,14 +2181,16 @@ class _AddItemScreenState extends State<_AddItemScreen> {
         _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim();
     setState(() => _busy = true);
 
-    await WarehouseService.instance.addItemToPallet(
+    final itemId = await WarehouseService.instance.addItemToPallet(
       palletId: widget.palletId,
       barcode: _barcode!,
       quantity: qty,
       productName: name,
     );
 
-    // SKT girilmisse SKT listesine de ekle (palet baglantisiz).
+    // SKT girilmisse SKT listesine KALICI BAGLA ekle: kayit bu palet
+    // kalemine baglanir (location_type='pallet'); palet tasinsa da bag
+    // gecerli kalir, kalem baska palete TAM tasinirsa ref guncellenir.
     if (_expiry != null) {
       final db = await DatabaseService.instance.database;
       await db.insert('products', {
@@ -1768,6 +2200,8 @@ class _AddItemScreenState extends State<_AddItemScreen> {
         'quantity': qty,
         'created_at': DateTime.now().millisecondsSinceEpoch,
         'disposal_status': 'active',
+        'location_type': 'pallet',
+        'location_ref': itemId,
       });
     }
 

@@ -14,6 +14,9 @@ class ProductRepository {
   /// Bu barkodla kayitli TUM aktif SKT urunleri (yakin tarih once).
   Future<List<Product>> findActiveListByBarcode(String barcode) =>
       _local.getActiveListByBarcode(barcode);
+  /// Bagli urunlerin konum etiketleri (id -> 'Palet X' / reyon adi).
+  Future<Map<int, String>> linkedLocationLabels() =>
+      _local.getLinkedLocationLabels();
   Future<int> addProduct(Product product) => _local.insert(product);
   Future<int> updateProduct(Product product) => _local.update(product);
   Future<int> deleteProduct(int id) => _local.delete(id);

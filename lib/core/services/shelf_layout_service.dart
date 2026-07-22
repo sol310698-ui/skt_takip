@@ -273,8 +273,26 @@ class ShelfLayoutService {
 
   Future<void> deleteSlot(int slotId) async {
     final db = await DatabaseService.instance.database;
+    // BAG TEMIZLIGI: bu slota bagli SKT kayitlarinin konumu kalksin.
+    await db.update(
+        AppConstants.productTable,
+        {'location_type': null, 'location_ref': null},
+        where: "location_type = 'shelf' AND location_ref = ?",
+        whereArgs: [slotId]);
     await db.delete(AppConstants.shelfSlotTable,
         where: 'id = ?', whereArgs: [slotId]);
+  }
+
+  /// Barkodun reyondaki ILK slotunun id'si (SKT <-> reyon bagi icin).
+  Future<int?> firstSlotIdByBarcode(String barcode) async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.query(AppConstants.shelfSlotTable,
+        columns: ['id'],
+        where: 'barcode = ?',
+        whereArgs: [barcode.trim()],
+        limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first['id'] as int?;
   }
 
   // ── TOPLU REYON/SUTUN TASIMA ────────────────────────────────────────

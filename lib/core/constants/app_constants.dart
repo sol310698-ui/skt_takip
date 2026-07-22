@@ -6,7 +6,7 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 26; // v26: reyon dizilim + urun yerel fotografi
+  static const int dbVersion = 27; // v26: reyon dizilim + urun yerel fotografi
   // Reyon dizilim (planogram): bir reyon = bolum(sutun) x satir(kat) izgarasi.
   static const String shelfUnitTable = 'shelf_units';   // reyon tanimi
   static const String shelfSlotTable = 'shelf_slots';   // reyondaki tek urun (foto)

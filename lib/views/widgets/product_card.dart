@@ -13,6 +13,8 @@ class ProductCard extends StatelessWidget {
   final VoidCallback? onDispose;
   final VoidCallback? onSearch;
   final int partyCount; // bu barkoddan kac aktif parti var
+  // KALICI KONUM BAGI etiketi ('Palet P31076' / reyon adi) — varsa cip.
+  final String? locationLabel;
 
   const ProductCard({
     super.key,
@@ -22,6 +24,7 @@ class ProductCard extends StatelessWidget {
     this.onDispose,
     this.onSearch,
     this.partyCount = 1,
+    this.locationLabel,
   });
 
   @override
@@ -102,12 +105,18 @@ class ProductCard extends StatelessWidget {
                       if (product.quantity > 1 ||
                           product.category != null ||
                           product.location != null ||
+                          locationLabel != null ||
                           partyCount > 1) ...[
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 6,
                           runSpacing: 4,
                           children: [
+                            // KALICI BAG: depo/reyon konumu (canli iliskiden)
+                            if (locationLabel != null)
+                              _chip(locationLabel!,
+                                  Icons.link_rounded,
+                                  color: AppTheme.accent),
                             if (partyCount > 1)
                               _chip('$partyCount parti',
                                   Icons.layers_rounded,
