@@ -7,10 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/location_reveal_prefs.dart';
+import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
+import '../../data/models/product.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/location_reveal.dart';
 import '../widgets/ui_kit.dart';
+import '../widgets/warehouse_reveal.dart';
 import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
@@ -37,12 +43,134 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
   String? _quantity;
   bool _changed = false; // geri donerken listeyi yenilemek icin
 
+  // ── ZENGIN BAGLAM: SKT + reyon + depo ────────────────────────────
+  // Bu barkodla kayitli aktif SKT urunleri (en yakin tarih once).
+  List<Product> _sktProducts = const [];
+  // Reyon dizilimindeki yeri (varsa) — dokununca canlandirma oynar.
+  ShelfLocationHit? _shelfHit;
+  // Depodaki palet konumlari — dokununca depo canlandirmasi oynar.
+  List<_BcPalletLoc> _palletLocs = const [];
+
   @override
   void initState() {
     super.initState();
     _entry = widget.entry;
     _fetchWeb();
     _loadLocalImage();
+    _loadContext();
+  }
+
+  /// SKT kayitlari + reyon konumu + depo palet konumlarini yukle.
+  Future<void> _loadContext() async {
+    // 1) SKT
+    try {
+      final list = await ref
+          .read(productRepositoryProvider)
+          .findActiveListByBarcode(_entry.barcode);
+      if (mounted) setState(() => _sktProducts = list);
+    } catch (_) {}
+    // 2) Reyon
+    try {
+      final hit =
+          await ShelfLayoutService.instance.locateBarcode(_entry.barcode);
+      if (mounted) setState(() => _shelfHit = hit);
+    } catch (_) {}
+    // 3) Depo paletleri (tum depolarda ara; canlandirma icin izgara bilgisi)
+    try {
+      final out = <_BcPalletLoc>[];
+      final whs = await WarehouseService.instance.getWarehouses();
+      for (final w in whs) {
+        final locs =
+            await WarehouseService.instance.findProduct(w.id!, _entry.barcode);
+        if (locs.isEmpty) continue;
+        int gc = 1, gr = 1;
+        final colRowCounts = <int, int>{};
+        try {
+          final shelves = await WarehouseService.instance.getShelves(w.id!);
+          for (final sh in shelves) {
+            if (sh.columnNo > gc) gc = sh.columnNo;
+            if (sh.shelfNo > gr) gr = sh.shelfNo;
+            final cur = colRowCounts[sh.columnNo] ?? 0;
+            if (sh.shelfNo > cur) colRowCounts[sh.columnNo] = sh.shelfNo;
+          }
+        } catch (_) {}
+        for (final l in locs) {
+          out.add(_BcPalletLoc(
+            warehouseName: w.name,
+            palletCode: l.pallet.code,
+            shelfLabel: l.shelf != null
+                ? 'Sütun ${l.shelf!.columnNo} · Raf ${l.shelf!.shelfNo}'
+                : 'Zemin',
+            quantity: l.item.quantity,
+            colNo: l.shelf?.columnNo,
+            shelfNo: l.shelf?.shelfNo,
+            gridCols: gc,
+            gridRows: gr,
+            colShelfCounts: colRowCounts,
+            allWarehouses: whs.map((x) => x.name).toList(),
+            warehouseIndex: whs.indexOf(w),
+            palletPhotoPath: l.pallet.imagePath,
+          ));
+        }
+      }
+      if (mounted) setState(() => _palletLocs = out);
+    } catch (_) {}
+  }
+
+  /// Reyon canlandirmasini oynat (kullanici dokununca).
+  void _playShelfReveal() {
+    final hit = _shelfHit;
+    if (hit == null) return;
+    if (!LocationRevealPrefs.instance.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Konum canlandırması Ayarlar > Görünüm’den kapalı.')));
+      return;
+    }
+    showLocationFlythrough(
+      context,
+      title: hit.unitName,
+      cols: hit.cols,
+      rows: hit.rows,
+      targetCol: hit.section,
+      targetRow: hit.row,
+      subtitle: 'Sütun ${hit.section} · Raf ${hit.row}',
+      productName: hit.productName ?? _entry.productName,
+      photoPath: hit.photoPath,
+      allAisles: hit.allUnitNames,
+      targetAisleIndex: hit.unitIndex,
+      shelfProducts: hit.shelf
+          .map((e) => RevealShelfProduct(
+                name: e.name,
+                photoPath: e.photoPath,
+                sectionNo: e.sectionNo,
+                isTarget: e.isTarget,
+              ))
+          .toList(),
+    );
+  }
+
+  /// Depo canlandirmasini oynat (kullanici dokununca).
+  void _playWarehouseReveal(_BcPalletLoc loc) {
+    showWarehouseFlythrough(
+      context,
+      warehouseName: loc.warehouseName,
+      cols: loc.gridCols,
+      rows: loc.gridRows,
+      colShelfCounts: loc.colShelfCounts,
+      targetCol: loc.colNo,
+      targetRow: loc.shelfNo,
+      palletCode: loc.palletCode,
+      shelfLabel: loc.shelfLabel,
+      quantity: loc.quantity,
+      productName: _entry.productName,
+      localPhotos: [
+        if (_localImagePath != null) _localImagePath!,
+      ],
+      palletPhotoPath: loc.palletPhotoPath,
+      allWarehouses: loc.allWarehouses,
+      targetWarehouseIndex: loc.warehouseIndex,
+    );
   }
 
   Future<void> _loadLocalImage() async {
@@ -206,8 +334,9 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
   }
 
   Widget _buildHeader() {
+    final hasImage = _localImagePath != null || _imageUrl != null;
     return SliverAppBar(
-      expandedHeight: 320,
+      expandedHeight: hasImage ? 340 : 220,
       pinned: true,
       stretch: true,
       backgroundColor: AppTheme.primary,
@@ -219,86 +348,105 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       ),
       flexibleSpace: FlexibleSpaceBar(
         stretchModes: const [StretchMode.zoomBackground],
-        background: Container(
-          decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
-          child: SafeArea(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Buyuk gorsel - dokununca zoom. YEREL foto varsa
-                    // ONCELIKLE o buyutulur (kural: telefondaki foto
-                    // internetten degerlidir); yoksa internet fotografi.
-                    GestureDetector(
-                      onTap: (_localImagePath == null && _imageUrl == null)
-                          ? null
-                          : () => openImageZoom(context,
-                              filePath: _localImagePath,
-                              networkUrl:
-                                  _localImagePath == null ? _imageUrl : null,
-                              heroTag: 'bc_img',
-                              title: _entry.productName),
-                      child: Hero(
-                        tag: 'bc_img',
-                        child: Container(
-                          width: 160,
-                          height: 160,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(0.4),
-                                width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.25),
-                                blurRadius: 24,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: _loadingWeb
-                              ? const Center(
-                                  child: SizedBox(
-                                    width: 26,
-                                    height: 26,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white),
-                                  ),
-                                )
-                              : SmartProductImage(
-                                  networkUrl: _imageUrl,
-                                  barcode: _entry.barcode,
-                                  fit: BoxFit.cover,
-                                  placeholder: _ph,
-                                ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _entry.productName,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800),
-                    ),
-                  ],
+        // ÜST KISIM FOTO: fotograf banner'in tamamini kaplar; dokununca
+        // tam ekran acilir. Yerel foto internet gorselinden onceliklidir.
+        background: GestureDetector(
+          onTap: (!hasImage)
+              ? null
+              : () => openImageZoom(context,
+                  filePath: _localImagePath,
+                  networkUrl: _localImagePath == null ? _imageUrl : null,
+                  heroTag: 'bc_img',
+                  title: _entry.productName),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Hero(
+                tag: 'bc_img',
+                child: _localImagePath != null
+                    ? Image.file(File(_localImagePath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _heroBg())
+                    : (_imageUrl != null
+                        ? SmartProductImage(
+                            networkUrl: _imageUrl,
+                            barcode: _entry.barcode,
+                            fit: BoxFit.cover,
+                            placeholder: _heroBgIcon,
+                          )
+                        : _heroBg()),
+              ),
+              // Okunabilirlik perdesi (alt).
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.center,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xCC000000)],
+                  ),
                 ),
               ),
-            ),
+              if (hasImage)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 6,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.fullscreen_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+              // Urun adi — banner altinda.
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 16,
+                child: Text(
+                  _entry.productName,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      shadows: [
+                        Shadow(color: Colors.black54, blurRadius: 8),
+                      ]),
+                ),
+              ),
+              if (_loadingWeb && !hasImage)
+                const Center(
+                  child: SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Widget _heroBg() => Container(
+        decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
+        child: const Center(
+          child: Icon(Icons.inventory_2_rounded,
+              color: Colors.white, size: 56),
+        ),
+      );
+
+  Widget _heroBgIcon() => const Center(
+        child: Icon(Icons.inventory_2_rounded,
+            color: Colors.white, size: 56),
+      );
 
   Widget _ph() => const Icon(Icons.inventory_2_rounded,
       color: Colors.white, size: 52);
@@ -319,6 +467,42 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             showCode: true,
             isBarcode: true,
           ),
+          // ── TANIMLI SKT (varsa) ──
+          if (_sktProducts.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _sktCard(),
+          ],
+          // ── REYON KONUMU (varsa) — dokun: canlandirma ──
+          if (_shelfHit != null) ...[
+            const SizedBox(height: 12),
+            _shelfCard(_shelfHit!),
+          ],
+          // ── DEPO KONUMLARI (varsa) — dokun: depo canlandirmasi ──
+          for (final loc in _palletLocs) ...[
+            const SizedBox(height: 12),
+            _palletCard(loc),
+          ],
+          if (_shelfHit == null && _palletLocs.isEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: AppTheme.card(),
+              child: Row(
+                children: [
+                  Icon(Icons.location_off_rounded,
+                      color: AppTheme.textTertiary, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Bu ürün reyon diziliminde veya depoda kayıtlı değil.',
+                      style: TextStyle(
+                          color: AppTheme.textSecondary, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           // Stok kodu karti (Excel'den geldiyse).
           if (_entry.stockCode != null && _entry.stockCode!.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -373,6 +557,191 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// TANIMLI SKT karti: en yakin tarih + kalan gun + toplam kayit/adet.
+  Widget _sktCard() {
+    final nearest = _sktProducts.first;
+    final days = nearest.expiryDate
+        .difference(DateTime.now())
+        .inDays;
+    final Color c = days < 0
+        ? AppTheme.statusExpired
+        : days <= 7
+            ? AppTheme.statusCritical
+            : days <= 30
+                ? AppTheme.statusWarning
+                : AppTheme.statusSafe;
+    final totalQty =
+        _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(accentColor: c),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: c.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.event_rounded, color: c, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tanımlı SKT',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.textTertiary)),
+                const SizedBox(height: 2),
+                Text(
+                  '${nearest.expiryDate.day.toString().padLeft(2, '0')}.'
+                  '${nearest.expiryDate.month.toString().padLeft(2, '0')}.'
+                  '${nearest.expiryDate.year}',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: c),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  days < 0
+                      ? '${-days} gün geçti · $totalQty adet'
+                      : '$days gün kaldı · $totalQty adet'
+                          '${_sktProducts.length > 1 ? ' · ${_sktProducts.length} kayıt' : ''}',
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// REYON konum karti — dokununca reyon canlandirmasi oynar.
+  Widget _shelfCard(ShelfLocationHit hit) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      onTap: _playShelfReveal,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.card(accentColor: AppTheme.primary),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.shelves,
+                  color: AppTheme.primary, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Reyonda',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textTertiary)),
+                  const SizedBox(height: 2),
+                  Text(hit.unitName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800)),
+                  Text('Sütun ${hit.section} · Raf ${hit.row}',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppTheme.textSecondary)),
+                ],
+              ),
+            ),
+            Column(
+              children: const [
+                Icon(Icons.play_circle_fill_rounded,
+                    color: AppTheme.primary, size: 28),
+                SizedBox(height: 2),
+                Text('Canlandır',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// DEPO palet karti — dokununca depo canlandirmasi oynar.
+  Widget _palletCard(_BcPalletLoc loc) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rLg),
+      onTap: () => _playWarehouseReveal(loc),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.card(accentColor: AppTheme.accent),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.accent.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.warehouse_rounded,
+                  color: AppTheme.accent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Depoda',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textTertiary)),
+                  const SizedBox(height: 2),
+                  Text('${loc.warehouseName} · ${loc.palletCode}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800)),
+                  Text('${loc.shelfLabel} · ${loc.quantity} adet',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppTheme.textSecondary)),
+                ],
+              ),
+            ),
+            Column(
+              children: const [
+                Icon(Icons.play_circle_fill_rounded,
+                    color: AppTheme.accent, size: 28),
+                SizedBox(height: 2),
+                Text('Canlandır',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.accent)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -685,4 +1054,35 @@ class _CodeSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+
+/// Barkod detayinda gosterilen depo palet konumu (canlandirma verisiyle).
+class _BcPalletLoc {
+  final String warehouseName;
+  final String palletCode;
+  final String shelfLabel;
+  final int quantity;
+  final int? colNo;
+  final int? shelfNo;
+  final int gridCols;
+  final int gridRows;
+  final Map<int, int> colShelfCounts;
+  final List<String> allWarehouses;
+  final int warehouseIndex;
+  final String? palletPhotoPath;
+  const _BcPalletLoc({
+    required this.warehouseName,
+    required this.palletCode,
+    required this.shelfLabel,
+    required this.quantity,
+    this.colNo,
+    this.shelfNo,
+    required this.gridCols,
+    required this.gridRows,
+    required this.colShelfCounts,
+    required this.allWarehouses,
+    required this.warehouseIndex,
+    this.palletPhotoPath,
+  });
 }

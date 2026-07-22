@@ -11,6 +11,9 @@ class ProductRepository {
   Future<List<Product>> getAllActiveByBarcode(String barcode) =>
       _local.getAllActiveByBarcode(barcode);
   Future<Product?> findByBarcode(String barcode) => _local.getByBarcode(barcode);
+  /// Bu barkodla kayitli TUM aktif SKT urunleri (yakin tarih once).
+  Future<List<Product>> findActiveListByBarcode(String barcode) =>
+      _local.getActiveListByBarcode(barcode);
   Future<int> addProduct(Product product) => _local.insert(product);
   Future<int> updateProduct(Product product) => _local.update(product);
   Future<int> deleteProduct(int id) => _local.delete(id);

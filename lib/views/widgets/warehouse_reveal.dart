@@ -400,6 +400,20 @@ class _WarehouseFlythroughScreenState
                     ),
                   ),
                 ),
+                // ── TAVAN + PERSPEKTIF AYDINLATMA: kacis noktasina
+                // yaklasan floresan seritleri — gercek depo tavani hissi.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _CeilingPainter(
+                        openT: openT,
+                        flat: flat,
+                        pulse: pulse,
+                        isLight: AppTheme.isLight,
+                      ),
+                    ),
+                  ),
+                ),
 
                 // ── SOL DEPO DUVARI ──
                 if (leftCount > 0)
@@ -452,6 +466,19 @@ class _WarehouseFlythroughScreenState
                             stops: const [0.0, 0.5],
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                ),
+                // ── ATMOSFER: havada suzulen toz zerreleri + kenar
+                // vinyeti + yavas isik supurmesi. Sahneye "hacim" katar.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _AtmospherePainter(
+                        t: pulse,
+                        openT: openT,
+                        isLight: AppTheme.isLight,
                       ),
                     ),
                   ),
@@ -657,33 +684,35 @@ class _WarehouseFlythroughScreenState
     for (int sh = 1; sh <= n; sh++) {
       final top = gap + (n - sh) * (bandH + gap); // raf 1 en altta
       final isTarget = isTargetCol && sh == widget.targetRow;
-      // Hedef raf, RAF asamasinda parlar; hedef sutundaki digerleri soluk.
-      final cellFill = isTarget
-          ? Color.lerp(acc.withOpacity(0.5), acc, shelfT)!
-          : Color.lerp(
-              AppTheme.hairline,
-              acc.withOpacity(0.30),
-              isTargetCol ? iso * 0.6 : 0.0,
-            )!;
       cells.add(Positioned(
         left: x,
         top: top,
         width: colW,
         height: bandH,
         child: Opacity(
-          opacity: isTargetCol
-              ? 1.0
-              : colOpacity,
+          opacity: isTargetCol ? 1.0 : colOpacity,
           child: Container(
-            decoration: BoxDecoration(
-              color: cellFill,
-              borderRadius: BorderRadius.circular(4),
-              border: isTarget
-                  ? Border.all(
-                      color: Colors.white.withOpacity(0.9),
-                      width: 1.6 + pulse * 0.8)
-                  : null,
-              boxShadow: isTarget ? AppTheme.glow(acc) : null,
+            decoration: isTarget
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.9),
+                        width: 1.6 + pulse * 0.8),
+                    boxShadow: AppTheme.glow(acc),
+                  )
+                : null,
+            child: CustomPaint(
+              // GERCEKCILIK: her hucre koli yiginli gercek bir raf gozu
+              // olarak cizilir — turuncu celik kiris + karton koliler
+              // (govde/kapak/yan yuz golgesi) + hedefte vurgu rengi.
+              painter: _RackCellPainter(
+                seed: (colOffset + localCol) * 31 + sh * 7,
+                accent: acc,
+                highlight: isTarget
+                    ? shelfT
+                    : (isTargetCol ? iso * 0.35 : 0.0),
+                isLight: AppTheme.isLight,
+              ),
             ),
           ),
         ),
@@ -959,6 +988,42 @@ class _CorridorPainter extends CustomPainter {
           Offset(w / 2 - half, tY), Offset(w / 2 + half, tY), line);
     }
 
+    // TAVAN ISIKLARININ ZEMIN YANSIMASI: parlak beton hissi — kacis
+    // noktasindan yakina uzanan soluk dikey isik seritleri.
+    final refl = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.white.withOpacity(0.16 * vis),
+          Colors.white.withOpacity(0.02 * vis),
+        ],
+      ).createShader(Rect.fromLTWH(0, farY, w, nearY - farY));
+    for (final fx in [-0.45, 0.0, 0.45]) {
+      final nearX = w / 2 + nearHalf * fx;
+      final farX = w / 2 + farHalf * fx;
+      final band = Path()
+        ..moveTo(farX - 1.5, farY)
+        ..lineTo(farX + 1.5, farY)
+        ..lineTo(nearX + 7, nearY)
+        ..lineTo(nearX - 7, nearY)
+        ..close();
+      canvas.drawPath(band, refl);
+    }
+
+    // ORTA KESIKLI SERIT: yuruyus yolu isareti (gercek depo zemini).
+    final dash = Paint()
+      ..color = accent.withOpacity(0.35 * vis)
+      ..strokeWidth = 2;
+    const nDash = 5;
+    for (int i = 0; i < nDash; i++) {
+      final d0 = (i + 0.15) / nDash;
+      final d1 = (i + 0.55) / nDash;
+      final y0 = farY + (nearY - farY) * (d0 * d0);
+      final y1 = farY + (nearY - farY) * (d1 * d1);
+      canvas.drawLine(Offset(w / 2, y0), Offset(w / 2, y1), dash);
+    }
+
     // Hedef taraf yon oku: koridorda hangi depoya gidilecegini isaret eder.
     if (openT > 0.6 && flat < 0.5) {
       final arrowPaint = Paint()
@@ -987,4 +1052,268 @@ class _CorridorPainter extends CustomPainter {
       old.targetIsLeft != targetIsLeft ||
       old.accent != accent ||
       old.isLight != isLight;
+}
+
+
+/// ════════════════════════════════════════════════════════════════════
+///  GERCEKCILIK KATMANLARI (v132)
+/// ════════════════════════════════════════════════════════════════════
+
+/// TAVAN: kacis noktasina yaklasan floresan isik seritleri + tavan
+/// duzlemi. Koridor fazinda gorunur, duvara donunce kaybolur.
+class _CeilingPainter extends CustomPainter {
+  final double openT;
+  final double flat;
+  final double pulse; // hafif isik titremesi
+  final bool isLight;
+  _CeilingPainter({
+    required this.openT,
+    required this.flat,
+    required this.pulse,
+    required this.isLight,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final vis = (openT * (1 - flat)).clamp(0.0, 1.0);
+    if (vis <= 0.02) return;
+    final w = size.width, h = size.height;
+    final vpY = h * 0.30; // zeminle ayni kacis hizasi
+    final topY = 0.0;
+    final farY = vpY - (vpY - topY) * 0.06;
+
+    // Tavan duzlemi: ustte genis, kacis noktasina daralan trapez.
+    const nearHalfF = 0.46; // ekran genisligine oran
+    final nearHalf = w * nearHalfF;
+    final farHalf = w * 0.02;
+    final ceil = Path()
+      ..moveTo(w / 2 - nearHalf, topY)
+      ..lineTo(w / 2 - farHalf, farY)
+      ..lineTo(w / 2 + farHalf, farY)
+      ..lineTo(w / 2 + nearHalf, topY)
+      ..close();
+    canvas.drawPath(
+      ceil,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: isLight
+              ? [
+                  const Color(0xFFCBD0DA).withOpacity(vis),
+                  const Color(0xFFAEB4C2).withOpacity(vis),
+                ]
+              : [
+                  const Color(0xFF14171F).withOpacity(vis),
+                  const Color(0xFF0B0D12).withOpacity(vis),
+                ],
+        ).createShader(Rect.fromLTWH(0, topY, w, farY)),
+    );
+
+    // Floresan seritleri: derinlikte 4 adet, perspektifle kisalir;
+    // pulse ile cok hafif parlaklik salinimi (canli isik).
+    final glow = 0.75 + 0.25 * (0.5 + 0.5 * (pulse * 2 - 1).abs());
+    for (int i = 0; i < 4; i++) {
+      final d = (i + 0.5) / 4; // 0 yakin ... 1 uzak
+      final y = topY + (farY - topY) * (d * d * 0.9 + d * 0.1);
+      final half = nearHalf + (farHalf - nearHalf) * (d * d * 0.9 + d * 0.1);
+      final lw = (10.0 - 7.0 * d).clamp(2.0, 10.0);
+      final lampHalf = half * 0.30;
+      final rect = Rect.fromCenter(
+          center: Offset(w / 2, y), width: lampHalf * 2, height: lw);
+      // Isik halesi.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect.inflate(lw * 1.2),
+            Radius.circular(lw)),
+        Paint()
+          ..color = Colors.white.withOpacity(0.10 * vis * glow)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+      );
+      // Lamba govdesi.
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, Radius.circular(lw / 2)),
+        Paint()..color = Colors.white.withOpacity(0.85 * vis * glow),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CeilingPainter old) =>
+      old.openT != openT ||
+      old.flat != flat ||
+      old.pulse != pulse ||
+      old.isLight != isLight;
+}
+
+/// TEK RAF GOZU: turuncu celik kiris + uzerinde karton koliler.
+/// [seed] hucre bazinda deterministik cesitlilik verir (koli sayisi,
+/// yukseklikler) — her kare ayni gorunur, titremez.
+class _RackCellPainter extends CustomPainter {
+  final int seed;
+  final Color accent;
+  final double highlight; // 0..1 hedef vurgusu
+  final bool isLight;
+  _RackCellPainter({
+    required this.seed,
+    required this.accent,
+    required this.highlight,
+    required this.isLight,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    if (w < 4 || h < 4) return;
+
+    // Arka pano (rafin ici — golgeli derinlik).
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          Offset.zero & size, const Radius.circular(3)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: isLight
+              ? [const Color(0xFFD9DCE4), const Color(0xFFC4C8D2)]
+              : [const Color(0xFF1A1D26), const Color(0xFF11131A)],
+        ).createShader(Offset.zero & size),
+    );
+
+    // CELIK KIRIS (rafin tasiyicisi): hucrenin altinda turuncu bant.
+    final beamH = (h * 0.14).clamp(2.0, 7.0);
+    final beamRect = Rect.fromLTWH(0, h - beamH, w, beamH);
+    canvas.drawRect(
+      beamRect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFE8862E), // klasik raf turuncusu
+            const Color(0xFFB05F17),
+          ],
+        ).createShader(beamRect),
+    );
+    // Kiris ust parlama cizgisi.
+    canvas.drawLine(
+        Offset(0, h - beamH),
+        Offset(w, h - beamH),
+        Paint()
+          ..color = Colors.white.withOpacity(0.35)
+          ..strokeWidth = 0.8);
+
+    // KOLILER: kirisin ustunde 2-4 karton kutu; seed ile deterministik.
+    int rnd = seed;
+    int next(int mod) {
+      rnd = (rnd * 1103515245 + 12345) & 0x7fffffff;
+      return rnd % mod;
+    }
+
+    final boxCount = (2 + next(3)).clamp(2, 4); // 2..4
+    final gap = (w * 0.03).clamp(0.6, 2.5);
+    final usable = w - gap * (boxCount + 1);
+    final areaH = h - beamH;
+    double bx = gap;
+    for (int b = 0; b < boxCount; b++) {
+      final bw = usable / boxCount;
+      final bh = areaH * (0.55 + next(30) / 100.0); // %55-%85 yukseklik
+      final top = h - beamH - bh;
+      final r = Rect.fromLTWH(bx, top, bw, bh);
+      // Karton govde: acik ust, koyu alt (hacim).
+      final tone = 0.9 + next(15) / 100.0;
+      final cTop = Color.fromARGB(255, (200 * tone).round().clamp(0, 255),
+          (162 * tone).round().clamp(0, 255), (110 * tone).round().clamp(0, 255));
+      final cBot = Color.fromARGB(255, (150 * tone).round().clamp(0, 255),
+          (116 * tone).round().clamp(0, 255), (74 * tone).round().clamp(0, 255));
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(r, const Radius.circular(1.5)),
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [cTop, cBot],
+          ).createShader(r),
+      );
+      // Kapak cizgisi (koli bandi).
+      if (bh > 8) {
+        canvas.drawLine(
+            Offset(bx + 1, top + bh * 0.22),
+            Offset(bx + bw - 1, top + bh * 0.22),
+            Paint()
+              ..color = Colors.black.withOpacity(0.18)
+              ..strokeWidth = 0.8);
+      }
+      // Yan yuz golgesi (sag kenar).
+      canvas.drawRect(
+          Rect.fromLTWH(bx + bw - bw * 0.14, top, bw * 0.14, bh),
+          Paint()..color = Colors.black.withOpacity(0.12));
+      bx += bw + gap;
+    }
+
+    // HEDEF VURGUSU: vurgu rengi perdesi + parlama.
+    if (highlight > 0.01) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Offset.zero & size, const Radius.circular(3)),
+        Paint()..color = accent.withOpacity(0.38 * highlight),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RackCellPainter old) =>
+      old.seed != seed ||
+      old.accent != accent ||
+      old.highlight != highlight ||
+      old.isLight != isLight;
+}
+
+/// ATMOSFER: suzulen toz zerreleri + kenar vinyeti. Deterministik
+/// konumlar; [t] (pulse) ile yavasca yukari suzulur.
+class _AtmospherePainter extends CustomPainter {
+  final double t; // 0..1 dongusel
+  final double openT;
+  final bool isLight;
+  _AtmospherePainter({
+    required this.t,
+    required this.openT,
+    required this.isLight,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (openT <= 0.05) return;
+    final w = size.width, h = size.height;
+
+    // Toz zerreleri — 14 adet, sabit tohum, yavas dikey suzulme.
+    final dust = Paint()
+      ..color =
+          (isLight ? Colors.black : Colors.white).withOpacity(0.10 * openT);
+    for (int i = 0; i < 14; i++) {
+      final fx = ((i * 73) % 97) / 97.0;
+      final base = ((i * 41) % 89) / 89.0;
+      final fy = (base + t * (0.06 + (i % 3) * 0.03)) % 1.0;
+      final r = 0.7 + (i % 3) * 0.5;
+      canvas.drawCircle(Offset(fx * w, fy * h), r, dust);
+    }
+
+    // Vinyet: kenarlar hafif koyu — sinematik cerceve.
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
+          colors: [
+            Colors.transparent,
+            Colors.black.withOpacity(isLight ? 0.10 : 0.28),
+          ],
+          stops: const [0.62, 1.0],
+        ).createShader(Offset.zero & size),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_AtmospherePainter old) =>
+      old.t != t || old.openT != openT || old.isLight != isLight;
 }

@@ -48,6 +48,19 @@ class ProductLocalDataSource {
   /// Barkoda gore EN SON eklenen aktif urunu dondurur.
   /// Ayni barkodla birden fazla aktif parti olabilir (farkli SKT);
   /// duzenleme/on-doldurma icin en guncel olani secilir.
+  /// Bu barkodla kayitli TUM aktif SKT urunleri — en yakin tarih once.
+  /// Barkod detay sayfasinda "tanimli SKT var mi" gostermek icin.
+  Future<List<Product>> getActiveListByBarcode(String barcode) async {
+    final db = await _dbService.database;
+    final rows = await db.query(
+      AppConstants.productTable,
+      where: "barcode = ? AND disposal_status = 'active'",
+      whereArgs: [barcode],
+      orderBy: 'expiry_date ASC',
+    );
+    return rows.map(Product.fromMap).toList();
+  }
+
   Future<Product?> getByBarcode(String barcode) async {
     final db = await _dbService.database;
     final rows = await db.query(
