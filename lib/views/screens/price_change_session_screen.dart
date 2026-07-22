@@ -45,6 +45,12 @@ class PriceChangeSessionScreen extends StatefulWidget {
 
 class _PriceChangeSessionScreenState
     extends State<PriceChangeSessionScreen> {
+  // ── EL TERMINALI (HID): odakli ama klavyesiz giris (v138 kalibi) ──
+  final TextEditingController _hidCtrl = TextEditingController();
+  final FocusNode _hidFocus = FocusNode();
+  // Rota modu: kalanlar reyon dizilim sirasina gore siralanir.
+  bool _routeSorted = false;
+
   final MobileScannerController _scanner = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     autoStart: false,
@@ -103,6 +109,8 @@ class _PriceChangeSessionScreenState
 
   @override
   void dispose() {
+    _hidCtrl.dispose();
+    _hidFocus.dispose();
     _scanner.dispose();
     _listSearchCtrl.dispose();
     super.dispose();
@@ -417,6 +425,23 @@ class _PriceChangeSessionScreenState
     if (_busy || _matched != null || _completed) return;
     final raw = capture.barcodes.firstOrNull?.rawValue;
     if (raw == null || raw.trim().isEmpty) return;
+    await _processScanRaw(raw);
+  }
+
+  /// El terminali Enter'i: alani temizle, kamerayla AYNI hattan isle.
+  Future<void> _onHidSubmit(String v) async {
+    final t = v.trim();
+    _hidCtrl.clear();
+    if (t.isEmpty || _busy || _matched != null || _completed) {
+      if (mounted) _hidFocus.requestFocus();
+      return;
+    }
+    await _processScanRaw(t);
+    if (mounted) _hidFocus.requestFocus();
+  }
+
+  /// KAMERA + EL TERMINALI ortak eslestirme hatti.
+  Future<void> _processScanRaw(String raw) async {
     final code = ScanParser.parse(raw).barcode;
     if (code == null) return;
     HapticFeedback.mediumImpact(); // okuma basarili — titresimle uyar
@@ -997,6 +1022,43 @@ class _PriceChangeSessionScreenState
   Widget _shDiv(Color c) =>
       Container(width: 1, height: 24, color: c.withOpacity(0.25));
 
+  /// REYON ROTASI: kalan urunleri reyon dizilimindeki konumlarina gore
+  /// sirala (reyon adi -> sutun -> raf). Konumu bilinmeyenler sona gider.
+  /// Magazada tek yuruyusle listeyi bitirmek icin.
+  Future<void> _sortByRoute() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final keys = <int, String>{}; // item.id -> siralama anahtari
+      for (final it in _items) {
+        String key = 'zz~9999~9999'; // konumsuz: sona
+        final bc = it.barcode;
+        if (bc != null && bc.isNotEmpty) {
+          try {
+            final hit =
+                await ShelfLayoutService.instance.locateBarcode(bc);
+            if (hit != null) {
+              key = '${hit.unitName}~'
+                  '${hit.section.toString().padLeft(4, '0')}~'
+                  '${hit.row.toString().padLeft(4, '0')}';
+            }
+          } catch (_) {}
+        }
+        keys[it.id ?? -1] = key;
+      }
+      _items.sort((a, b) {
+        // Degisenler her zaman sonda; kalanlar rota sirasinda.
+        if (a.changed != b.changed) return a.changed ? 1 : -1;
+        return (keys[a.id ?? -1] ?? 'zz')
+            .compareTo(keys[b.id ?? -1] ?? 'zz');
+      });
+      _routeSorted = true;
+      HapticFeedback.mediumImpact();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _buildActiveView() {
     final pending = _items.where((i) => !i.changed).length;
     final total = _items.length;
@@ -1036,6 +1098,45 @@ class _PriceChangeSessionScreenState
 
     return Column(
       children: [
+        // ── EL TERMINALI GIRIS CUBUGU: odakli, klavyesiz ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.hairline),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.settings_remote_rounded,
+                    size: 16, color: AppTheme.textTertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _hidCtrl,
+                    focusNode: _hidFocus,
+                    keyboardType: TextInputType.none, // klavye ACILMAZ
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: _onHidSubmit,
+                    style: const TextStyle(
+                        fontSize: 13, fontFamily: 'monospace'),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 10),
+                      hintText: 'El terminali: barkodu buraya okutun',
+                      hintStyle: TextStyle(
+                          fontSize: 12, color: AppTheme.textTertiary),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         SizedBox(
           height: 230,
           child: Stack(
@@ -1287,11 +1388,22 @@ class _PriceChangeSessionScreenState
 
     return Column(
       children: [
-        // ── BUYUK ILERLEME: X/Y + animasyonlu bar ──
+        // ── BUYUK ILERLEME: X/Y + animasyonlu bar + ROTA ──
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Row(
             children: [
+              // REYON ROTASI: tek yuruyusle bitirmek icin sirala.
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Reyon rotasına göre sırala',
+                onPressed: _busy ? null : _sortByRoute,
+                icon: Icon(Icons.route_rounded,
+                    size: 20,
+                    color: _routeSorted
+                        ? AppTheme.statusSafe
+                        : AppTheme.textTertiary),
+              ),
               Expanded(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),

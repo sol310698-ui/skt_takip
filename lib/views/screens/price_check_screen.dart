@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/services/label_pending_queue_service.dart';
@@ -43,6 +44,15 @@ class PriceCheckScreen extends StatefulWidget {
 
 class _PriceCheckScreenState extends State<PriceCheckScreen>
     with WidgetsBindingObserver {
+  // ── EL TERMINALI (HID): odakli/klavyesiz — QR stringini basar. ──
+  final TextEditingController _hidCtrl = TextEditingController();
+  final FocusNode _hidFocus = FocusNode();
+  // ── OTURUM ISTATISTIKLERI: okundu/dogru/sorunlu + sorunlu kaydi ──
+  int _stTotal = 0;
+  int _stOk = 0;
+  int _stBad = 0;
+  final List<String> _badLog = [];
+
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     formats: const [BarcodeFormat.all],
@@ -250,6 +260,8 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
 
   @override
   void dispose() {
+    _hidCtrl.dispose();
+    _hidFocus.dispose();
     WidgetsBinding.instance.removeObserver(this);
     // Ekrandan cikinca otomatik gezinmeyi native tarafta da durdur; arka
     // planda beklenmedik uygulama gecisleri olmasin.
@@ -358,6 +370,27 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     return storeKeywords.any((k) => upper.contains(k));
   }
 
+  /// El terminali Enter'i: QR stringi alana akar, kamerayla ayni hattan
+  /// islenir. Parse edilemezse (duz barkod) kullanici sesle uyarilir —
+  /// karsilastirma icin etiketteki QR gereklidir.
+  Future<void> _onHidSubmit(String v) async {
+    final t = v.trim();
+    _hidCtrl.clear();
+    if (t.isEmpty || !_scanning || _busy) {
+      if (mounted) _hidFocus.requestFocus();
+      return;
+    }
+    final parsed = _parseLabelQr(t);
+    if (parsed == null) {
+      _showNotice('Terminal verisinde fiyat yok — etiket QR\'ını okutun',
+          color: AppTheme.statusWarning);
+      PriceCheckChannel.speak('Etiket QR gerekli');
+      if (mounted) _hidFocus.requestFocus();
+      return;
+    }
+    await _processLabel(barcode: parsed.barcode, price: parsed.price);
+  }
+
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (!_scanning || _busy) return;
     final raw = capture.barcodes.firstOrNull?.rawValue;
@@ -442,6 +475,19 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     });
 
     // Sesli + titresimli geri bildirim.
+    // OTURUM ISTATISTIGI: her okuma sayilir; sorunlular loglanir.
+    _stTotal++;
+    if (result == _CompareResult.match) {
+      _stOk++;
+    } else {
+      _stBad++;
+      final d = DateTime.now();
+      _badLog.add(
+          '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} · '
+          '${parsed.barcode} · etiket ${parsed.price.toStringAsFixed(2)} · '
+          'sistem ${systemPrice?.toStringAsFixed(2) ?? '-'} · '
+          '${_resultLabel(result)}');
+    }
     await _announce(result, parsed.price, systemPrice);
 
     // ── HATALI SONUC -> ETIKET BASIMINA GONDER TEKLIFI ──
@@ -873,6 +919,21 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
     }
 
     return priceSame ? _CompareResult.match : _CompareResult.mismatch;
+  }
+
+  String _resultLabel(_CompareResult r) {
+    switch (r) {
+      case _CompareResult.match:
+        return 'doğru';
+      case _CompareResult.mismatch:
+        return 'YANLIŞ FİYAT';
+      case _CompareResult.wrongLabel:
+        return 'YANLIŞ ETİKET';
+      case _CompareResult.wrongLabelPriceOk:
+        return 'fiyat doğru, etiket yanlış';
+      case _CompareResult.noSystem:
+        return 'sistem fiyatı yok';
+    }
   }
 
   Future<void> _announce(
@@ -1332,6 +1393,9 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       _scanning = true;
     });
     await _controller.start();
+    // El terminali: temiz + odakli (klavyesiz) beklesin.
+    _hidCtrl.clear();
+    if (mounted) _hidFocus.requestFocus();
   }
 
   Future<void> _refreshServiceStatus() async {
@@ -1651,8 +1715,127 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
         const ScanOverlay(hint: 'Etiket barkodunu çerçeveye getirin'),
+        // ── OTURUM ISTATISTIK SERIDI: okundu / dogru / sorunlu + paylas ──
+        if (_stTotal > 0)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  _statChip(Icons.qr_code_scanner_rounded,
+                      '$_stTotal', Colors.white),
+                  const SizedBox(width: 10),
+                  _statChip(Icons.check_circle_rounded, '$_stOk',
+                      AppTheme.statusSafe),
+                  const SizedBox(width: 10),
+                  _statChip(Icons.error_rounded, '$_stBad',
+                      _stBad > 0
+                          ? AppTheme.statusExpired
+                          : Colors.white54),
+                  const Spacer(),
+                  if (_badLog.isNotEmpty)
+                    InkWell(
+                      onTap: _shareBadLog,
+                      child: Row(
+                        children: const [
+                          Icon(Icons.ios_share_rounded,
+                              size: 16, color: Colors.white70),
+                          SizedBox(width: 4),
+                          Text('Sorunluları paylaş',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white70)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        // ── EL TERMINALI GIRIS CUBUGU (altta, odakli/klavyesiz) ──
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).padding.bottom + 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.55),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.settings_remote_rounded,
+                    size: 18, color: Colors.white70),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _hidCtrl,
+                    focusNode: _hidFocus,
+                    autofocus: true, // acilista imlec burada, klavyesiz
+                    keyboardType: TextInputType.none, // klavye ACILMAZ
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: _onHidSubmit,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontFamily: 'monospace'),
+                    cursorColor: AppTheme.accent,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(vertical: 14),
+                      hintText: 'El terminali: etiket QR\'ını okutun',
+                      hintStyle: TextStyle(
+                          color: Colors.white54, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  Widget _statChip(IconData ic, String v, Color c) {
+    return Row(
+      children: [
+        Icon(ic, size: 15, color: c),
+        const SizedBox(width: 4),
+        Text(v,
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w900, color: c)),
+      ],
+    );
+  }
+
+  /// Sorunlu okumalari metin raporu olarak paylas (mesaj/e-posta).
+  Future<void> _shareBadLog() async {
+    if (_badLog.isEmpty) return;
+    final d = DateTime.now();
+    final buf = StringBuffer()
+      ..writeln('FIYAT KONTROL — SORUNLU ETIKETLER')
+      ..writeln(
+          '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} · '
+          'Okunan: $_stTotal · Doğru: $_stOk · Sorunlu: $_stBad')
+      ..writeln('─' * 30);
+    for (final l in _badLog) {
+      buf.writeln(l);
+    }
+    await Share.share(buf.toString());
   }
 
   Widget _resultView() {
