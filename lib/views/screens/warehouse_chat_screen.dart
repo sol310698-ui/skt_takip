@@ -13,6 +13,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../data/repositories/barcode_directory_repository.dart';
+import '../../core/services/agent_tool_service.dart';
 import '../../core/services/database_service.dart';
 import 'barcode_detail_screen.dart';
 import 'add_product_screen.dart' show BarcodeScanPage;
@@ -46,6 +47,9 @@ class _ChatMsg {
 }
 
 class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
+  // Agent hangi araclari kullaniyor (yazi yaziyor gostergesinde gorunur).
+  String? _toolNote;
+
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final List<_ChatMsg> _messages = [];
@@ -150,6 +154,7 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     setState(() {
       _messages.add(_ChatMsg(true, q));
       _sending = true;
+      _toolNote = null;
       _input.clear();
     });
     _scrollToBottom();
@@ -165,12 +170,21 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     }
 
     try {
-      final answer = await WarehouseAssistantService.instance
-          .ask(history: history, question: q);
+      // AGENT DONGUSU: model gerekirse once araclarla kesif yapar
+      // (sema, SQL okuma, ayar listeleme), sonra cevabini verir.
+      final answer = await WarehouseAssistantService.instance.askAgent(
+        history: history,
+        question: q,
+        onStep: (names) {
+          if (mounted) setState(() => _toolNote = names);
+        },
+      );
       if (!mounted) return;
-      // Cevaptan eylem bloklarini ayikla; kalan duz metni baloncukta goster.
-      final parsed =
-          AssistantActionService.instance.parse(answer.trim());
+      // Once arac bloklarini (varsa artik), sonra eylem bloklarini ayikla.
+      final toolStripped =
+          AgentToolService.instance.parse(answer.trim()).cleanText;
+      final parsed = AssistantActionService.instance
+          .parse(toolStripped.isEmpty ? answer.trim() : toolStripped);
       final display = parsed.cleanText.isEmpty
           ? (parsed.actions.isEmpty ? answer.trim() : 'Onayınızı bekliyorum:')
           : parsed.cleanText;
@@ -193,7 +207,12 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       if (!mounted) return;
       setState(() => _messages.add(_ChatMsg(false, 'Bir hata oluştu: $e')));
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _toolNote = null;
+        });
+      }
       _scrollToBottom();
     }
   }
@@ -236,24 +255,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Depo Asistanı'),
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.black,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.accent),
-        actions: [
-          // Sesli mod: acikken cevaplar TTS ile okunur.
-          IconButton(
-            tooltip: _voiceMode ? 'Sesli yanıt açık' : 'Sesli yanıt kapalı',
-            onPressed: () => setState(() => _voiceMode = !_voiceMode),
-            icon: Icon(_voiceMode
-                ? Icons.volume_up_rounded
-                : Icons.volume_off_rounded),
-          ),
-        ],
-      ),
       body: Column(
         children: [
+          _hero(),
           if (!_hasKey) _keyWarning(),
           if (_listening) _listeningBar(),
           Expanded(
@@ -275,57 +279,208 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     );
   }
 
+  /// GRADYAN HERO — uygulamanin diger ekranlariyla ayni tasarim dili
+  /// (palet detay, reyona acilacaklar, teshir). Baslik + agent durumu +
+  /// sesli yanit anahtari.
+  Widget _hero() {
+    final topPad = MediaQuery.of(context).padding.top;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.accent,
+            Color.lerp(AppTheme.accent, AppTheme.primary, 0.55)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.black),
+          ),
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(Icons.auto_awesome_rounded,
+                size: 19, color: Colors.black),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Depo Asistanı',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black)),
+                Text(
+                  _sending
+                      ? (_toolNote == null
+                          ? 'düşünüyor…'
+                          : 'araç: $_toolNote')
+                      : 'sorar · bulur · onayınla yapar',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 11.5, color: Colors.black87),
+                ),
+              ],
+            ),
+          ),
+          // Sesli mod: acikken cevaplar TTS ile okunur.
+          IconButton(
+            tooltip: _voiceMode ? 'Sesli yanıt açık' : 'Sesli yanıt kapalı',
+            onPressed: () => setState(() => _voiceMode = !_voiceMode),
+            icon: Icon(
+                _voiceMode
+                    ? Icons.volume_up_rounded
+                    : Icons.volume_off_rounded,
+                color: _voiceMode ? Colors.black : Colors.black45),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _keyWarning() => Container(
         width: double.infinity,
-        color: AppTheme.statusWarning.withOpacity(0.15),
-        padding: const EdgeInsets.all(10),
-        child: Text(
-          'Gemini API anahtarı ayarlı değil. Asistanı kullanmak için '
-          'Ayarlar\'dan anahtarı girin.',
-          style: TextStyle(color: AppTheme.statusWarning, fontSize: 12),
+        margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.statusWarning.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border:
+              Border.all(color: AppTheme.statusWarning.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.key_off_rounded,
+                size: 17, color: AppTheme.statusWarning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Gemini API anahtarı ayarlı değil. Ayarlar\'dan girin.',
+                style: TextStyle(
+                    color: AppTheme.statusWarning,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
         ),
       );
 
   Widget _emptyState() {
-    final examples = [
-      'Pilavlık bulgur nerede?',
-      'P123 paletine 6 adet ketçap ekle',
-      'Bakliyat reyonunu sil',
-      'Yeni depo oluştur: Arka Depo',
-      'Bu hafta SKT\'si dolan var mı?',
+    final examples = <(IconData, String)>[
+      (Icons.place_rounded, 'Pilavlık bulgur nerede?'),
+      (Icons.add_box_rounded, 'P123 paletine 6 adet ketçap ekle'),
+      (Icons.event_busy_rounded, 'Bu hafta SKT\'si dolan var mı?'),
+      (Icons.insights_rounded, 'En dolu 5 paleti listele'),
+      (Icons.tune_rounded, 'Temayı koyu yap'),
     ];
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(16, 26, 16, 16),
       children: [
-        const SizedBox(height: 20),
-        Icon(Icons.assistant_rounded, size: 56, color: AppTheme.accent),
-        const SizedBox(height: 12),
+        // Ikon rozeti — uygulamadaki dairesel vurgu dili.
+        Center(
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppTheme.accent.withOpacity(0.22),
+                  AppTheme.primary.withOpacity(0.18),
+                ],
+              ),
+            ),
+            child: const Icon(Icons.auto_awesome_rounded,
+                size: 34, color: AppTheme.accent),
+          ),
+        ),
+        const SizedBox(height: 14),
         const Text(
-          'Depo Asistanı',
+          'Ne yapmamı istersin?',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
-          'Ürün yerini sor, SKT kontrol et — ya da işlem yaptır: ürün '
-          'ekle/çıkar, palet ve depo/reyon oluştur veya sil. Her işlemi '
-          'senin onayınla yaparım.',
+          'Ürün yerini sor, SKT kontrol et ya da işlem yaptır. '
+          'Gerekirse verilerini kendim inceler, çözümü bulurum — '
+          'her değişikliği senin onayınla yaparım.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AppTheme.textTertiary, fontSize: 13),
+          style: TextStyle(
+              color: AppTheme.textTertiary, fontSize: 13, height: 1.35),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text('ÖRNEKLER',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                  color: AppTheme.textTertiary)),
+        ),
+        // Oneriler: uygulamanin kart dili (surface + hairline + rMd).
         ...examples.map((e) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: OutlinedButton(
-                onPressed: () {
-                  _input.text = e;
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
+                onTap: () {
+                  _input.text = e.$2;
                   _send();
                 },
-                style: OutlinedButton.styleFrom(
-                  alignment: Alignment.centerLeft,
-                  side: BorderSide(color: AppTheme.hairline),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(AppTheme.rMd),
+                    border: Border.all(color: AppTheme.hairline),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withOpacity(0.13),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Icon(e.$1,
+                            size: 17, color: AppTheme.accent),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(e.$2,
+                            style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                      Icon(Icons.north_east_rounded,
+                          size: 15, color: AppTheme.textTertiary),
+                    ],
+                  ),
                 ),
-                child: Text(e),
               ),
             )),
       ],
@@ -349,18 +504,20 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             decoration: BoxDecoration(
               color: isUser ? AppTheme.accent : AppTheme.surface,
               borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(isUser ? 16 : 4),
-                bottomRight: Radius.circular(isUser ? 4 : 16),
+                topLeft: const Radius.circular(AppTheme.rMd),
+                topRight: const Radius.circular(AppTheme.rMd),
+                bottomLeft: Radius.circular(isUser ? AppTheme.rMd : 4),
+                bottomRight: Radius.circular(isUser ? 4 : AppTheme.rMd),
               ),
               border: isUser ? null : Border.all(color: AppTheme.hairline),
             ),
             child: isUser
+                // Accent zeminde SIYAH yazi — uygulamanin accent buton
+                // dili (beyaz yazi acik turkuazda okunmuyordu).
                 ? SelectableText(
                     m.text,
                     style: const TextStyle(
-                        color: Colors.white, fontSize: 14.5, height: 1.3),
+                        color: Colors.black, fontSize: 14.5, height: 1.3),
                   )
                 : _richAssistantText(m.text),
           ),
@@ -534,14 +691,35 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppTheme.hairline),
           ),
-          child: const SizedBox(
-            width: 40,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _Dot(), _Dot(), _Dot(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 40,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _Dot(), _Dot(), _Dot(),
+                  ],
+                ),
+              ),
+              // AGENT: hangi araci kullandigini seffafca goster.
+              if (_toolNote != null) ...[
+                const SizedBox(width: 8),
+                Icon(Icons.build_rounded,
+                    size: 13, color: AppTheme.textTertiary),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(_toolNote!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: AppTheme.textTertiary)),
+                ),
               ],
-            ),
+            ],
           ),
         ),
       );
@@ -595,10 +773,11 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
         decoration: BoxDecoration(
           color: AppTheme.surface,
           border: Border(top: BorderSide(color: AppTheme.hairline)),
+          boxShadow: AppTheme.shadowMd,
         ),
         child: Row(
           children: [

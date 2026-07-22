@@ -2,6 +2,7 @@ import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/datasources/product_local_datasource.dart';
 import '../../data/datasources/shift_local_datasource.dart';
 import 'database_service.dart';
+import 'agent_tool_service.dart';
 import 'gemini_ocr_service.dart';
 import 'label_pending_queue_service.dart';
 import 'shelf_layout_service.dart';
@@ -159,5 +160,54 @@ class WarehouseAssistantService {
       history: history,
       question: question,
     );
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  AGENT DONGUSU (v146)
+  ///  Model tek seferde cevap vermek zorunda degil: ```tool bloklariyla
+  ///  ARAC cagirir (sema kesfi, SQL okuma, ayar listeleme), biz calistirip
+  ///  sonucu geri veririz, o da devam eder. Boylece "bu ozellik yok"
+  ///  durumu kalkar — model uygulamanin tum verisini kesfedip kendi
+  ///  cozumunu uretir. En fazla [maxSteps] tur; yazma islemleri yine
+  ///  ```action onay kartlariyla yapilir.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<String> askAgent({
+    required List<Map<String, String>> history,
+    required String question,
+    int maxSteps = 4,
+    void Function(String note)? onStep,
+  }) async {
+    final context = await buildLocalContext();
+    var hist = List<Map<String, String>>.from(history);
+    var q = question;
+    var answer = '';
+
+    for (var step = 0; step < maxSteps; step++) {
+      answer = await GeminiOcrService.instance.assistantAnswer(
+        context: context,
+        history: hist,
+        question: q,
+      );
+      final parsed = AgentToolService.instance.parse(answer);
+      if (parsed.calls.isEmpty) return answer; // arac yok -> nihai cevap
+
+      // Kullaniciya "ne yapiyor" bilgisi (yazi baloncugu degil, ipucu).
+      onStep?.call(parsed.calls.map((c) => c.name).join(', '));
+
+      final results = await AgentToolService.instance.runAll(parsed.calls);
+
+      // Bu turu gecmise yaz, sonuclari yeni "soru" olarak besle.
+      hist = [
+        ...hist,
+        {'role': 'user', 'text': q},
+        {'role': 'model', 'text': answer},
+      ];
+      q = 'ARAÇ SONUÇLARI:\n$results\n\n'
+          'Bu sonuçlara göre kullanıcının isteğini yerine getir. '
+          'Gerekiyorsa yeni bir ```tool çağır; bilgi yeterliyse Türkçe '
+          'cevabı yaz ve değişiklik gerekiyorsa ```action bloğu üret.';
+    }
+    // Adim siniri doldu: kalan arac bloklarini temizleyip dondur.
+    return AgentToolService.instance.parse(answer).cleanText;
   }
 }
