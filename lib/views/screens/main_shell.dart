@@ -11,6 +11,7 @@ import 'control_list_screen.dart';
 import 'count_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
+import 'shelf_restock_screen.dart';
 import 'price_change_screen.dart';
 import 'price_check_screen.dart';
 import 'shelf_check_screen.dart';
@@ -119,6 +120,15 @@ class _MainShellState extends State<MainShell> {
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
+            _sheetOption(
+              icon: Icons.outbox_rounded,
+              color: AppTheme.amber,
+              title: 'Reyona Açılacaklar',
+              subtitle:
+                  'Barkod okut, listeye ekle; depodan FEFO ile çıkar ve reyona aç',
+              onTap: () => _push(const ShelfRestockScreen()),
+            ),
+            const SizedBox(height: 10),
             _sheetOption(
               icon: Icons.price_check_rounded,
               color: AppTheme.primary,

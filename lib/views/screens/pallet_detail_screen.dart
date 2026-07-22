@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,7 +9,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
 import '../../core/services/database_service.dart';
+import '../../core/services/flow_prefs.dart';
 import '../../core/services/location_reveal_prefs.dart';
+import '../../core/services/price_check_channel.dart';
 import '../../core/services/shelf_layout_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
@@ -2065,8 +2068,127 @@ class _AddItemScreenState extends State<_AddItemScreen> {
   // Akilli konum bilgisi: urun bu depoda baska nerede?
   List<ProductLocation> _existingLocs = [];
 
+  // ── SIRKET UYGULAMASI ENTEGRASYONU ───────────────────────────────
+  // Barkod okutuldugunda adi bilinmiyorsa sirket uygulamasina gecilir;
+  // orada okutulunca erisilebilirlik servisi urun adi/stok kodunu okur
+  // ve systemPriceStream ile buraya gonderir. Gelen veri forma ve
+  // barkod dizinine yazilir (bir dahakine sormaz).
+  bool _companyMode = false;
+  bool _serviceOn = false;
+  StreamSubscription<SystemPriceSnapshot>? _liveSub;
+  String? _awaitingBarcode;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCompanyFlow();
+  }
+
+  Future<void> _initCompanyFlow() async {
+    try {
+      await FlowPrefs.instance.load();
+    } catch (_) {}
+    final on = await PriceCheckChannel.isServiceRunning();
+    if (!mounted) return;
+    setState(() {
+      _companyMode = FlowPrefs.instance.autoFlow;
+      _serviceOn = on;
+    });
+    _liveSub = PriceCheckChannel.systemPriceStream.listen(_onSystemData);
+  }
+
+  /// Sirket uygulamasindan urun bilgisi geldi — forma ve dizine yaz.
+  Future<void> _onSystemData(SystemPriceSnapshot sys) async {
+    final name = sys.productName?.trim();
+    if (name == null || name.isEmpty) return;
+    if (_looksLikeStaticFormLabel(name)) return;
+    // Hangi barkoda ait? Bekledigimiz varsa o, yoksa sistemin verdigi.
+    final code = _awaitingBarcode ?? sys.barcode?.trim() ?? _barcode;
+    if (code == null || code.isEmpty) return;
+    // Form baska bir urune gectiyse yazma.
+    if (_barcode != null && _barcode != code) return;
+
+    final sc = sys.stockCode?.trim();
+    try {
+      await BarcodeDirectoryDataSource(DatabaseService.instance).importAll([
+        BarcodeEntry(
+          barcode: code,
+          productName: name,
+          stockCode: (sc == null || sc.isEmpty) ? null : sc,
+          importedAt: DateTime.now(),
+          source: BarcodeSource.screen,
+        )
+      ]);
+    } catch (_) {}
+    _awaitingBarcode = null;
+    if (!mounted) return;
+    setState(() {
+      _nameCtrl.text = name;
+      if (sc != null && sc.isNotEmpty) _stockCode = sc;
+    });
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Şirket verisi alındı: $name'),
+      duration: const Duration(milliseconds: 1400),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: AppTheme.statusSafe,
+    ));
+  }
+
+  bool _looksLikeStaticFormLabel(String line) {
+    final lower = line.trim().toLowerCase();
+    const staticPhrases = [
+      'denetim formu',
+      'kontrol formu',
+      'fiyat kontrol',
+      'fiyat kontrolü',
+      'ürün denetim',
+      'urun denetim',
+    ];
+    return staticPhrases.any((p) => lower == p || lower.startsWith('$p '));
+  }
+
+  /// Sirket uygulamasina gec — [code] orada okutulacak.
+  Future<void> _goToCompanyApp(String code) async {
+    _awaitingBarcode = code;
+    if (!_serviceOn) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Erişilebilirlik servisi kapalı'),
+          content: const Text(
+              'Şirket uygulamasından ürün adını otomatik almak için '
+              'erişilebilirlik servisinin açık olması gerekir. '
+              'Ayarları açmak ister misiniz?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Vazgeç')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Ayarları Aç')),
+          ],
+        ),
+      );
+      if (go == true) await PriceCheckChannel.openAccessibilitySettings();
+      return;
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Şirket uygulamasında bu ürünü okutun'),
+        duration: Duration(milliseconds: 1600),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+    await PriceCheckChannel.speak('Şirket uygulamasında okutun');
+    await PriceCheckChannel.switchToCompanyApp();
+  }
+
   @override
   void dispose() {
+    _liveSub?.cancel();
     _scanner.dispose();
     _expiryCtrl.dispose();
     _qtyCtrl.dispose();
@@ -2130,6 +2252,10 @@ class _AddItemScreenState extends State<_AddItemScreen> {
       _results = [];
       _searchCtrl.clear();
     });
+    // ADI BILINMIYOR + sirket modu acik → sirket uygulamasina gec.
+    if ((resolved == null || resolved.trim().isEmpty) && _companyMode) {
+      await _goToCompanyApp(code);
+    }
   }
 
   Future<void> _onDetect(BarcodeCapture cap) async {
@@ -2653,6 +2779,24 @@ class _AddItemScreenState extends State<_AddItemScreen> {
               isDense: true,
             ),
           ),
+          // AD BOS: sirket uygulamasindan cek (fiyat kontrol akisiyla ayni).
+          if (_nameCtrl.text.trim().isEmpty && _barcode != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _goToCompanyApp(_barcode!),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Şirkette Okut — ürün adını çek',
+                      style: TextStyle(fontSize: 12.5)),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.amber,
+                      side: BorderSide(
+                          color: AppTheme.amber.withOpacity(0.5))),
+                ),
+              ),
+            ),
           if (pkg.hasAny)
             Padding(
               padding: const EdgeInsets.only(top: 6),

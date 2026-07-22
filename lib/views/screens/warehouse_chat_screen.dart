@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -8,6 +10,11 @@ import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/datasources/barcode_directory_datasource.dart';
+import '../../data/models/barcode_entry.dart';
+import '../../data/repositories/barcode_directory_repository.dart';
+import '../../core/services/database_service.dart';
+import 'barcode_detail_screen.dart';
 import 'add_product_screen.dart' show BarcodeScanPage;
 
 /// ════════════════════════════════════════════════════════════════════
@@ -349,14 +356,13 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
               ),
               border: isUser ? null : Border.all(color: AppTheme.hairline),
             ),
-            child: SelectableText(
-              m.text,
-              style: TextStyle(
-                color: isUser ? Colors.white : AppTheme.textPrimary,
-                fontSize: 14.5,
-                height: 1.3,
-              ),
-            ),
+            child: isUser
+                ? SelectableText(
+                    m.text,
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 14.5, height: 1.3),
+                  )
+                : _richAssistantText(m.text),
           ),
         ),
         // Onay kartlari (asistan mesajina bagli eylemler).
@@ -365,6 +371,41 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       ],
     );
   }
+
+  /// Asistan metnini [[urun:BARKOD|AD]] atiflarina gore parcalar:
+  /// metin bloklari + FOTOGRAFLI tiklanabilir urun kartlari. Karta
+  /// dokununca urun detay sayfasi (hub) acilir.
+  Widget _richAssistantText(String text) {
+    final re = RegExp(r'\[\[urun:([0-9A-Za-z]+)\|([^\]]+)\]\]');
+    final children = <Widget>[];
+    int last = 0;
+    for (final m in re.allMatches(text)) {
+      final before = text.substring(last, m.start).trim();
+      if (before.isNotEmpty) children.add(_chatText(before));
+      children.add(_ProductRefCard(
+          barcode: m.group(1)!, name: m.group(2)!.trim()));
+      last = m.end;
+    }
+    final tail = text.substring(last).trim();
+    if (tail.isNotEmpty) children.add(_chatText(tail));
+    if (children.isEmpty) children.add(_chatText(text));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(height: 6),
+          children[i],
+        ],
+      ],
+    );
+  }
+
+  Widget _chatText(String t) => SelectableText(
+        t,
+        style: TextStyle(
+            color: AppTheme.textPrimary, fontSize: 14.5, height: 1.3),
+      );
 
   /// Tek bir eylem icin onay karti. Bekliyorken Onayla/İptal butonlari,
   /// islendikten sonra sonuc rozeti gosterir.
@@ -653,4 +694,101 @@ class _Dot extends StatelessWidget {
           shape: BoxShape.circle,
         ),
       );
+}
+
+
+/// Asistan atifindan gelen FOTOGRAFLI urun karti — dokununca urun
+/// detay sayfasi (hub) acilir. Foto: yerel dizin fotografi.
+class _ProductRefCard extends StatelessWidget {
+  final String barcode;
+  final String name;
+  const _ProductRefCard({required this.barcode, required this.name});
+
+  Future<(String?, BarcodeEntry?)> _load() async {
+    final repo = BarcodeDirectoryRepository(
+        BarcodeDirectoryDataSource(DatabaseService.instance));
+    String? photo;
+    BarcodeEntry? entry;
+    try {
+      final p = await repo.getLocalImage(barcode);
+      if (p != null && p.isNotEmpty && File(p).existsSync()) photo = p;
+    } catch (_) {}
+    try {
+      entry = await repo.findEntryByBarcode(barcode);
+    } catch (_) {}
+    return (photo, entry);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<(String?, BarcodeEntry?)>(
+      future: _load(),
+      builder: (context, snap) {
+        final photo = snap.data?.$1;
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            final entry = snap.data?.$2 ??
+                BarcodeEntry(
+                  barcode: barcode,
+                  productName: name,
+                  importedAt: DateTime.now(),
+                );
+            Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => BarcodeDetailScreen(entry: entry)));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border:
+                  Border.all(color: AppTheme.primary.withOpacity(0.35)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: photo != null
+                      ? Image.file(File(photo), fit: BoxFit.cover)
+                      : const Icon(Icons.inventory_2_rounded,
+                          size: 22, color: AppTheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800)),
+                      Text(barcode,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontFamily: 'monospace',
+                              color: AppTheme.textTertiary)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppTheme.primary),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

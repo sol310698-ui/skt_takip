@@ -54,6 +54,15 @@ class DatabaseService {
 
   /// Yeni kurulum.
   Future<void> _onCreate(Database db, int version) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS '
+        '${AppConstants.restockTable} ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'barcode TEXT NOT NULL, '
+        'product_name TEXT, '
+        'quantity INTEGER NOT NULL DEFAULT 1, '
+        'added_at INTEGER NOT NULL, '
+        'done INTEGER NOT NULL DEFAULT 0, '
+        'done_at INTEGER)');
     await _createProductsTable(db);
     await _createBarcodeTable(db);
     await _createShiftTable(db);
@@ -193,6 +202,19 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
       await _createShelfLayoutTables(db);
+    }
+    if (oldVersion < 28) {
+      // REYONA ACILACAKLAR: depodan cikarilip reyona tasinacak urunlerin
+      // barkod-okutmali is listesi.
+      await db.execute('CREATE TABLE IF NOT EXISTS '
+          '${AppConstants.restockTable} ('
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+          'barcode TEXT NOT NULL, '
+          'product_name TEXT, '
+          'quantity INTEGER NOT NULL DEFAULT 1, '
+          'added_at INTEGER NOT NULL, '
+          'done INTEGER NOT NULL DEFAULT 0, '
+          'done_at INTEGER)');
     }
     if (oldVersion < 27) {
       // SKT <-> KONUM KALICI BAGI: SKT kaydi hangi palet kalemine
