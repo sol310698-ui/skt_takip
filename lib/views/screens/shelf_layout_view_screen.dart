@@ -7,10 +7,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../widgets/ui_kit.dart';
+import 'barcode_detail_screen.dart';
 import 'image_zoom_screen.dart';
 import 'shelf_scan_screen.dart';
 
@@ -703,6 +705,62 @@ class _ProductSheetState extends State<_ProductSheet> {
   // Barkod dizini bilgileri (stok kodu, dizindeki ad) — sayfa basina onbellek.
   final Map<String, BarcodeEntry?> _dirCache = {};
 
+  // AKILLI BAGLAM: tanimli SKT partileri + depo mevcudu — barkod basina
+  // onbellek (sayfa kaydirildikca her urun icin bir kez yuklenir).
+  final Map<String, _SlotContext> _ctxCache = {};
+
+  Future<_SlotContext> _slotContext(String barcode) async {
+    final cached = _ctxCache[barcode];
+    if (cached != null) return cached;
+    // 1) SKT partileri (barkodla, en yakin tarih once).
+    var batches = const <Map<String, Object?>>[];
+    try {
+      final db = await DatabaseService.instance.database;
+      batches = await db.query('products',
+          columns: ['expiry_date', 'quantity'],
+          where: "barcode = ? AND disposal_status = 'active'",
+          whereArgs: [barcode],
+          orderBy: 'expiry_date ASC');
+    } catch (_) {}
+    // 2) Depo mevcudu: toplam adet + ilk palet kodu + palet sayisi.
+    var whQty = 0;
+    var palletCount = 0;
+    String? firstPallet;
+    try {
+      final whs = await WarehouseService.instance.getWarehouses();
+      for (final w in whs) {
+        final locs =
+            await WarehouseService.instance.findProduct(w.id!, barcode);
+        for (final l in locs) {
+          whQty += l.item.quantity;
+          palletCount++;
+          firstPallet ??= l.pallet.code;
+        }
+      }
+    } catch (_) {}
+    final ctx = _SlotContext(
+      batches: batches,
+      whQty: whQty,
+      palletCount: palletCount,
+      firstPallet: firstPallet,
+    );
+    _ctxCache[barcode] = ctx;
+    return ctx;
+  }
+
+  /// Urun hub sayfasina git (SKT + konumlar + canlandirmalar).
+  Future<void> _openHub(ShelfSlot s, String name) async {
+    var entry = await _dirEntry(s.barcode);
+    entry ??= BarcodeEntry(
+      barcode: s.barcode,
+      productName: name,
+      importedAt: DateTime.now(),
+    );
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BarcodeDetailScreen(entry: entry!)));
+  }
+
   Future<BarcodeEntry?> _dirEntry(String barcode) async {
     if (_dirCache.containsKey(barcode)) return _dirCache[barcode];
     BarcodeEntry? e;
@@ -861,7 +919,139 @@ class _ProductSheetState extends State<_ProductSheet> {
             );
           },
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 6),
+
+        // ── AKILLI BAGLAM: tanimli SKT + depo mevcudu ──
+        FutureBuilder<_SlotContext>(
+          future: _slotContext(s.barcode),
+          builder: (_, snap) {
+            final ctx = snap.data;
+            if (ctx == null) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: SkeletonBox(height: 34, radius: 10),
+              );
+            }
+            if (ctx.batches.isEmpty && ctx.whQty <= 0) {
+              return const SizedBox.shrink();
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6),
+                // SKT partileri (en fazla 3 cip, fazlasi ozet).
+                if (ctx.batches.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final b in ctx.batches.take(3))
+                        Builder(builder: (_) {
+                          final d = DateTime.fromMillisecondsSinceEpoch(
+                              b['expiry_date'] as int);
+                          final q = (b['quantity'] as int?) ?? 0;
+                          final days =
+                              d.difference(DateTime.now()).inDays;
+                          final c = days < 0
+                              ? AppTheme.statusExpired
+                              : days <= 7
+                                  ? AppTheme.statusCritical
+                                  : days <= 30
+                                      ? AppTheme.statusWarning
+                                      : AppTheme.statusSafe;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: c.withOpacity(0.13),
+                              borderRadius: BorderRadius.circular(
+                                  AppTheme.rPill),
+                            ),
+                            child: Text(
+                              'SKT ${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}'
+                              ' · $q adet · '
+                              '${days < 0 ? '${-days}g geçti' : '${days}g'}',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: c),
+                            ),
+                          );
+                        }),
+                      if (ctx.batches.length > 3)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceAlt,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.rPill),
+                          ),
+                          child: Text(
+                              '+${ctx.batches.length - 3} parti',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.textSecondary)),
+                        ),
+                    ],
+                  ),
+                // Depo mevcudu — dokununca urun hub'i (canlandirma orada).
+                if (ctx.whQty > 0) ...[
+                  const SizedBox(height: 8),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _openHub(s,
+                        (s.productName?.trim().isNotEmpty ?? false)
+                            ? s.productName!.trim()
+                            : s.barcode),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 11, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AppTheme.accent.withOpacity(0.35)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warehouse_rounded,
+                              size: 16, color: AppTheme.accent),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Depoda ${ctx.whQty} adet · '
+                              '${ctx.firstPallet ?? ''}'
+                              '${ctx.palletCount > 1 ? ' +${ctx.palletCount - 1} palet' : ''}',
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.accent),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded,
+                              size: 18, color: AppTheme.accent),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+
+        // ── URUN SAYFASI (her sey tek yerde) ──
+        FilledButton.tonalIcon(
+          onPressed: () => _openHub(s,
+              (s.productName?.trim().isNotEmpty ?? false)
+                  ? s.productName!.trim()
+                  : s.barcode),
+          icon: const Icon(Icons.dashboard_rounded, size: 18),
+          label: const Text('Ürün Sayfası — SKT, konumlar, canlandırmalar'),
+        ),
+        const SizedBox(height: 10),
 
         // ── AKSIYONLAR ──
         Row(
@@ -942,4 +1132,19 @@ class _ProductSheetState extends State<_ProductSheet> {
       ),
     );
   }
+}
+
+
+/// Slot urun sayfasindaki akilli baglam: SKT partileri + depo mevcudu.
+class _SlotContext {
+  final List<Map<String, Object?>> batches;
+  final int whQty;
+  final int palletCount;
+  final String? firstPallet;
+  const _SlotContext({
+    required this.batches,
+    required this.whQty,
+    required this.palletCount,
+    required this.firstPallet,
+  });
 }

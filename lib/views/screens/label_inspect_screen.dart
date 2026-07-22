@@ -46,6 +46,13 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   );
 
   bool _scanning = true;
+  // ── EL TERMINALI (HID) GIRISI ──────────────────────────────────────
+  // Terminal, odakli alana karakter basar + Enter gonderir. Alan acilista
+  // ODAKLIDIR ama TextInputType.none sayesinde EKRAN KLAVYESI ACILMAZ.
+  // Elle yazmak isteyen kucuk klavye ikonuyla acabilir.
+  final TextEditingController _hidCtrl = TextEditingController();
+  final FocusNode _hidFocus = FocusNode();
+  bool _hidKeyboard = false; // true -> ekran klavyesi acik (elle giris)
   bool _busy = false;
 
   // Okunan etiket verileri
@@ -98,6 +105,8 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   void dispose() {
     labelInspectFabSuppressed.value = false;
     _controller.dispose();
+    _hidCtrl.dispose();
+    _hidFocus.dispose();
     super.dispose();
   }
 
@@ -105,7 +114,24 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
     if (!_scanning || _busy) return;
     final raw = capture.barcodes.firstOrNull?.rawValue;
     if (raw == null || raw.trim().isEmpty) return;
+    await _processRaw(raw);
+  }
 
+  /// El terminali Enter gonderince: alani temizle, ortak hatta ver.
+  Future<void> _onHidSubmit(String v) async {
+    final t = v.trim();
+    _hidCtrl.clear();
+    if (t.isEmpty || !_scanning || _busy) {
+      // Bos Enter: odagi geri ver (terminaller bazen once Enter yollar).
+      if (mounted) _hidFocus.requestFocus();
+      return;
+    }
+    await _processRaw(t);
+  }
+
+  /// EL TERMINALI + kamera ORTAK isleme hatti. Kaynak fark etmez;
+  /// ayni ayristirma/arama/konum akisi calisir.
+  Future<void> _processRaw(String raw) async {
     setState(() {
       _busy = true;
       _scanning = false;
@@ -590,6 +616,9 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       _scanning = true;
     });
     await _controller.start();
+    // El terminali alani: temiz + odakli (klavyesiz) beklesin.
+    _hidCtrl.clear();
+    if (mounted) _hidFocus.requestFocus();
   }
 
   @override
@@ -637,6 +666,79 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
         const ScanOverlay(hint: 'Etiket QR veya barkodunu çerçeveye getirin'),
+        // ── EL TERMINALI GIRIS CUBUGU ──
+        // Acilista imlec BURADA ama ekran klavyesi ACILMAZ
+        // (TextInputType.none). Terminal okuttugunda karakterler buraya
+        // akar, Enter ile islenir. Klavye ikonu elle girisi acar.
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).padding.bottom + 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.55),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.settings_remote_rounded,
+                    size: 18, color: Colors.white70),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _hidCtrl,
+                    focusNode: _hidFocus,
+                    autofocus: true,
+                    // KRITIK: none -> imlec/odak var, EKRAN KLAVYESI YOK.
+                    keyboardType: _hidKeyboard
+                        ? TextInputType.text
+                        : TextInputType.none,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: _onHidSubmit,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontFamily: 'monospace'),
+                    cursorColor: AppTheme.accent,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(vertical: 14),
+                      hintText: 'El terminali: buraya okutun',
+                      hintStyle: TextStyle(
+                          color: Colors.white54, fontSize: 13),
+                    ),
+                  ),
+                ),
+                // Elle giris icin klavyeyi ac/kapa.
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                      _hidKeyboard
+                          ? Icons.keyboard_hide_rounded
+                          : Icons.keyboard_rounded,
+                      size: 20,
+                      color: Colors.white70),
+                  tooltip: _hidKeyboard
+                      ? 'Klavyeyi kapat'
+                      : 'Elle yazmak için klavye aç',
+                  onPressed: () {
+                    setState(() => _hidKeyboard = !_hidKeyboard);
+                    // Odak yenilenmeli ki klavye durumu uygulanabilsin.
+                    _hidFocus.unfocus();
+                    Future.delayed(const Duration(milliseconds: 60),
+                        () {
+                      if (mounted) _hidFocus.requestFocus();
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
         if (_busy)
           Container(
             color: Colors.black54,
