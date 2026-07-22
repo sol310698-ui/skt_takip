@@ -55,6 +55,13 @@ class DatabaseService {
   /// Yeni kurulum.
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('CREATE TABLE IF NOT EXISTS '
+        '${AppConstants.teshirTable} ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'barcode TEXT NOT NULL UNIQUE, '
+        'product_name TEXT, '
+        'note TEXT, '
+        'added_at INTEGER NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS '
         '${AppConstants.restockTable} ('
         'id INTEGER PRIMARY KEY AUTOINCREMENT, '
         'barcode TEXT NOT NULL, '
@@ -202,6 +209,17 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
       await _createShelfLayoutTables(db);
+    }
+    if (oldVersion < 29) {
+      // TESHIR: reyon disinda teshirde (stand/ada) duran urunler. Fiyat
+      // degisiminde teshir etiketi de gerekir mi diye kontrol edilir.
+      await db.execute('CREATE TABLE IF NOT EXISTS '
+          '${AppConstants.teshirTable} ('
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+          'barcode TEXT NOT NULL UNIQUE, '
+          'product_name TEXT, '
+          'note TEXT, '
+          'added_at INTEGER NOT NULL)');
     }
     if (oldVersion < 28) {
       // REYONA ACILACAKLAR: depodan cikarilip reyona tasinacak urunlerin

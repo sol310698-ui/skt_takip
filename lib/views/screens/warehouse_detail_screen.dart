@@ -31,6 +31,8 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   late final AnimationController _aislePulse = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1800))
     ..repeat(reverse: true);
+  // TAVAN ISIKLARI acik mi (kullanici dugmesiyle kontrol edilir).
+  bool _lightsOn = true;
   // GIRIS: harita ilk acildiginda duvarlar disaridan sahneye suzulur.
   late final AnimationController _introCtrl = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 750))
@@ -379,14 +381,62 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
     return Column(
       children: [
         _buildLegend(),
-        // Kaydirma ipucu.
+        // Kaydirma ipucu + TAVAN ISIKLARI ac/kapa dugmesi.
         Padding(
-          padding: const EdgeInsets.only(top: 2, bottom: 4),
-          child: Text(
-            _mapPan.abs() > 0.5
-                ? 'Koridora dönmek için ters yöne kaydır'
-                : '◀ kaydır: sol depo · sağ depo: kaydır ▶',
-            style: TextStyle(fontSize: 11, color: AppTheme.textTertiary),
+          padding: const EdgeInsets.only(top: 2, bottom: 4, left: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _mapPan.abs() > 0.5
+                      ? 'Koridora dönmek için ters yöne kaydır'
+                      : '◀ kaydır: sol depo · sağ depo: kaydır ▶',
+                  style: TextStyle(
+                      fontSize: 11, color: AppTheme.textTertiary),
+                ),
+              ),
+              // ISIK ANAHTARI: depo tavan aydinlatmasini ac/kapat.
+              InkWell(
+                borderRadius: BorderRadius.circular(AppTheme.rPill),
+                onTap: () => setState(() => _lightsOn = !_lightsOn),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _lightsOn
+                        ? AppTheme.amber.withOpacity(0.16)
+                        : AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
+                    border: Border.all(
+                        color: _lightsOn
+                            ? AppTheme.amber.withOpacity(0.55)
+                            : AppTheme.hairline),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                          _lightsOn
+                              ? Icons.lightbulb_rounded
+                              : Icons.lightbulb_outline_rounded,
+                          size: 14,
+                          color: _lightsOn
+                              ? AppTheme.amber
+                              : AppTheme.textTertiary),
+                      const SizedBox(width: 5),
+                      Text(_lightsOn ? 'Işıklar açık' : 'Işıklar kapalı',
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: _lightsOn
+                                  ? AppTheme.amber
+                                  : AppTheme.textTertiary)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -444,7 +494,8 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                                 accent: AppTheme.accent,
                                 isLight: AppTheme.isLight,
                                 pulse: _aislePulse.value,
-                                pan: pan),
+                                pan: pan,
+                                lightsOn: _lightsOn),
                           ),
                         ),
                       ),
@@ -1452,21 +1503,35 @@ class _MapAislePainter extends CustomPainter {
   final bool isLight;
   final double pulse; // 0..1 dongusel
   final double pan; // -1..+1
+  final bool lightsOn; // tavan aydinlatmasi acik mi
   _MapAislePainter({
     required this.accent,
     required this.isLight,
     required this.pulse,
     required this.pan,
+    required this.lightsOn,
   });
+
+  /// Floresan tup rengi — hafif sicak beyaz (gercek depo armaturu).
+  static const _tube = Color(0xFFFFF3D0);
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     // Paralaks: pan ile kacis noktasi hafif ters yone kayar.
     final cx = w / 2 - pan * w * 0.06;
-    final vpY = h * 0.06; // kacis noktasi yuksekligi
-    final nearHalf = w * 0.17;
-    final farHalf = w * 0.028;
+
+    // ── KORIDOR: ekranin ALT %30'u ─────────────────────────────────
+    // Kacis noktasi bu bolgenin ust kenarinda; zemin oradan asagi
+    // (ekran altina) dogru acilir. Ust %70 tavan/aydinlatma bolgesi.
+    final vpY = h * 0.70; // kacis noktasi hizasi
+    final nearHalf = w * 0.17; // en yakin (alt) yari genislik
+    final farHalf = w * 0.028; // kacis noktasindaki yari genislik
+    final aisleH = h - vpY; // koridorun boyu (= h'nin %30'u)
+
+    // Isik siddeti: acikken hafif canli salinim, kapaliyken 0.
+    final glow =
+        lightsOn ? (0.82 + 0.18 * (0.5 + 0.5 * (pulse * 2 - 1).abs())) : 0.0;
 
     // ── ZEMIN: beton gradyan trapez ──
     final floor = Path()
@@ -1484,78 +1549,155 @@ class _MapAislePainter extends CustomPainter {
           colors: isLight
               ? [const Color(0xFFC9CDD7), const Color(0xFFA9AFBC)]
               : [const Color(0xFF1B1E28), const Color(0xFF0C0E14)],
-        ).createShader(Rect.fromLTWH(0, vpY, w, h - vpY)),
+        ).createShader(Rect.fromLTWH(0, vpY, w, aisleH)),
     );
 
-    // ── TAVAN FLORESANLARI: derinlige dizili 4 isik + hale ──
-    final glow = 0.8 + 0.2 * (0.5 + 0.5 * (pulse * 2 - 1).abs());
-    for (int i = 0; i < 4; i++) {
-      final d = (i + 0.6) / 4.6; // 0 yakin .. 1 uzak
-      final y = vpY + (h * 0.30 - vpY) * (1 - d) * 0.35; // ust bolgede
-      final half = (nearHalf + (farHalf - nearHalf) * d) * 0.62;
-      final lw = (7.0 - 5.0 * d).clamp(1.6, 7.0);
+    // ── TAVAN ARMATURLERI: TERS PERSPEKTIF ────────────────────────
+    // Kacis noktasi ASAGIDA oldugu icin isiklar EN USTTE en genis,
+    // asagi indikce daralarak kacis noktasinda birlesir.
+    final ceilNear = w * 0.36; // en ustteki armaturun yari genisligi
+    const topPad = 10.0;
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(0, 0, w, vpY)); // tavan bolgesi
+    for (int i = 0; i < 5; i++) {
+      final d = (i + 0.35) / 5.0; // 0 = ust/yakin ... 1 = kacis noktasi
+      final t = d * d * 0.82 + d * 0.18; // perspektif sikismasi
+      final y = topPad + (vpY - topPad) * t;
+      final half = ceilNear + (farHalf - ceilNear) * t;
+      final lw = (11.0 - 8.5 * t).clamp(1.8, 11.0);
       final rect = Rect.fromCenter(
           center: Offset(cx, y), width: half * 2, height: lw);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect.inflate(lw), Radius.circular(lw)),
-        Paint()
-          ..color = Colors.white.withOpacity(0.08 * glow)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, Radius.circular(lw / 2)),
-        Paint()..color = Colors.white.withOpacity(0.75 * glow),
-      );
-    }
 
-    // ── ZEMINDE ISIK YANSIMALARI: parlak beton bantlari ──
-    final refl = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withOpacity(0.14 * glow),
-          Colors.white.withOpacity(0.02),
-        ],
-      ).createShader(Rect.fromLTWH(0, vpY, w, h - vpY));
-    for (final fx in [-0.5, 0.0, 0.5]) {
-      final band = Path()
-        ..moveTo(cx + farHalf * fx - 1.2, vpY)
-        ..lineTo(cx + farHalf * fx + 1.2, vpY)
-        ..lineTo(cx + nearHalf * fx + 6, h)
-        ..lineTo(cx + nearHalf * fx - 6, h)
-        ..close();
-      canvas.drawPath(band, refl);
+      // 1) ARMATUR GOVDESI (isik kapaliyken de gorunur — gercekcilik).
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            rect.inflate(lw * 0.35), Radius.circular(lw)),
+        Paint()
+          ..color = (isLight
+                  ? const Color(0xFF9AA1AF)
+                  : const Color(0xFF2A2F3B))
+              .withOpacity(0.9),
+      );
+
+      if (lightsOn) {
+        // 2) GENIS HALE (bloom) — havadaki isik dagilimi.
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              rect.inflate(lw * 2.6), Radius.circular(lw * 3)),
+          Paint()
+            ..color = _tube.withOpacity(0.13 * glow)
+            ..maskFilter =
+                MaskFilter.blur(BlurStyle.normal, lw * 2.2),
+        );
+        // 3) YAKIN HALE — tupun cevresindeki keskin parlama.
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+              rect.inflate(lw * 0.9), Radius.circular(lw)),
+          Paint()
+            ..color = _tube.withOpacity(0.30 * glow)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, lw),
+        );
+        // 4) TUP — parlak govde.
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, Radius.circular(lw / 2)),
+          Paint()..color = _tube.withOpacity(0.95 * glow),
+        );
+        // 5) ISIK KONISI — armaturden asagi yayilan yumusak huzme.
+        final coneBot = (y + (vpY - y) * 0.55).clamp(y, vpY);
+        final spread = half * 1.5;
+        final cone = Path()
+          ..moveTo(cx - half, y)
+          ..lineTo(cx + half, y)
+          ..lineTo(cx + spread, coneBot)
+          ..lineTo(cx - spread, coneBot)
+          ..close();
+        canvas.drawPath(
+          cone,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                _tube.withOpacity(0.10 * glow),
+                _tube.withOpacity(0.0),
+              ],
+            ).createShader(Rect.fromLTWH(0, y, w, coneBot - y))
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        );
+      }
+    }
+    canvas.restore();
+
+    // ── ZEMINDE ISIK HAVUZLARI + YANSIMALAR ───────────────────────
+    // Isiklar acikken koridor zemininde parlak lekeler ve dikey
+    // yansima bantlari olusur (islak/parlak beton hissi).
+    if (lightsOn) {
+      canvas.save();
+      canvas.clipPath(floor);
+      // Derinlige dizili isik havuzlari.
+      for (int i = 0; i < 3; i++) {
+        final d = (i + 0.5) / 3.0; // 0 uzak(vp) .. 1 yakin(alt)
+        final py = vpY + aisleH * (d * d);
+        final ph = farHalf + (nearHalf - farHalf) * (d * d);
+        canvas.drawOval(
+          Rect.fromCenter(
+              center: Offset(cx, py),
+              width: ph * 2.2,
+              height: aisleH * 0.16 * (0.4 + d)),
+          Paint()
+            ..color = _tube.withOpacity(0.13 * glow * (0.5 + d * 0.5))
+            ..maskFilter =
+                MaskFilter.blur(BlurStyle.normal, 10 + 14 * d),
+        );
+      }
+      // Dikey yansima bantlari.
+      final refl = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            _tube.withOpacity(0.16 * glow),
+            _tube.withOpacity(0.02 * glow),
+          ],
+        ).createShader(Rect.fromLTWH(0, vpY, w, aisleH));
+      for (final fx in [-0.5, 0.0, 0.5]) {
+        final band = Path()
+          ..moveTo(cx + farHalf * fx - 1.2, vpY)
+          ..lineTo(cx + farHalf * fx + 1.2, vpY)
+          ..lineTo(cx + nearHalf * fx + 7, h)
+          ..lineTo(cx + nearHalf * fx - 7, h)
+          ..close();
+        canvas.drawPath(band, refl);
+      }
+      canvas.restore();
     }
 
     // ── ENINE DERINLIK CIZGILERI ──
     final line = Paint()
-      ..color =
-          (isLight ? Colors.black : Colors.white).withOpacity(0.08)
+      ..color = (isLight ? Colors.black : Colors.white)
+          .withOpacity(lightsOn ? 0.08 : 0.05)
       ..strokeWidth = 1;
-    for (int i = 1; i <= 5; i++) {
-      final d = i / 6;
-      final ty = vpY + (h - vpY) * (d * d);
+    for (int i = 1; i <= 4; i++) {
+      final d = i / 5;
+      final ty = vpY + aisleH * (d * d);
       final half = farHalf + (nearHalf - farHalf) * (d * d);
-      canvas.drawLine(
-          Offset(cx - half, ty), Offset(cx + half, ty), line);
+      canvas.drawLine(Offset(cx - half, ty), Offset(cx + half, ty), line);
     }
 
     // ── ORTA KESIKLI YURUYUS SERIDI ──
     final dash = Paint()
-      ..color = accent.withOpacity(0.45)
+      ..color = accent.withOpacity(lightsOn ? 0.5 : 0.25)
       ..strokeWidth = 2.4;
-    for (int i = 0; i < 6; i++) {
-      final d0 = (i + 0.15) / 6;
-      final d1 = (i + 0.55) / 6;
-      final y0 = vpY + (h - vpY) * (d0 * d0);
-      final y1 = vpY + (h - vpY) * (d1 * d1);
-      canvas.drawLine(Offset(cx, y0), Offset(cx, y1), dash);
+    for (int i = 0; i < 5; i++) {
+      final d0 = (i + 0.15) / 5;
+      final d1 = (i + 0.55) / 5;
+      canvas.drawLine(Offset(cx, vpY + aisleH * (d0 * d0)),
+          Offset(cx, vpY + aisleH * (d1 * d1)), dash);
     }
 
     // ── KENAR VURGU SERITLERI ──
     final edge = Paint()
-      ..color = accent.withOpacity(0.5)
+      ..color = accent.withOpacity(lightsOn ? 0.55 : 0.3)
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
     canvas.drawLine(
@@ -1564,30 +1706,37 @@ class _MapAislePainter extends CustomPainter {
         Offset(cx + nearHalf, h), Offset(cx + farHalf, vpY), edge);
 
     // ── KACIS NOKTASI KARARTMASI (derinlik) ──
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, w, h * 0.5),
+    canvas.drawCircle(
+      Offset(cx, vpY),
+      w * 0.22,
       Paint()
         ..shader = RadialGradient(
-          center: Alignment(cx / w * 2 - 1, -0.85),
-          radius: 0.8,
           colors: [
-            Colors.black.withOpacity(isLight ? 0.12 : 0.45),
+            Colors.black.withOpacity(isLight ? 0.16 : 0.5),
             Colors.transparent,
           ],
-          stops: const [0.0, 0.6],
-        ).createShader(Rect.fromLTWH(0, 0, w, h * 0.5)),
+        ).createShader(
+            Rect.fromCircle(center: Offset(cx, vpY), radius: w * 0.22)),
     );
 
-    // ── TOZ ZERRELERI: yavas yukari suzulme ──
+    // ── TOZ ZERRELERI: isik huzmesinde suzulur (isik kapaliyken soluk) ──
     final dust = Paint()
-      ..color =
-          (isLight ? Colors.black : Colors.white).withOpacity(0.09);
-    for (int i = 0; i < 10; i++) {
+      ..color = (isLight ? Colors.black : _tube)
+          .withOpacity(lightsOn ? 0.13 : 0.05);
+    for (int i = 0; i < 12; i++) {
       final fx = ((i * 73) % 97) / 97.0;
       final base = ((i * 41) % 89) / 89.0;
       final fy = (base + pulse * (0.05 + (i % 3) * 0.02)) % 1.0;
       canvas.drawCircle(
-          Offset(fx * w, fy * h), 0.8 + (i % 3) * 0.5, dust);
+          Offset(fx * w, fy * vpY), 0.8 + (i % 3) * 0.5, dust);
+    }
+
+    // ── ISIKLAR KAPALIYSA: sahne genel karartmasi ──
+    if (!lightsOn) {
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()..color = Colors.black.withOpacity(isLight ? 0.18 : 0.42),
+      );
     }
 
     // ── VINYET ──
@@ -1611,5 +1760,6 @@ class _MapAislePainter extends CustomPainter {
       old.accent != accent ||
       old.isLight != isLight ||
       old.pulse != pulse ||
-      old.pan != pan;
+      old.pan != pan ||
+      old.lightsOn != lightsOn;
 }

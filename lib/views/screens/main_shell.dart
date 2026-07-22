@@ -12,6 +12,7 @@ import 'count_screen.dart';
 import 'home_screen.dart';
 import 'checklist_screen.dart';
 import 'shelf_restock_screen.dart';
+import 'teshir_screen.dart';
 import 'price_change_screen.dart';
 import 'price_check_screen.dart';
 import 'shelf_check_screen.dart';
@@ -330,9 +331,12 @@ class _MainShellState extends State<MainShell> {
                               children: [
                                 _whNavItem(0, Icons.shelves,
                                     Icons.shelves, 'Reyon'),
+                                _whNavItem(2, Icons.storefront_outlined,
+                                    Icons.storefront_rounded, 'Teşhir'),
                                 const Expanded(child: SizedBox()),
                                 _whNavItem(1, Icons.warehouse_outlined,
-                                    Icons.warehouse_rounded, 'Depo'),
+                                    Icons.warehouse_rounded, 'Depo',
+                                    flex: 2),
                               ],
                             )
                           : Row(
@@ -408,9 +412,11 @@ class _MainShellState extends State<MainShell> {
 
   /// Depo modundaki Reyon | Depo sekme ogesi.
   Widget _whNavItem(
-      int tab, IconData icon, IconData activeIcon, String label) {
+      int tab, IconData icon, IconData activeIcon, String label,
+      {int flex = 1}) {
     final selected = _whTab == tab;
     return Expanded(
+      flex: flex,
       child: InkWell(
         onTap: () {
           setState(() => _whTab = tab);
@@ -470,8 +476,9 @@ class _MainShellState extends State<MainShell> {
         child: IndexedStack(
           index: _whTab,
           children: const [
-            ShelfLayoutListScreen(isTabRoot: true),
-            WarehouseListScreen(isTabRoot: true),
+            ShelfLayoutListScreen(isTabRoot: true), // 0 = Reyon
+            WarehouseListScreen(isTabRoot: true), // 1 = Depo
+            TeshirScreen(isTabRoot: true), // 2 = Teşhir
           ],
         ),
       );

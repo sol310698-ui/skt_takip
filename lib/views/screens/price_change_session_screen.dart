@@ -29,6 +29,7 @@ import 'quick_photo_capture_screen.dart';
 import 'price_review_guide_screen.dart';
 import 'web_search_screen.dart';
 import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/teshir_service.dart';
 import '../../core/services/location_reveal_prefs.dart';
 import '../widgets/location_reveal.dart';
 
@@ -505,6 +506,11 @@ class _PriceChangeSessionScreenState
         source: 'price_change',
       );
     }
+    // ── TESHIR KONTROLU ──────────────────────────────────────────
+    // Urun teshirde de duruyorsa reyon etiketi yetmez; teshir icin
+    // IKINCI etiket gerekir. Sorup onaylanirsa barkodu etiket basim
+    // listesine ekleriz.
+    await _maybeAskTeshirLabel(item, labelGroup);
     await _load();
     if (!mounted) return;
     _lastLabelGroup = labelGroup; // bir sonraki urun icin hatirla
@@ -538,6 +544,88 @@ class _PriceChangeSessionScreenState
         ),
       );
     }
+  }
+
+  /// Eslesen urun TESHIRDE ise teshir etiketi icin sorar; onaylanirsa
+  /// barkodu etiket basim kuyruguna ekler (ikinci etiket).
+  Future<void> _maybeAskTeshirLabel(
+      PriceChangeItem item, String? labelGroup) async {
+    Map<String, Object?>? teshir;
+    try {
+      teshir = await TeshirService.instance.find(item.barcode);
+    } catch (_) {}
+    if (teshir == null || !mounted) return;
+
+    final note = (teshir['note'] as String?)?.trim();
+    PriceCheckChannel.speak('Bu ürün teşhirde');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.storefront_rounded,
+            color: AppTheme.coral, size: 30),
+        title: const Text('Bu ürün TEŞHİRDE'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item.productName ?? item.barcode,
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            if (note != null && note.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.place_rounded,
+                      size: 14, color: AppTheme.coral),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(note,
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.coral)),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            const Text(
+                'Teşhirdeki etiket de değişmeli. Bu barkod etiket basım '
+                'listesine eklensin mi?',
+                style: TextStyle(fontSize: 13.5)),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Hayır')),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.playlist_add_rounded, size: 18),
+            label: const Text('Listeye Ekle'),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.coral),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    await LabelPendingQueueService.instance.push(
+      barcode: item.barcode,
+      productName: item.productName ?? item.barcode,
+      // Kullanici bir grup sectiyse ayni gruba, secmediyse TESHIR grubuna.
+      groupKey: labelGroup ?? 'Teşhir',
+      source: 'teshir',
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          'Teşhir etiketi listeye eklendi: ${item.productName ?? item.barcode}'),
+      duration: const Duration(milliseconds: 1600),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: AppTheme.coral,
+    ));
   }
 
   Future<void> _cancelMatch() async {
