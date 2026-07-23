@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/warehouse_service.dart';
+import '../../core/services/map_view_prefs.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/ui_kit.dart';
@@ -32,7 +33,6 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
       vsync: this, duration: const Duration(milliseconds: 1800))
     ..repeat(reverse: true);
   // TAVAN ISIKLARI acik mi (kullanici dugmesiyle kontrol edilir).
-  bool _lightsOn = true;
   // GIRIS: harita ilk acildiginda duvarlar disaridan sahneye suzulur.
   late final AnimationController _introCtrl = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 750))
@@ -45,6 +45,10 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
   @override
   void initState() {
     super.initState();
+    // Harita gorunum ayarlarini yukle (koridor boyu, isiklar, duvar egimi).
+    MapViewPrefs.instance.load().then((_) {
+      if (mounted) setState(() {});
+    });
     _tab = TabController(length: 2, vsync: this);
     _load();
   }
@@ -395,21 +399,32 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                       fontSize: 11, color: AppTheme.textTertiary),
                 ),
               ),
+              // GORUNUM AYARLARI: tum sahne degerlerini kullanici yonetir.
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Görünüm ayarları',
+                onPressed: _openMapSettings,
+                icon: Icon(Icons.tune_rounded,
+                    size: 19, color: AppTheme.textTertiary),
+              ),
               // ISIK ANAHTARI: depo tavan aydinlatmasini ac/kapat.
               InkWell(
                 borderRadius: BorderRadius.circular(AppTheme.rPill),
-                onTap: () => setState(() => _lightsOn = !_lightsOn),
+                onTap: () {
+                  setState(() => _p.lightsOn = !_p.lightsOn);
+                  _p.save();
+                },
                 child: Container(
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: _lightsOn
+                    color: _p.lightsOn
                         ? AppTheme.amber.withOpacity(0.16)
                         : AppTheme.surfaceAlt,
                     borderRadius: BorderRadius.circular(AppTheme.rPill),
                     border: Border.all(
-                        color: _lightsOn
+                        color: _p.lightsOn
                             ? AppTheme.amber.withOpacity(0.55)
                             : AppTheme.hairline),
                   ),
@@ -417,19 +432,19 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                          _lightsOn
+                          _p.lightsOn
                               ? Icons.lightbulb_rounded
                               : Icons.lightbulb_outline_rounded,
                           size: 14,
-                          color: _lightsOn
+                          color: _p.lightsOn
                               ? AppTheme.amber
                               : AppTheme.textTertiary),
                       const SizedBox(width: 5),
-                      Text(_lightsOn ? 'Işıklar açık' : 'Işıklar kapalı',
+                      Text(_p.lightsOn ? 'Işıklar açık' : 'Işıklar kapalı',
                           style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
-                              color: _lightsOn
+                              color: _p.lightsOn
                                   ? AppTheme.amber
                                   : AppTheme.textTertiary)),
                     ],
@@ -469,7 +484,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                 // Duvar geometrisi: koridorda her duvar ~%46; odaklaninca
                 // ~%96'ya buyur. Icbukey durus (mentese DIS kenarda).
                 // GIRIS: duvarlar disaridan iceri suzulur (intro 0->1).
-                const baseAngle = 0.72;
+                final baseAngle = _p.wallAngle;
                 final introSlide = (1 - intro) * w * 0.5;
                 final leftW = w * (0.46 + 0.50 * focusL);
                 final rightW = w * (0.46 + 0.50 * focusR);
@@ -495,7 +510,11 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                                 isLight: AppTheme.isLight,
                                 pulse: _aislePulse.value,
                                 pan: pan,
-                                lightsOn: _lightsOn),
+                                lightsOn: _p.lightsOn,
+                                corridorPct: _p.corridorPct,
+                                lightSpanPct: _p.lightSpanPct,
+                                lightCount: _p.lightCount,
+                                brightness: _p.brightness),
                           ),
                         ),
                       ),
@@ -536,8 +555,16 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                           transform: Matrix4.identity()
                             ..setEntry(3, 2, 0.0016)
                             ..rotateY(-leftAngle),
-                          child: _mapWall(leftCols, cols,
-                              title: 'Sol', focused: focusL > 0.55),
+                          child: ClipPath(
+                            clipper: _WallPerspectiveClipper(
+                              isLeft: true,
+                              // Odaklaninca duzlesir (icerik tam okunur).
+                              taper: _p.wallTaper * (1 - focusL),
+                              farCenterY: _wallFarY(c.maxHeight),
+                            ),
+                            child: _mapWall(leftCols, cols,
+                                title: 'Sol', focused: focusL > 0.55),
+                          ),
                         ),
                       ),
                     // ── SAG DUVAR ──
@@ -552,8 +579,15 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                           transform: Matrix4.identity()
                             ..setEntry(3, 2, 0.0016)
                             ..rotateY(rightAngle),
-                          child: _mapWall(rightCols, cols,
-                              title: 'Sağ', focused: focusR > 0.55),
+                          child: ClipPath(
+                            clipper: _WallPerspectiveClipper(
+                              isLeft: false,
+                              taper: _p.wallTaper * (1 - focusR),
+                              farCenterY: _wallFarY(c.maxHeight),
+                            ),
+                            child: _mapWall(rightCols, cols,
+                                title: 'Sağ', focused: focusR > 0.55),
+                          ),
                         ),
                       ),
                   ],
@@ -566,6 +600,232 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
         ),
       ],
     );
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  HARITA GORUNUM AYARLARI — sahnedeki her degeri kullanici ayarlar.
+  ///  Degisiklikler ANINDA arkada gorunur (setState + kalici kayit).
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _openMapSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          void upd(void Function() change) {
+            setSheet(change);
+            setState(() {}); // arkadaki sahne aninda guncellensin
+            _p.save();
+          }
+
+          Widget slider({
+            required String title,
+            required String hint,
+            required double value,
+            required double min,
+            required double max,
+            required String valueLabel,
+            int? divisions,
+            required ValueChanged<double> onChanged,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(title,
+                            style: const TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent.withOpacity(0.14),
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.rPill),
+                        ),
+                        child: Text(valueLabel,
+                            style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.accent)),
+                      ),
+                    ],
+                  ),
+                  Text(hint,
+                      style: TextStyle(
+                          fontSize: 11, color: AppTheme.textTertiary)),
+                  SliderTheme(
+                    data: SliderTheme.of(ctx).copyWith(
+                        trackHeight: 3,
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 14)),
+                    child: Slider(
+                      value: value.clamp(min, max),
+                      min: min,
+                      max: max,
+                      divisions: divisions,
+                      onChanged: onChanged,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                            color: AppTheme.textTertiary,
+                            borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        const Icon(Icons.view_in_ar_rounded,
+                            color: AppTheme.accent),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text('Harita Görünümü',
+                              style: TextStyle(
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w900)),
+                        ),
+                        TextButton(
+                          onPressed: () => upd(() => _p.reset()),
+                          child: const Text('Sıfırla',
+                              style: TextStyle(fontSize: 12.5)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    slider(
+                      title: 'Yol uzunluğu',
+                      hint: 'Ortadaki koridorun boyu',
+                      value: _p.corridorPct,
+                      min: 0.10,
+                      max: 0.45,
+                      divisions: 35,
+                      valueLabel: '%${(_p.corridorPct * 100).round()}',
+                      onChanged: (v) => upd(() => _p.corridorPct = v),
+                    ),
+                    slider(
+                      title: 'Işık alanı',
+                      hint: 'Lambaların kapladığı dikey alan '
+                          '(yoldan bağımsız — yol kısalsa da sabit kalır)',
+                      value: _p.lightSpanPct,
+                      min: 0.35,
+                      max: 0.95,
+                      divisions: 60,
+                      valueLabel: '%${(_p.lightSpanPct * 100).round()}',
+                      onChanged: (v) => upd(() => _p.lightSpanPct = v),
+                    ),
+                    slider(
+                      title: 'Lamba sayısı',
+                      hint: 'Tavandaki armatür adedi',
+                      value: _p.lightCount.toDouble(),
+                      min: 3,
+                      max: 9,
+                      divisions: 6,
+                      valueLabel: '${_p.lightCount}',
+                      onChanged: (v) => upd(() {
+                        _p.lightCount = v.round();
+                        if (_p.wallDepthLight > _p.lightCount) {
+                          _p.wallDepthLight = _p.lightCount;
+                        }
+                      }),
+                    ),
+                    slider(
+                      title: 'Işık parlaklığı',
+                      hint: 'Armatürlerin ve yansımaların şiddeti',
+                      value: _p.brightness,
+                      min: 0.3,
+                      max: 1.6,
+                      divisions: 26,
+                      valueLabel: '×${_p.brightness.toStringAsFixed(1)}',
+                      onChanged: (v) => upd(() => _p.brightness = v),
+                    ),
+                    const Divider(height: 22),
+                    slider(
+                      title: 'Raf derinliği',
+                      hint: 'Rafların eğik ucu KAÇINCI lambaya kadar '
+                          'uzansın',
+                      value: _p.wallDepthLight.toDouble(),
+                      min: 1,
+                      max: _p.lightCount.toDouble(),
+                      divisions: (_p.lightCount - 1).clamp(1, 8),
+                      valueLabel: '${_p.wallDepthLight}. lamba',
+                      onChanged: (v) =>
+                          upd(() => _p.wallDepthLight = v.round()),
+                    ),
+                    slider(
+                      title: 'Raf eğimi',
+                      hint: 'Uzak uç ne kadar daralsın '
+                          '(0 = düz duvar). Bir tarafa kaydırınca '
+                          'okunurluk için düzleşir.',
+                      value: _p.wallTaper,
+                      min: 0.0,
+                      max: 0.85,
+                      divisions: 34,
+                      valueLabel: '%${(_p.wallTaper * 100).round()}',
+                      onChanged: (v) => upd(() => _p.wallTaper = v),
+                    ),
+                    slider(
+                      title: 'Duvar açısı',
+                      hint: 'Rafların 3B dönüş açısı',
+                      value: _p.wallAngle,
+                      min: 0.20,
+                      max: 1.20,
+                      divisions: 50,
+                      valueLabel: _p.wallAngle.toStringAsFixed(2),
+                      onChanged: (v) => upd(() => _p.wallAngle = v),
+                    ),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Tamam'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Ayarlara kisa erisim.
+  MapViewPrefs get _p => MapViewPrefs.instance;
+
+  /// Duvarin EGIK uzak ucunun hangi yukseklikte birlesecegi — ayarlarda
+  /// secilen isigin (varsayilan 3.) hizasi.
+  double _wallFarY(double mapHeight) {
+    final span = mapHeight * _p.lightSpanPct;
+    final idx = (_p.wallDepthLight - 1).clamp(0, _p.lightCount - 1);
+    return MapViewPrefs.lightY(idx, _p.lightCount, span);
   }
 
   /// Bir duvarin icerigi: koyu panel + o taraftaki sutunlar (esit bolusur).
@@ -1504,12 +1764,21 @@ class _MapAislePainter extends CustomPainter {
   final double pulse; // 0..1 dongusel
   final double pan; // -1..+1
   final bool lightsOn; // tavan aydinlatmasi acik mi
+  // ── Kullanici ayarlari (MapViewPrefs) ──
+  final double corridorPct; // yol yuksekligi orani
+  final double lightSpanPct; // isiklarin kapladigi alan (KORIDORDAN BAGIMSIZ)
+  final int lightCount;
+  final double brightness;
   _MapAislePainter({
     required this.accent,
     required this.isLight,
     required this.pulse,
     required this.pan,
     required this.lightsOn,
+    required this.corridorPct,
+    required this.lightSpanPct,
+    required this.lightCount,
+    required this.brightness,
   });
 
   /// Floresan tup rengi — hafif sicak beyaz (gercek depo armaturu).
@@ -1524,14 +1793,18 @@ class _MapAislePainter extends CustomPainter {
     // ── KORIDOR: ekranin ALT %30'u ─────────────────────────────────
     // Kacis noktasi bu bolgenin ust kenarinda; zemin oradan asagi
     // (ekran altina) dogru acilir. Ust %70 tavan/aydinlatma bolgesi.
-    final vpY = h * 0.70; // kacis noktasi hizasi
+    // Yol (koridor) kisaldikca kacis noktasi ASAGI iner; isiklar ise
+    // kendi span'ini kullandigi icin YERINDE KALIR.
+    final vpY = h * (1 - corridorPct);
     final nearHalf = w * 0.17; // en yakin (alt) yari genislik
     final farHalf = w * 0.028; // kacis noktasindaki yari genislik
     final aisleH = h - vpY; // koridorun boyu (= h'nin %30'u)
 
     // Isik siddeti: acikken hafif canli salinim, kapaliyken 0.
-    final glow =
-        lightsOn ? (0.82 + 0.18 * (0.5 + 0.5 * (pulse * 2 - 1).abs())) : 0.0;
+    final glow = lightsOn
+        ? ((0.82 + 0.18 * (0.5 + 0.5 * (pulse * 2 - 1).abs())) * brightness)
+            .clamp(0.0, 2.0)
+        : 0.0;
 
     // ── ZEMIN: beton gradyan trapez ──
     final floor = Path()
@@ -1558,15 +1831,20 @@ class _MapAislePainter extends CustomPainter {
     // sikisma birlikte gider (gercek perspektifte boyledir).
     final ceilNear = w * 0.36; // EN YAKIN (ustteki) armaturun yari eni
     const topPad = 10.0;
+    // ISIKLAR SABIT: kendi dikey alanini kullanir, vpY'ye bagli degil.
+    final lightSpan = h * lightSpanPct;
     canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, w, vpY)); // tavan bolgesi
-    for (int i = 0; i < 5; i++) {
-      final u = (i + 0.35) / 5.0; // 0 = YAKIN (ust) ... 1 = UZAK (alt)
+    // Tavan bolgesi: normalde kacis noktasina kadar. Ancak kullanici
+    // "isik alani"ni yoldan daha asagi ayarlarsa lambalar kirpilmasin.
+    final ceilClip = vpY > lightSpan ? vpY : lightSpan;
+    canvas.clipRect(Rect.fromLTWH(0, 0, w, ceilClip));
+    for (int i = 0; i < lightCount; i++) {
       // t'nin artis hizi giderek YAVASLAR -> ardisik armaturler
       // asagi indikce birbirine YAKLASIR (aralar daralir).
-      final t = 1 - (1 - u) * (1 - u);
-      // Ustten (topPad) asagi (vpY) dogru diziliyor.
-      final y = topPad + (vpY - topPad) * t;
+      final t = MapViewPrefs.lightT(i, lightCount);
+      // Ustten (topPad) asagi dogru diziliyor.
+      final y = MapViewPrefs.lightY(i, lightCount, lightSpan,
+          topPad: topPad);
       final half = ceilNear + (farHalf - ceilNear) * t;
       final lw = (11.0 - 8.5 * t).clamp(1.8, 11.0);
       final rect = Rect.fromCenter(
@@ -1608,8 +1886,8 @@ class _MapAislePainter extends CustomPainter {
         );
         // 5) ISIK KONISI — armaturden asagi yayilan yumusak huzme.
         // Yakin (buyuk) armaturde belirgin, uzakta neredeyse yok.
-        final maxLen = (vpY - y).clamp(0.0, vpY);
-        final want = (vpY - topPad) * 0.22 * (1 - t);
+        final maxLen = (lightSpan - y).clamp(0.0, h);
+        final want = (lightSpan - topPad) * 0.22 * (1 - t);
         // NOT: clamp'ta alt sinir ust siniri gecemez — cok kisa alanda
         // (maxLen < 4) dogrudan maxLen kullanilir.
         final coneLen =
@@ -1772,5 +2050,61 @@ class _MapAislePainter extends CustomPainter {
       old.isLight != isLight ||
       old.pulse != pulse ||
       old.pan != pan ||
-      old.lightsOn != lightsOn;
+      old.lightsOn != lightsOn ||
+      old.corridorPct != corridorPct ||
+      old.lightSpanPct != lightSpanPct ||
+      old.lightCount != lightCount ||
+      old.brightness != brightness;
+}
+
+
+/// ════════════════════════════════════════════════════════════════════
+///  DUVAR PERSPEKTIF KIRPICISI (v156)
+///  Duvarin IC (koridora bakan) kenarini daraltarak derinlige dogru
+///  uzanan bir yamuk olusturur: duvar "egik girer" ve uzak ucu, ayarlarda
+///  secilen ISIGIN hizasinda birlesir. [taper] 0 = duz dikdortgen,
+///  1 = tek noktada birlesir. Duvara odaklaninca (okunurluk icin)
+///  cagrilan taraf taper'i 0'a yaklastirir.
+/// ════════════════════════════════════════════════════════════════════
+class _WallPerspectiveClipper extends CustomClipper<Path> {
+  final bool isLeft;
+  final double taper; // 0..1
+  final double farCenterY; // uzak ucun merkez yuksekligi (piksel)
+  const _WallPerspectiveClipper({
+    required this.isLeft,
+    required this.taper,
+    required this.farCenterY,
+  });
+
+  @override
+  Path getClip(Size size) {
+    final h = size.height, w = size.width;
+    final t = taper.clamp(0.0, 0.95);
+    // Uzak ucun yari yuksekligi: taper arttikca kisalir.
+    final farHalf = h * (1 - t) / 2;
+    final c = farCenterY.clamp(farHalf, h - farHalf);
+    final farTop = c - farHalf;
+    final farBot = c + farHalf;
+    // Sol duvarda IC kenar sagda (x=w), sag duvarda solda (x=0).
+    if (isLeft) {
+      return Path()
+        ..moveTo(0, 0)
+        ..lineTo(w, farTop)
+        ..lineTo(w, farBot)
+        ..lineTo(0, h)
+        ..close();
+    }
+    return Path()
+      ..moveTo(w, 0)
+      ..lineTo(0, farTop)
+      ..lineTo(0, farBot)
+      ..lineTo(w, h)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(_WallPerspectiveClipper old) =>
+      old.isLeft != isLeft ||
+      old.taper != taper ||
+      old.farCenterY != farCenterY;
 }
