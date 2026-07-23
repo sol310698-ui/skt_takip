@@ -11,6 +11,7 @@ import 'flow_prefs.dart';
 import 'location_reveal_prefs.dart';
 import 'notification_service.dart';
 import 'price_check_channel.dart';
+import 'schedule_service.dart';
 import 'shelf_restock_service.dart';
 import 'teshir_service.dart';
 import 'theme_prefs.dart';
@@ -56,6 +57,9 @@ enum AssistantActionType {
   removeTeshir,
   addRestock,
   clearNotifications,
+  // ── ALARM / CALISMA PROGRAMI ──
+  addAlarm,
+  deleteAlarm,
   // ── GENEL AMACLI (agent) ──
   dbWrite,
   prefsSet,
@@ -112,6 +116,10 @@ class AssistantAction {
         return 'Reyona açılacaklara ekle';
       case AssistantActionType.clearNotifications:
         return 'Tüm bildirimleri iptal et';
+      case AssistantActionType.addAlarm:
+        return 'Alarm kur';
+      case AssistantActionType.deleteAlarm:
+        return 'Alarmı sil';
       case AssistantActionType.dbWrite:
         return args['title']?.toString().trim().isNotEmpty == true
             ? args['title'].toString()
@@ -239,6 +247,17 @@ class AssistantAction {
         ];
       case AssistantActionType.clearNotifications:
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
+      case AssistantActionType.addAlarm:
+        return [
+          (label: 'Saat', value: _alarmTimeLabel(args)),
+          (label: 'Günler', value: _alarmDaysLabel(args['days'])),
+          if (args['label'] != null) (label: 'Not', value: s('label')),
+        ];
+      case AssistantActionType.deleteAlarm:
+        return [
+          (label: 'Saat', value: _alarmTimeLabel(args)),
+          (label: 'Günler', value: _alarmDaysLabel(args['days'])),
+        ];
       case AssistantActionType.dbWrite:
         return [
           if (args['description'] != null)
@@ -264,7 +283,8 @@ class AssistantAction {
       type == AssistantActionType.clearNotifications ||
       (type == AssistantActionType.setAppLock && args['enabled'] == false) ||
       // Ham SQL: her zaman dikkatli onay istenir.
-      type == AssistantActionType.dbWrite;
+      type == AssistantActionType.dbWrite ||
+      type == AssistantActionType.deleteAlarm;
 }
 
 class AssistantActionService {
@@ -319,6 +339,8 @@ class AssistantActionService {
       'remove_teshir' => AssistantActionType.removeTeshir,
       'add_restock' => AssistantActionType.addRestock,
       'clear_notifications' => AssistantActionType.clearNotifications,
+      'add_alarm' => AssistantActionType.addAlarm,
+      'delete_alarm' => AssistantActionType.deleteAlarm,
       'db_write' => AssistantActionType.dbWrite,
       'prefs_set' => AssistantActionType.prefsSet,
       _ => AssistantActionType.unknown,
@@ -660,6 +682,77 @@ class AssistantActionService {
             return '✅ Bekleyen tüm bildirimler iptal edildi.';
           }
 
+        // ── ALARM: GERCEK haftalik alarm kurar (sadece DB satiri degil;
+        // ScheduleService.setAlarm ile Android alarmi da planlanir) ──
+        case AssistantActionType.addAlarm:
+          {
+            final h = _int(a.args['hour'], -1);
+            final m = _int(a.args['minute'], 0);
+            if (h < 0 || h > 23 || m < 0 || m > 59) {
+              return '❌ Geçersiz saat. Örn: 07:30 için hour=7, minute=30.';
+            }
+            final days = parseAlarmDays(a.args['days']);
+            final label = a.args['label']?.toString().trim();
+            final existing = await ScheduleService.instance.getAll();
+            var added = 0, skipped = 0;
+            for (final wd in days) {
+              final dup = existing.any((e) =>
+                  e.weekday == wd && e.hour == h && e.minute == m);
+              if (dup) {
+                skipped++;
+                continue;
+              }
+              final entry = ScheduleEntry(
+                weekday: wd,
+                hour: h,
+                minute: m,
+                label: (label == null || label.isEmpty) ? null : label,
+              );
+              final id = await ScheduleService.instance.add(entry);
+              await ScheduleService.instance.setAlarm(ScheduleEntry(
+                id: id,
+                weekday: wd,
+                hour: h,
+                minute: m,
+                label: (label == null || label.isEmpty) ? null : label,
+              ));
+              added++;
+            }
+            final time =
+                '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+            if (added == 0) {
+              return '⚠️ $time alarmı zaten kurulu (${days.length} gün).';
+            }
+            return '✅ $time alarmı kuruldu ($added gün'
+                '${skipped > 0 ? ', $skipped gün zaten vardı' : ''}).';
+          }
+
+        case AssistantActionType.deleteAlarm:
+          {
+            final h = _int(a.args['hour'], -1);
+            final m = _int(a.args['minute'], 0);
+            if (h < 0 || h > 23) return '❌ Geçersiz saat.';
+            final all = await ScheduleService.instance.getAll();
+            final raw = a.args['days'];
+            final days = raw == null
+                ? null // gun verilmediyse: o saatteki TUM gunler
+                : parseAlarmDays(raw);
+            var n = 0;
+            for (final e in all) {
+              if (e.hour != h || e.minute != m) continue;
+              if (days != null && !days.contains(e.weekday)) continue;
+              if (e.id == null) continue;
+              await ScheduleService.instance.cancelAlarm(e.id!);
+              await ScheduleService.instance.delete(e.id!);
+              n++;
+            }
+            final time =
+                '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+            return n == 0
+                ? '❌ $time saatinde alarm bulunamadı.'
+                : '✅ $time alarmı silindi ($n kayıt).';
+          }
+
         // ── GENEL AMACLI: ham SQL yazma (agent'in sinirsiz eli) ──
         case AssistantActionType.dbWrite:
           {
@@ -723,4 +816,50 @@ class AssistantActionService {
       v is int ? v : (int.tryParse(v?.toString() ?? '') ?? fallback);
   int? _intN(Object? v) =>
       v is int ? v : int.tryParse(v?.toString() ?? '');
+}
+
+
+/// "1,2,3" / "hergun" / null -> okunur gun etiketi.
+String _alarmDaysLabel(Object? raw) {
+  final days = parseAlarmDays(raw);
+  if (days.length == 7) return 'Her gün';
+  const names = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  return days.map((d) => names[d - 1]).join(', ');
+}
+
+String _alarmTimeLabel(Map<String, dynamic> args) {
+  final h = int.tryParse('${args['hour']}') ?? 0;
+  final m = int.tryParse('${args['minute']}') ?? 0;
+  return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+}
+
+/// Gun listesini cozer: "hergun"/"her gun"/"hafta" -> 1..7,
+/// "1,2,3" ya da [1,2,3] -> o gunler, bos -> BUGUN.
+List<int> parseAlarmDays(Object? raw) {
+  if (raw == null) return [DateTime.now().weekday];
+  if (raw is List) {
+    final out = raw
+        .map((e) => int.tryParse('$e'))
+        .whereType<int>()
+        .where((d) => d >= 1 && d <= 7)
+        .toList();
+    return out.isEmpty ? [DateTime.now().weekday] : out;
+  }
+  final t = raw.toString().trim().toLowerCase();
+  if (t.isEmpty) return [DateTime.now().weekday];
+  if (t.contains('hergun') ||
+      t.contains('her gün') ||
+      t.contains('her gun') ||
+      t.contains('hafta') ||
+      t == 'all' ||
+      t == '*') {
+    return [1, 2, 3, 4, 5, 6, 7];
+  }
+  final out = t
+      .split(RegExp(r'[^0-9]+'))
+      .map(int.tryParse)
+      .whereType<int>()
+      .where((d) => d >= 1 && d <= 7)
+      .toList();
+  return out.isEmpty ? [DateTime.now().weekday] : out;
 }

@@ -836,9 +836,36 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            // ── EN ISLEVSEL SECENEK: her urunun yaninda TARANABILIR
+            // barkod. Kagidi el terminaliyle okutup is yapabilirsin.
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner_rounded,
+                  color: AppTheme.accent),
+              title: const Text('A4 ürün listesi (barkodlu)'),
+              subtitle: Text(
+                  _items.isEmpty
+                      ? 'Palet boş — önce ürün ekleyin'
+                      : 'Palet QR + ${_items.length} ürünün yanında '
+                          'terminalden okunabilir barkod',
+                  style: const TextStyle(fontSize: 12)),
+              enabled: _items.isNotEmpty,
+              onTap: _items.isEmpty
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      final loc = _shelf != null
+                          ? 'Sütun ${_shelf!.columnNo} · Raf ${_shelf!.shelfNo}'
+                          : 'Bekleme alanı';
+                      _runQrPrint(() => WaybillService.instance
+                          .printPalletSheet(
+                              pallet: pallet,
+                              items: _items,
+                              locationLabel: loc));
+                    },
+            ),
             ListTile(
               leading: const Icon(Icons.description_rounded),
-              title: const Text('A4 sayfa (büyük)'),
+              title: const Text('A4 sayfa (sadece QR)'),
               subtitle: const Text('Normal yazıcı · QR + kod + ürün özeti'),
               onTap: () {
                 Navigator.pop(ctx);

@@ -5,6 +5,7 @@ import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/ui_kit.dart';
 import 'pallet_detail_screen.dart';
+import 'waybill_archive_screen.dart';
 import 'warehouse_detail_screen.dart';
 
 /// Depo listesi — kartlar + "Yeni Depo" sihirbazi.
@@ -242,6 +243,16 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
                             fontSize: 12, color: Colors.black87)),
                   ],
                 ),
+              ),
+              // GECMIS TRANSFER IRSALIYELERI (PDF arsivi).
+              IconButton(
+                tooltip: 'Transfer İrsaliyeleri',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const WaybillArchiveScreen()),
+                ),
+                icon: const Icon(Icons.picture_as_pdf_rounded,
+                    color: Colors.black),
               ),
             ],
           ),
