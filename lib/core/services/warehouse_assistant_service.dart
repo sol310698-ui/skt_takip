@@ -181,13 +181,23 @@ class WarehouseAssistantService {
     var hist = List<Map<String, String>>.from(history);
     var q = question;
     var answer = '';
+    var lastResults = ''; // son arac ciktilari (hata halinde yedek cevap)
 
     for (var step = 0; step < maxSteps; step++) {
-      answer = await GeminiOcrService.instance.assistantAnswer(
-        context: context,
-        history: hist,
-        question: q,
-      );
+      try {
+        answer = await GeminiOcrService.instance.assistantAnswer(
+          context: context,
+          history: hist,
+          question: q,
+        );
+      } catch (e) {
+        // ILK adimda hata olursa cagirana bildir (anahtar/kota vb.).
+        if (step == 0) rethrow;
+        // SONRAKI adimlarda: elimizde arac sonuclari var; her seyi
+        // cope atmak yerine ham veriyi kullaniciya goster.
+        return 'Topladığım bilgiler:\n\n$lastResults\n\n'
+            '(Yanıtı derlerken bağlantı sorunu oldu: $e)';
+      }
       final parsed = AgentToolService.instance.parse(answer);
       if (parsed.calls.isEmpty) return answer; // arac yok -> nihai cevap
 
@@ -195,6 +205,7 @@ class WarehouseAssistantService {
       onStep?.call(parsed.calls.map((c) => c.name).join(', '));
 
       final results = await AgentToolService.instance.runAll(parsed.calls);
+      lastResults = results;
 
       // Bu turu gecmise yaz, sonuclari yeni "soru" olarak besle.
       hist = [
@@ -208,6 +219,11 @@ class WarehouseAssistantService {
           'cevabı yaz ve değişiklik gerekiyorsa ```action bloğu üret.';
     }
     // Adim siniri doldu: kalan arac bloklarini temizleyip dondur.
-    return AgentToolService.instance.parse(answer).cleanText;
+    final tail = AgentToolService.instance.parse(answer).cleanText;
+    if (tail.trim().isNotEmpty) return tail;
+    // Model hala arac cagiriyorduysa en azindan topladigimizi goster.
+    return lastResults.isEmpty
+        ? 'İsteğini tamamlayamadım; biraz daha açık yazar mısın?'
+        : 'Topladığım bilgiler:\n\n$lastResults';
   }
 }

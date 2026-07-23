@@ -32,6 +32,57 @@ class GeminiOcrService {
     'gemini-2.0-flash-lite',
   ];
 
+  /// Yanittaki TUM metin parcalarini birlestirir (grounding/dusunme
+  /// modellerinde yanit birden fazla part'a bolunebilir).
+  static String _extractText(Map<String, dynamic> data) {
+    final buf = StringBuffer();
+    final cands = data['candidates'];
+    if (cands is! List) return '';
+    for (final c in cands) {
+      final parts = (c as Map?)?['content']?['parts'];
+      if (parts is! List) continue;
+      for (final p in parts) {
+        if (p is! Map) continue;
+        // 'thought' parcalari cevabin kendisi degildir; atla.
+        if (p['thought'] == true) continue;
+        final t = p['text'];
+        if (t is String && t.trim().isNotEmpty) buf.write(t);
+      }
+    }
+    return buf.toString();
+  }
+
+  /// Metin gelmediyse nedenini dondurur (MAX_TOKENS, SAFETY, ...).
+  static String? _finishReason(Map<String, dynamic> data) {
+    final cands = data['candidates'];
+    if (cands is List && cands.isNotEmpty) {
+      final r = (cands.first as Map?)?['finishReason'];
+      if (r is String && r.isNotEmpty) return r;
+    }
+    final fb = data['promptFeedback']?['blockReason'];
+    if (fb is String && fb.isNotEmpty) return 'BLOCKED: $fb';
+    return null;
+  }
+
+  /// Istek govdesini modele gore uyarlar (bkz. _generate aciklamasi).
+  static String _tuneBodyForModel(String bodyJson, String model) {
+    try {
+      final map = jsonDecode(bodyJson) as Map<String, dynamic>;
+      final cfg = Map<String, dynamic>.from(
+          (map['generationConfig'] as Map?) ?? <String, dynamic>{});
+      if (model.startsWith('gemini-2.5')) {
+        cfg['thinkingConfig'] = {'thinkingBudget': 0};
+        cfg['maxOutputTokens'] = cfg['maxOutputTokens'] ?? 8192;
+      } else {
+        cfg.remove('thinkingConfig'); // 2.0 bu alani tanimaz
+      }
+      map['generationConfig'] = cfg;
+      return jsonEncode(map);
+    } catch (_) {
+      return bodyJson; // bozulmasindansa oldugu gibi gonder
+    }
+  }
+
   Future<String?> getApiKey() => _storage.read(key: _keyName);
   Future<void> setApiKey(String key) =>
       _storage.write(key: _keyName, value: key.trim());
@@ -60,12 +111,18 @@ class GeminiOcrService {
       final uri = Uri.parse(
           'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey');
 
+      // Govdeyi MODELE GORE uyarla: 2.5 ailesi "dusunen" modeller —
+      // dusunme tokenleri butceyi yiyip metinsiz (bos) yanit birakabilir.
+      // Bu yuzden dusunme kapatilir ve cikti tavani yukseltilir. 2.0
+      // modelleri bu alani TANIMAZ (400 verir), onlarda temizlenir.
+      final body = _tuneBodyForModel(bodyJson, model);
+
       final http.Response res;
       try {
         res = await http
             .post(uri,
                 headers: {'Content-Type': 'application/json'},
-                body: bodyJson)
+                body: body)
             .timeout(const Duration(seconds: 45));
       } catch (e) {
         lastError = GeminiOcrException('Bağlantı hatası: $e');
@@ -74,18 +131,28 @@ class GeminiOcrService {
 
       if (res.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(res.body);
-        final text = data['candidates']?[0]?['content']?['parts']?[0]
-            ?['text'] as String?;
-        if (text == null || text.trim().isEmpty) {
-          throw const GeminiOcrException('Gemini boş yanıt döndü');
-        }
-        return text;
+        // ONEMLI: Google Arama (grounding) ve "dusunen" 2.5 modelleri
+        // yaniti TEK parca dondurmez. Eskiden sadece parts[0].text
+        // okunuyordu; ilk parca metin icermeyince "bos yanit" hatasi
+        // aliniyordu. Artik TUM candidate'lerin TUM part'lari birlestirilir.
+        final text = _extractText(data);
+        if (text.trim().isNotEmpty) return text;
+
+        // Metin yoksa nedenini ogren (MAX_TOKENS / SAFETY / RECITATION).
+        final reason = _finishReason(data);
+        lastError = GeminiOcrException(
+            'Gemini boş yanıt döndü ($model'
+            '${reason == null ? '' : ' · $reason'})');
+        // Bos yanitta HEMEN PES ETME: sonraki modeli dene. Ozellikle
+        // 2.5 "dusunme" butcesi tukendiginde baska model calisir.
+        continue;
       }
 
-      // 404 = bu model adi gecersiz -> sonraki modeli dene.
-      if (res.statusCode == 404) {
+      // 404 = model adi gecersiz, 400 = bu model istegi kabul etmedi
+      // (or. desteklenmeyen alan) -> sonraki modeli dene.
+      if (res.statusCode == 404 || res.statusCode == 400) {
         lastError = GeminiOcrException(
-            'Model bulunamadı ($model): ${_shortError(res.body)}');
+            'Model reddetti ($model): ${_shortError(res.body)}');
         continue;
       }
 
@@ -497,7 +564,7 @@ Kurallar:
         'listelerdeki köşeli parantezden al, uydurma.\n\n'
         '=== SEN BİR AGENT\'SIN (ARAÇLAR) ===\n'
         'Sabit bir özellik listesine BAĞLI DEĞİLSİN. Uygulamanın TÜM '
-        'verisi SQLite\'ta, TÜM ayarları SharedPreferences\'ta. Bilmediğin '
+        'verisi SQLite\'ta, TÜM ayarları güvenli depoda. Bilmediğin '
         'bir şey sorulursa ÖNCE ARAÇLARLA KEŞFET, sonra cevapla. '
         '"Bu özelliğim yok" DEME — önce bak.\n'
         'Araç çağırmak için (cevabına ekle, uygulama çalıştırıp sonucu '
