@@ -1553,19 +1553,20 @@ class _MapAislePainter extends CustomPainter {
     );
 
     // ── TAVAN ARMATURLERI: PERSPEKTIF (yakin BUYUK → uzak KUCUK) ──
-    // Izleyiciye EN YAKIN armatur ekranin ALT kismindadir (koridor
-    // agzinin hemen ustu): en genis ve en kalin. Uzaklastikca YUKARI
-    // dogru kuculur, incelir ve BIRBIRINE YAKLASIR (uzakta sikisma).
-    final ceilNear = w * 0.36; // EN YAKIN (alttaki) armaturun yari eni
+    // EN YAKIN armatur EN USTTE: en genis ve en kalin. Kacis noktasina
+    // (asagi) dogru kuculur, incelir ve ARALARI DA DARALIR — kucuklukle
+    // sikisma birlikte gider (gercek perspektifte boyledir).
+    final ceilNear = w * 0.36; // EN YAKIN (ustteki) armaturun yari eni
     const topPad = 10.0;
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(0, 0, w, vpY)); // tavan bolgesi
     for (int i = 0; i < 5; i++) {
-      final u = (i + 0.35) / 5.0; // 0 = YAKIN (alt) ... 1 = UZAK (ust)
-      // Uzakta sikisma: adimlar uzaklastikca kisalir (gercek perspektif).
+      final u = (i + 0.35) / 5.0; // 0 = YAKIN (ust) ... 1 = UZAK (alt)
+      // t'nin artis hizi giderek YAVASLAR -> ardisik armaturler
+      // asagi indikce birbirine YAKLASIR (aralar daralir).
       final t = 1 - (1 - u) * (1 - u);
-      // Alttan (vpY) yukari (topPad) dogru diziliyor.
-      final y = vpY - (vpY - topPad) * t;
+      // Ustten (topPad) asagi (vpY) dogru diziliyor.
+      final y = topPad + (vpY - topPad) * t;
       final half = ceilNear + (farHalf - ceilNear) * t;
       final lw = (11.0 - 8.5 * t).clamp(1.8, 11.0);
       final rect = Rect.fromCenter(
