@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -32,10 +33,14 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   bool _keepAliveOn = false; // kalici servis (swipe-kill korumasi)
   bool _qrLockOn = false; // QR ile alarm kapatma kilidi
   String? _qrValue; // tanimli QR degeri
+  // Acik gunler: uzun listelerde kaydirmayi azaltmak icin gunler katlanir.
+  // Ilk acilista SADECE bugun acik gelir (initState'te doldurulur).
+  final Set<int> _openDays = {};
 
   @override
   void initState() {
     super.initState();
+    _openDays.add(DateTime.now().weekday); // bugun acik baslasin
     _load();
   }
 
@@ -468,6 +473,320 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     if (e.id != null) await ScheduleService.instance.cancelAlarm(e.id!);
     await ScheduleService.instance.delete(e.id!);
     await _load();
+    if (!mounted) return;
+    // GERI AL: yanlislikla silinen saati tek dokunusla geri koy.
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${e.timeStr} silindi'),
+      duration: const Duration(seconds: 5),
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+        label: 'Geri Al',
+        textColor: AppTheme.accent,
+        onPressed: () => _restoreEntries([e]),
+      ),
+    ));
+  }
+
+  /// Silinen kayitlari geri ekler (alarmlari da yeniden kurar).
+  Future<void> _restoreEntries(List<ScheduleEntry> list) async {
+    for (final e in list) {
+      final entry = ScheduleEntry(
+        weekday: e.weekday,
+        hour: e.hour,
+        minute: e.minute,
+        label: e.label,
+        enabled: e.enabled,
+        soundPath: e.soundPath,
+        soundName: e.soundName,
+        alarmType: e.alarmType,
+        checklistId: e.checklistId,
+      );
+      final newId = await ScheduleService.instance.add(entry);
+      if (entry.enabled) {
+        await ScheduleService.instance.setAlarm(ScheduleEntry(
+          id: newId,
+          weekday: e.weekday,
+          hour: e.hour,
+          minute: e.minute,
+          label: e.label,
+          enabled: true,
+          soundPath: e.soundPath,
+          soundName: e.soundName,
+          alarmType: e.alarmType,
+          checklistId: e.checklistId,
+        ));
+      }
+    }
+    await _load();
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  SERI SAAT EKLE: "04:00 → 06:00, her 10 dakikada bir" gibi bir
+  ///  araligi TEK SEFERDE olusturur. Onceden bu saatler tek tek elle
+  ///  ekleniyordu (36 alarm!); artik uc dokunusla biter.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _addRange(int weekday) async {
+    TimeOfDay start = const TimeOfDay(hour: 4, minute: 0);
+    TimeOfDay end = const TimeOfDay(hour: 6, minute: 0);
+    int stepMin = 10;
+    bool wholeWeek = false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) {
+          int count() {
+            final s0 = start.hour * 60 + start.minute;
+            final e0 = end.hour * 60 + end.minute;
+            if (e0 < s0 || stepMin <= 0) return 0;
+            return ((e0 - s0) ~/ stepMin) + 1;
+          }
+
+          Widget timeBtn(String label, TimeOfDay v, bool isStart) {
+            return Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () async {
+                  final picked = await showTimePicker(
+                      context: ctx, initialTime: v);
+                  if (picked != null) {
+                    setD(() {
+                      if (isStart) {
+                        start = picked;
+                      } else {
+                        end = picked;
+                      }
+                    });
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.hairline),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(label,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textTertiary)),
+                      const SizedBox(height: 2),
+                      Text(
+                          '${v.hour.toString().padLeft(2, '0')}:'
+                          '${v.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900)),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          final n = count();
+          return AlertDialog(
+            title: const Text('Seri Saat Ekle'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      timeBtn('Başlangıç', start, true),
+                      const SizedBox(width: 10),
+                      timeBtn('Bitiş', end, false),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text('Aralık',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textTertiary)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    children: [5, 10, 15, 20, 30, 60].map((m) {
+                      final sel = stepMin == m;
+                      return ChoiceChip(
+                        label: Text('$m dk'),
+                        selected: sel,
+                        onSelected: (_) => setD(() => stepMin = m),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    value: wholeWeek,
+                    onChanged: (v) =>
+                        setD(() => wholeWeek = v ?? false),
+                    title: const Text('Tüm haftaya uygula',
+                        style: TextStyle(fontSize: 13.5)),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (n > 0 ? AppTheme.primary : AppTheme.amber)
+                          .withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      n == 0
+                          ? 'Bitiş saati başlangıçtan sonra olmalı.'
+                          : '$n saat eklenecek'
+                              '${wholeWeek ? ' × 7 gün = ${n * 7}' : ''}'
+                              ' · mevcut saatler atlanır',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: n > 0
+                              ? AppTheme.primary
+                              : AppTheme.amber),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Vazgeç')),
+              FilledButton(
+                  onPressed:
+                      n == 0 ? null : () => Navigator.pop(ctx, true),
+                  child: const Text('Ekle')),
+            ],
+          );
+        },
+      ),
+    );
+    if (ok != true) return;
+
+    final days = wholeWeek ? List.generate(7, (i) => i + 1) : [weekday];
+    final s0 = start.hour * 60 + start.minute;
+    final e0 = end.hour * 60 + end.minute;
+    int added = 0;
+    for (final wd in days) {
+      final existing = _grouped[wd] ?? [];
+      for (int t = s0; t <= e0; t += stepMin) {
+        final h = t ~/ 60, m = t % 60;
+        if (existing.any((x) => x.hour == h && x.minute == m)) continue;
+        final entry = ScheduleEntry(weekday: wd, hour: h, minute: m);
+        final id = await ScheduleService.instance.add(entry);
+        await ScheduleService.instance.setAlarm(ScheduleEntry(
+            id: id, weekday: wd, hour: h, minute: m));
+        added++;
+      }
+    }
+    await _load();
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$added saat eklendi'),
+      backgroundColor: AppTheme.statusSafe,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  /// SONRAKI ALARM: bugunden baslayarak ilk aktif saati bulur.
+  /// Alarm ekraninin en cok ise yarayan bilgisi — hero'da gosterilir.
+  ({ScheduleEntry entry, Duration left})? _nextAlarm() {
+    final now = DateTime.now();
+    ScheduleEntry? best;
+    Duration? bestLeft;
+    for (int add = 0; add <= 7; add++) {
+      final day = now.add(Duration(days: add));
+      final list = _grouped[day.weekday] ?? [];
+      for (final e in list) {
+        if (!e.enabled) continue;
+        final when = DateTime(
+            day.year, day.month, day.day, e.hour, e.minute);
+        if (!when.isAfter(now)) continue;
+        final left = when.difference(now);
+        if (bestLeft == null || left < bestLeft) {
+          bestLeft = left;
+          best = e;
+        }
+      }
+      if (best != null) break; // en yakin gun bulundu
+    }
+    if (best == null || bestLeft == null) return null;
+    return (entry: best, left: bestLeft);
+  }
+
+  // ── GUN TOPLU ISLEMLERI ────────────────────────────────────────────
+  /// O gunun TUM saatlerini ac ya da kapat (tek tek ugrasma).
+  Future<void> _setDayEnabled(int weekday, bool on) async {
+    final list = _grouped[weekday] ?? [];
+    for (final e in list) {
+      if (e.enabled == on) continue;
+      final upd = e.copyWith(enabled: on);
+      await ScheduleService.instance.update(upd);
+      if (e.id != null) {
+        if (on) {
+          await ScheduleService.instance.setAlarm(upd);
+        } else {
+          await ScheduleService.instance.cancelAlarm(e.id!);
+        }
+      }
+    }
+    await _load();
+    HapticFeedback.mediumImpact();
+  }
+
+  /// O gunun tum saatlerini siler (onayli + geri alinabilir).
+  Future<void> _deleteDay(int weekday) async {
+    final list = List<ScheduleEntry>.from(_grouped[weekday] ?? []);
+    if (list.isEmpty) return;
+    final dayName = ScheduleService.weekdayNames[weekday - 1];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$dayName temizlensin mi?'),
+        content: Text('${list.length} saat silinecek. '
+            'İstersen hemen geri alabilirsin.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusExpired),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    for (final e in list) {
+      if (e.id != null) {
+        await ScheduleService.instance.cancelAlarm(e.id!);
+        await ScheduleService.instance.delete(e.id!);
+      }
+    }
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$dayName temizlendi (${list.length} saat)'),
+      duration: const Duration(seconds: 6),
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+        label: 'Geri Al',
+        textColor: AppTheme.accent,
+        onPressed: () => _restoreEntries(list),
+      ),
+    ));
   }
 
   Future<void> _toggleEntry(ScheduleEntry e) async {
@@ -601,73 +920,140 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Çalışma Programı'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.tune_rounded),
-            tooltip: 'Alarm Ayarları',
-            onPressed: _openSettingsSheet,
-          ),
-        ],
-      ),
       body: _loading
           ? const LoadingState()
           : Column(
               children: [
-                // Ozet + Tum alarmlari kur
-                Container(
-                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  padding: const EdgeInsets.all(16),
-                  decoration: AppTheme.card(accentColor: AppTheme.primary),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.alarm_rounded,
-                          color: AppTheme.primary, size: 28),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('$_totalEntries saat • $_enabledEntries aktif',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 15)),
-                            Text(
-                                'Ayarlar için sağ üstteki ayar simgesine dokun',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppTheme.textSecondary)),
-                          ],
-                        ),
-                      ),
-                      // Test alarmı
-                      IconButton(
-                        icon: const Icon(Icons.bug_report_rounded),
-                        color: AppTheme.amber,
-                        tooltip: 'Test (10 sn)',
-                        onPressed: _testAlarm,
-                      ),
-                    ],
-                  ),
-                ),
-
+                _hero(),
                 // Pil uyarisi body'de KALIR (kritik, gorunur olmali).
                 if (_batteryOptimized) _buildBatteryWarning(),
-
-                const SizedBox(height: 4),
                 Expanded(
                   child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
+                    padding: EdgeInsets.fromLTRB(
+                        16, 10, 16,
+                        MediaQuery.of(context).padding.bottom + 96),
                     itemCount: 7,
                     itemBuilder: (_, i) => _dayCard(i + 1),
                   ),
                 ),
               ],
             ),
+    );
+  }
+
+  /// GRADYAN HERO — uygulamanin tasarim dili + alarm ekraninin en kritik
+  /// bilgisi: SONRAKI ALARM ve kalan sure.
+  Widget _hero() {
+    final topPad = MediaQuery.of(context).padding.top;
+    final next = _nextAlarm();
+    final total = _totalEntries;
+    final active = _enabledEntries;
+
+    String nextText;
+    if (next == null) {
+      nextText = active == 0
+          ? 'Aktif alarm yok'
+          : 'Yaklaşan alarm bulunamadı';
+    } else {
+      final d = next.left;
+      final h = d.inHours, m = d.inMinutes % 60;
+      final dayName =
+          ScheduleService.weekdayNames[next.entry.weekday - 1];
+      final isToday = DateTime.now().weekday == next.entry.weekday;
+      nextText = '${isToday ? 'Bugün' : dayName} ${next.entry.timeStr}'
+          ' · ${h > 0 ? '$h sa ' : ''}$m dk kaldı';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.primary,
+            Color.lerp(AppTheme.primary, AppTheme.accent, 0.55)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded,
+                    color: Colors.white),
+              ),
+              const Expanded(
+                child: Text('Çalışma Programı',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white)),
+              ),
+              IconButton(
+                icon: const Icon(Icons.tune_rounded, color: Colors.white),
+                tooltip: 'Alarm Ayarları',
+                onPressed: _openSettingsSheet,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // SONRAKI ALARM paneli + sayaclar.
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: const Icon(Icons.alarm_rounded,
+                      color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('SIRADAKİ ALARM',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                              color: Colors.white.withOpacity(0.75))),
+                      const SizedBox(height: 1),
+                      Text(nextText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white)),
+                      Text('$total saat · $active aktif',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.white.withOpacity(0.8))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -773,6 +1159,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                       controller: scrollCtrl,
                       padding: const EdgeInsets.fromLTRB(4, 4, 4, 24),
                       children: [
+                        _toolsCard(),
                         _soundCard(onChanged: refresh),
                         _keepAliveCard(onChanged: refresh),
                         _qrLockCard(onChanged: refresh),
@@ -790,6 +1177,65 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
   }
 
   // Alarm sesi karti
+  /// ARAC KARTI: test alarmi + tum alarmlari yeniden kur.
+  /// (Onceden test butonu ana ekranda "bocek" ikonuyla duruyordu —
+  /// gunluk kullanimda kafa karistiriyordu, ayarlara alindi.)
+  Widget _toolsCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.build_rounded,
+                  color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              const Text('Araçlar',
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+              'Alarmların gerçekten çalıştığını doğrula ya da telefon '
+              'yeniden başladıysa hepsini yeniden kur.',
+              style: TextStyle(
+                  fontSize: 12, color: AppTheme.textSecondary)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _testAlarm,
+                  icon: const Icon(Icons.play_circle_outline_rounded,
+                      size: 18),
+                  label: const Text('Test (10 sn)',
+                      style: TextStyle(fontSize: 12.5)),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.amber,
+                      side: BorderSide(
+                          color: AppTheme.amber.withOpacity(0.5))),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: _setAllAlarms,
+                  icon: const Icon(Icons.alarm_on_rounded, size: 18),
+                  label: const Text('Tümünü kur',
+                      style: TextStyle(fontSize: 12.5)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _soundCard({required Future<void> Function() onChanged}) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -1102,155 +1548,322 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
     final entries = _grouped[weekday] ?? [];
     final dayName = ScheduleService.weekdayNames[weekday - 1];
     final isToday = DateTime.now().weekday == weekday;
+    final open = _openDays.contains(weekday);
+    final activeCount = entries.where((e) => e.enabled).length;
+    final allOn = entries.isNotEmpty && activeCount == entries.length;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.card(
-          accentColor: isToday ? AppTheme.accent : null),
+      decoration:
+          AppTheme.card(accentColor: isToday ? AppTheme.accent : null),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: (isToday ? AppTheme.accent : AppTheme.primary)
-                      .withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  ScheduleService.weekdayShort[weekday - 1],
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                      color:
-                          isToday ? AppTheme.accent : AppTheme.primary),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(dayName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 15)),
-              if (isToday) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accent,
-                    borderRadius: BorderRadius.circular(AppTheme.rPill),
-                  ),
-                  child: const Text('Bugün',
+          // ── BASLIK: dokununca acilir/kapanir ──
+          InkWell(
+            borderRadius: BorderRadius.circular(AppTheme.rLg),
+            onTap: () => setState(() {
+              if (open) {
+                _openDays.remove(weekday);
+              } else {
+                _openDays.add(weekday);
+              }
+            }),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: (isToday ? AppTheme.accent : AppTheme.primary)
+                          .withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      ScheduleService.weekdayShort[weekday - 1],
                       style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black)),
-                ),
-              ],
-              const Spacer(),
-              if (entries.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.copy_all_rounded,
-                      color: AppTheme.accent),
-                  tooltip: 'Bu günü tüm haftaya kopyala',
-                  onPressed: () => _copyDayToWeek(weekday),
-                ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_rounded,
-                    color: AppTheme.primary),
-                tooltip: 'Saat Ekle',
-                onPressed: () => _addEntry(weekday),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: isToday
+                              ? AppTheme.accent
+                              : AppTheme.primary),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(dayName,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15)),
+                            ),
+                            if (isToday) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.accent,
+                                  borderRadius: BorderRadius.circular(
+                                      AppTheme.rPill),
+                                ),
+                                child: const Text('Bugün',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black)),
+                              ),
+                            ],
+                          ],
+                        ),
+                        // Kapaliyken bile ozet gorunur: kac saat, hangi
+                        // araliкta, kaci aktif.
+                        Text(
+                          entries.isEmpty
+                              ? 'Program yok'
+                              : '${entries.length} saat · '
+                                  '${entries.first.timeStr}'
+                                  '${entries.length > 1 ? '–${entries.last.timeStr}' : ''}'
+                                  '${activeCount < entries.length ? ' · $activeCount aktif' : ''}',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppTheme.textTertiary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Hizli ekleme (kapaliyken de erisilebilir).
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_rounded,
+                        color: AppTheme.primary),
+                    tooltip: 'Saat Ekle',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _addEntry(weekday),
+                  ),
+                  Icon(
+                      open
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      color: AppTheme.textTertiary),
+                ],
               ),
-            ],
+            ),
           ),
-          if (entries.isEmpty)
+          if (open) ...[
+            const Divider(height: 1),
+            // ── GUN ARAC CUBUGU: seri ekle, tumunu ac/kapat, diger ──
             Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text('Program yok',
-                  style: TextStyle(
-                      fontSize: 12.5, color: AppTheme.textTertiary)),
-            )
-          else
-            ...entries.map(_entryTile),
+              padding: const EdgeInsets.fromLTRB(10, 8, 6, 4),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _addRange(weekday),
+                    icon: const Icon(Icons.timelapse_rounded, size: 17),
+                    label: const Text('Seri saat',
+                        style: TextStyle(fontSize: 12.5)),
+                    style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: AppTheme.accent),
+                  ),
+                  const Spacer(),
+                  if (entries.isNotEmpty) ...[
+                    Text(allOn ? 'Tümü açık' : 'Tümünü aç',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color: AppTheme.textTertiary)),
+                    Switch(
+                      value: allOn,
+                      onChanged: (v) => _setDayEnabled(weekday, v),
+                      activeColor: AppTheme.primary,
+                      materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert_rounded,
+                          size: 20, color: AppTheme.textTertiary),
+                      onSelected: (v) {
+                        if (v == 'copy') _copyDayToWeek(weekday);
+                        if (v == 'clear') _deleteDay(weekday);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'copy',
+                          child: Row(children: [
+                            Icon(Icons.copy_all_rounded,
+                                size: 18, color: AppTheme.accent),
+                            SizedBox(width: 8),
+                            Text('Tüm haftaya kopyala'),
+                          ]),
+                        ),
+                        PopupMenuItem(
+                          value: 'clear',
+                          child: Row(children: [
+                            Icon(Icons.delete_sweep_rounded,
+                                size: 18, color: AppTheme.statusExpired),
+                            SizedBox(width: 8),
+                            Text('Günü temizle'),
+                          ]),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: entries.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                          'Bu güne saat eklenmemiş. "Seri saat" ile bir '
+                          'aralığı tek seferde oluşturabilirsin.',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppTheme.textTertiary)),
+                    )
+                  : Column(children: entries.map(_entryTile).toList()),
+            ),
+          ],
         ],
       ),
     );
   }
 
+  /// Tek saat satiri — sola kaydirinca siler (geri alinabilir),
+  /// dokununca duzenler, uzun basinca islem menusu acar.
   Widget _entryTile(ScheduleEntry e) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        borderRadius: BorderRadius.circular(12),
+    return Dismissible(
+      key: ValueKey('sched_${e.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.only(right: 16),
+        decoration: BoxDecoration(
+          color: AppTheme.statusExpired.withOpacity(0.85),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete_rounded, color: Colors.white),
       ),
-      child: Row(
-        children: [
-          // Saat
-          GestureDetector(
-            onTap: () => _editEntry(e),
-            child: Row(
-              children: [
-                Icon(Icons.access_time_rounded,
-                    size: 16,
-                    color: e.enabled
-                        ? AppTheme.primary
-                        : AppTheme.textTertiary),
-                const SizedBox(width: 6),
-                Text(e.timeStr,
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: e.enabled
-                            ? AppTheme.textPrimary
-                            : AppTheme.textTertiary,
-                        decoration: e.enabled
-                            ? null
-                            : TextDecoration.lineThrough)),
-              ],
-            ),
+      onDismissed: (_) => _deleteEntry(e),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _editEntry(e),
+        onLongPress: () => _entryMenu(e),
+        child: Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: e.enabled
+                    ? AppTheme.primary.withOpacity(0.22)
+                    : AppTheme.hairline),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: e.label != null
-                ? Text(e.label!,
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        color: AppTheme.textSecondary),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis)
-                : const SizedBox(),
+          child: Row(
+            children: [
+              Icon(Icons.access_time_rounded,
+                  size: 16,
+                  color: e.enabled
+                      ? AppTheme.primary
+                      : AppTheme.textTertiary),
+              const SizedBox(width: 8),
+              Text(e.timeStr,
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: e.enabled
+                          ? AppTheme.textPrimary
+                          : AppTheme.textTertiary,
+                      decoration:
+                          e.enabled ? null : TextDecoration.lineThrough)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: e.label != null && e.label!.trim().isNotEmpty
+                    ? Text(e.label!,
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.textSecondary),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis)
+                    : const SizedBox(),
+              ),
+              // Tek kontrol kaldi: ac/kapat. Silme kaydirmayla, diger
+              // islemler uzun basisla — satir artik ferah.
+              Switch(
+                value: e.enabled,
+                onChanged: (_) => _toggleEntry(e),
+                activeColor: AppTheme.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
           ),
-          // Alarm kur
-          IconButton(
-            icon: const Icon(Icons.alarm_add_rounded, size: 20),
-            color: AppTheme.statusSafe,
-            tooltip: 'Alarm Kur',
-            visualDensity: VisualDensity.compact,
-            onPressed: e.enabled ? () => _setOneAlarm(e) : null,
-          ),
-          // Aç/kapat
-          Switch(
-            value: e.enabled,
-            onChanged: (_) => _toggleEntry(e),
-            activeColor: AppTheme.primary,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          // Sil
-          IconButton(
-            icon: const Icon(Icons.close_rounded, size: 18),
-            color: AppTheme.statusExpired,
-            tooltip: 'Sil',
-            visualDensity: VisualDensity.compact,
-            onPressed: () => _deleteEntry(e),
-          ),
-        ],
+        ),
       ),
     );
+  }
+
+  /// Satira uzun basinca acilan islem menusu.
+  Future<void> _entryMenu(ScheduleEntry e) async {
+    HapticFeedback.selectionClick();
+    final v = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.alarm_rounded,
+                      color: AppTheme.primary),
+                  const SizedBox(width: 10),
+                  Text(e.timeStr,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w900)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_rounded),
+              title: const Text('Düzenle'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.alarm_add_rounded,
+                  color: AppTheme.statusSafe),
+              title: const Text('Alarmı yeniden kur'),
+              enabled: e.enabled,
+              onTap: () => Navigator.pop(ctx, 'set'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded,
+                  color: AppTheme.statusExpired),
+              title: const Text('Sil'),
+              onTap: () => Navigator.pop(ctx, 'del'),
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+    if (v == 'edit') _editEntry(e);
+    if (v == 'set') _setOneAlarm(e);
+    if (v == 'del') _deleteEntry(e);
   }
 }
 
