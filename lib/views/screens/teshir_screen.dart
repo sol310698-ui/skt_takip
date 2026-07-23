@@ -6,6 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/teshir_service.dart';
+import '../../core/services/waybill_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
@@ -152,6 +153,135 @@ class _TeshirScreenState extends State<TeshirScreen> {
     }
   }
 
+  /// Adi cozulememis (ad == barkod ya da bos) kayit sayisi.
+  int get _missingNameCount => _items.where((it) {
+        final n = (it['product_name'] as String?)?.trim() ?? '';
+        return n.isEmpty || n == (it['barcode'] as String);
+      }).length;
+
+  /// ADLARI TAZELE: barkod dizininde artik karsiligi olan kayitlarin
+  /// adini gunceller. (Koli↔perakende capraz eslesme sayesinde onceden
+  /// bulunamayan adlar simdi bulunabiliyor.)
+  Future<void> _refreshNames() async {
+    var fixed = 0;
+    for (final it in List<Map<String, Object?>>.from(_items)) {
+      final barcode = it['barcode'] as String;
+      final cur = (it['product_name'] as String?)?.trim() ?? '';
+      if (cur.isNotEmpty && cur != barcode) continue;
+      try {
+        final name = await _dirRepo.findProductName(barcode);
+        if (name != null && name.trim().isNotEmpty && name != barcode) {
+          await TeshirService.instance.add(barcode, productName: name);
+          fixed++;
+        }
+      } catch (_) {}
+    }
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(fixed == 0
+          ? 'Dizinde karşılığı bulunan yeni ad yok'
+          : '$fixed ürünün adı güncellendi'),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: fixed == 0 ? null : AppTheme.statusSafe,
+    ));
+  }
+
+  /// A4 ETIKET YAZDIR: sablon secimi (tekli/ikili/uclu) → PDF.
+  Future<void> _printLabels() async {
+    final perPage = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.print_rounded, color: AppTheme.coral),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('A4 Teşhir Etiketi',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900)),
+                        Text(
+                            '${_items.length} ürün · şablon dolunca '
+                            'yeni sayfa açılır',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textTertiary)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final opt in const [
+              (1, 'Tekli', 'Sayfada 1 etiket — en büyük'),
+              (2, 'İkili', 'Sayfada 2 etiket'),
+              (3, 'Üçlü', 'Sayfada 3 etiket — en çok ürün'),
+            ])
+              ListTile(
+                leading: Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.coral.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${opt.$1}',
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.coral)),
+                ),
+                title: Text(opt.$2,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(
+                    '${opt.$3} · '
+                    '${(_items.length / opt.$1).ceil()} sayfa',
+                    style: const TextStyle(fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, opt.$1),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (perPage == null || !mounted) return;
+
+    final data = _items.map((it) {
+      final barcode = it['barcode'] as String;
+      final name = (it['product_name'] as String?)?.trim();
+      return TeshirLabelData(
+        barcode: barcode,
+        name: (name == null || name.isEmpty) ? barcode : name,
+        note: it['note'] as String?,
+      );
+    }).toList();
+
+    try {
+      await WaybillService.instance
+          .printTeshirLabels(items: data, perPage: perPage);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Yazdırma hatası: $e'),
+        backgroundColor: AppTheme.statusExpired,
+      ));
+    }
+  }
+
   // ── UI ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -232,6 +362,20 @@ class _TeshirScreenState extends State<TeshirScreen> {
               ],
             ),
           ),
+          // A4 TESHIR ETIKETLERI: tekli/ikili/uclu sablon.
+          IconButton(
+            tooltip: 'A4 etiket yazdır',
+            onPressed: _items.isEmpty ? null : _printLabels,
+            icon: Icon(Icons.print_rounded,
+                color: _items.isEmpty ? Colors.white38 : Colors.white),
+          ),
+          // Adi cozulmemis kayitlari dizinden tazele.
+          if (_missingNameCount > 0)
+            IconButton(
+              tooltip: '$_missingNameCount ürünün adı eksik — tazele',
+              onPressed: _refreshNames,
+              icon: const Icon(Icons.sync_rounded, color: Colors.white),
+            ),
           IconButton(
             tooltip: _cameraOn ? 'Kamerayı kapat' : 'Kamerayla okut',
             onPressed: () {

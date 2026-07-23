@@ -45,6 +45,22 @@ class LabelPendingQueueService {
     return rows.map(LabelPendingItem.fromMap).toList();
   }
 
+  /// GRUP BAZINDA bekleyen sayilari (etiket hedefi secerken gosterilir):
+  /// {'a4': 3, 'kalinRon': 1, ...}
+  Future<Map<String, int>> pendingCountsByGroup() async {
+    final db = await DatabaseService.instance.database;
+    final rows = await db.rawQuery(
+        'SELECT group_key, COUNT(*) c FROM '
+        '${AppConstants.labelPendingQueueTable} GROUP BY group_key');
+    final out = <String, int>{};
+    for (final r in rows) {
+      final k = (r['group_key'] ?? '').toString();
+      if (k.isEmpty) continue;
+      out[k] = (r['c'] as int?) ?? 0;
+    }
+    return out;
+  }
+
   /// Kuyrukta bekleyen kayit var mi (rozet/bildirim icin).
   Future<int> pendingCount() async {
     final db = await DatabaseService.instance.database;

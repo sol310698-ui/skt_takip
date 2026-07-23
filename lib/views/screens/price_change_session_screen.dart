@@ -21,6 +21,7 @@ import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
+import '../widgets/label_target_sheet.dart';
 import '../widgets/ui_kit.dart';
 import 'image_zoom_screen.dart';
 import 'label_print_screen.dart' show LabelGroup, LabelGroupX;
@@ -67,6 +68,8 @@ class _PriceChangeSessionScreenState
   // v2: SON SECIM OTURUM BOYUNCA HATIRLANIR — reyonda ayni etiket tipi pes
   // pese kullanilir; her urunde yeniden secmek akisi yavaslatiyordu.
   String? _sendToLabelGroup;
+  /// Teshir etiketi de gonderilsin mi (urun teshirdeyse).
+  bool _alsoTeshirLabel = false;
   static String? _lastLabelGroup; // oturumlar arasi da hatirla
 
   // ── LISTE FILTRE + ARAMA ──
@@ -506,11 +509,21 @@ class _PriceChangeSessionScreenState
         source: 'price_change',
       );
     }
-    // ── TESHIR KONTROLU ──────────────────────────────────────────
-    // Urun teshirde de duruyorsa reyon etiketi yetmez; teshir icin
-    // IKINCI etiket gerekir. Sorup onaylanirsa barkodu etiket basim
-    // listesine ekleriz.
-    await _maybeAskTeshirLabel(item, labelGroup);
+    // ── TESHIR ETIKETI ───────────────────────────────────────────
+    // Kullanici etiket hedefi seciciden "teshir etiketi de" dediyse
+    // DOGRUDAN eklenir (tekrar SORULMAZ). Secici hic acilmadiysa eski
+    // davranis: urun teshirdeyse sorulur.
+    if (_alsoTeshirLabel) {
+      await LabelPendingQueueService.instance.push(
+        barcode: item.barcode,
+        productName: item.productName ?? item.barcode,
+        groupKey: labelGroup ?? 'Teşhir',
+        source: 'teshir',
+      );
+      _alsoTeshirLabel = false;
+    } else {
+      await _maybeAskTeshirLabel(item, labelGroup);
+    }
     await _load();
     if (!mounted) return;
     _lastLabelGroup = labelGroup; // bir sonraki urun icin hatirla
@@ -636,62 +649,101 @@ class _PriceChangeSessionScreenState
   /// Etiket Basim'daki 5 listeyi (Kalin Reyon, Ince Reyon, A4, A4 Ikili,
   /// A4 Uclu) gosteren secim sheet'i. Secilen grup _sendToLabelGroup'a
   /// yazilir; tekrar dokunup "Gonderme" secilirse iptal edilir.
-  Future<void> _pickLabelGroup() async {
-    final result = await showModalBottomSheet<String?>(
-      context: context,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+  /// ETIKET HEDEFI SATIRI (detayli) — rehber ekranindakiyle ayni dil.
+  Widget _labelTargetRow() {
+    final hasGroup = _sendToLabelGroup != null;
+    final active = hasGroup || _alsoTeshirLabel;
+    final groupTitle = hasGroup
+        ? LabelGroup.values
+            .firstWhere((g) => g.name == _sendToLabelGroup!)
+            .title
+        : null;
+    return InkWell(
+      onTap: _busy ? null : _pickLabelGroup,
+      borderRadius: BorderRadius.circular(AppTheme.rMd),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: active
+              ? AppTheme.accent.withOpacity(0.10)
+              : AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(
+              color: active
+                  ? AppTheme.accent.withOpacity(0.5)
+                  : AppTheme.hairline),
+        ),
+        child: Row(
           children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppTheme.hairline,
-                  borderRadius: BorderRadius.circular(2)),
-            ),
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Hangi listeye gönderilsin?',
-                  style:
-                      TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-            ),
-            for (final g in LabelGroup.values)
-              ListTile(
-                leading: Icon(
-                  _sendToLabelGroup == g.name
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  color: _sendToLabelGroup == g.name
-                      ? AppTheme.accent
-                      : AppTheme.textTertiary,
-                ),
-                title: Text(g.title),
-                onTap: () => Navigator.pop(context, g.name),
+            Icon(
+                active
+                    ? Icons.check_box_rounded
+                    : Icons.check_box_outline_blank_rounded,
+                size: 21,
+                color: active ? AppTheme.accent : AppTheme.textTertiary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    active
+                        ? 'Etiket Basım → ${groupTitle ?? 'Teşhir'}'
+                        : 'Etiket Basım listesine de gönder',
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight:
+                            active ? FontWeight.w800 : FontWeight.w600,
+                        color: active
+                            ? AppTheme.accent
+                            : AppTheme.textSecondary),
+                  ),
+                  Text(
+                    _alsoTeshirLabel
+                        ? 'Teşhir etiketi de eklenecek'
+                        : '5 listeden birini seç · teşhirdeyse uyarır',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: _alsoTeshirLabel
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                        color: _alsoTeshirLabel
+                            ? AppTheme.coral
+                            : AppTheme.textTertiary),
+                  ),
+                ],
               ),
-            if (_sendToLabelGroup != null)
-              ListTile(
-                leading: const Icon(Icons.close_rounded,
-                    color: AppTheme.statusExpired),
-                title: const Text('Gönderme (vazgeç)',
-                    style: TextStyle(color: AppTheme.statusExpired)),
-                onTap: () => Navigator.pop(context, ''),
-              ),
-            const SizedBox(height: 12),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppTheme.textTertiary),
           ],
         ),
       ),
     );
-    if (result == null || !mounted) return; // disariya tiklandi, degisiklik yok
-    setState(() => _sendToLabelGroup = result.isEmpty ? null : result);
   }
 
-  // ─────────────────────────── Tamamlama ─────────────────────────────
+  /// ZENGIN ETIKET HEDEFI SECICI (v158) — liste aciklamalari, bekleyen
+  /// sayilari ve TESHIR entegrasyonu ortak bilesende.
+  Future<void> _pickLabelGroup() async {
+    final item = _matched;
+    final res = await showLabelTargetSheet(
+      context,
+      barcode: item?.barcode ?? '',
+      productName: item?.productName ?? item?.barcode ?? 'Ürün',
+      currentGroupKey: _sendToLabelGroup,
+      currentAlsoTeshir: _alsoTeshirLabel,
+      oldPrice: item?.oldPrice,
+      newPrice: item?.newPrice,
+    );
+    if (res == null || !mounted) return;
+    setState(() {
+      _sendToLabelGroup = res.groupKey;
+      _alsoTeshirLabel = res.alsoTeshir;
+    });
+  }
+
   Future<void> _offerComplete() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1383,48 +1435,9 @@ class _PriceChangeSessionScreenState
             ],
           ),
           const SizedBox(height: 12),
-          // "Etiket Basim'a da gonder" secimi — dokununca mevcut 5 liste
-          // (Kalin Reyon, Ince Reyon, A4, A4 Ikili, A4 Uclu) gosterilir,
-          // hangisi secilirse urun onaylandiginda o listeye eklenir.
-          InkWell(
-            onTap: _busy ? null : _pickLabelGroup,
-            borderRadius: BorderRadius.circular(AppTheme.rSm),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Icon(
-                    _sendToLabelGroup != null
-                        ? Icons.check_box_rounded
-                        : Icons.check_box_outline_blank_rounded,
-                    color: _sendToLabelGroup != null
-                        ? AppTheme.accent
-                        : AppTheme.textTertiary,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _sendToLabelGroup == null
-                          ? 'Etiket Basım listesine de gönder'
-                          : 'Etiket Basım → ${LabelGroup.values.firstWhere((g) => g.name == _sendToLabelGroup!).title}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: _sendToLabelGroup != null
-                            ? AppTheme.accent
-                            : AppTheme.textSecondary,
-                        fontWeight: _sendToLabelGroup != null
-                            ? FontWeight.w700
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded,
-                      size: 18, color: AppTheme.textTertiary),
-                ],
-              ),
-            ),
-          ),
+          // ETIKET HEDEFI (detayli): secilen liste, teshir durumu ve
+          // yonlendirme tek satirda net gorunur.
+          _labelTargetRow(),
           const SizedBox(height: 8),
           // REYONDA GOSTER: bu urun rafta nerede? canlandirma oynatir.
           OutlinedButton.icon(

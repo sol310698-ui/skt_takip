@@ -487,6 +487,115 @@ class WaybillService {
     );
   }
 
+  /// ══════════════════════════════════════════════════════════════════
+  ///  A4 TESHIR ETIKETLERI (v157)
+  ///  Sablon: sayfa basina 1 (tekli), 2 (ikili) ya da 3 (uclu) etiket.
+  ///  Liste sablonu doldurunca OTOMATIK yeni sayfa acilir; 33 urun +
+  ///  uclu sablon = 11 sayfa. Her etikette buyuk urun adi, taranabilir
+  ///  barkod ve (varsa) teshir yeri notu bulunur.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<Uint8List> buildTeshirLabels({
+    required List<TeshirLabelData> items,
+    int perPage = 3,
+  }) async {
+    final doc = pw.Document(theme: await _theme());
+    final n = perPage.clamp(1, 3);
+
+    // Sablona gore olculer: tekli en buyuk, uclu en kucuk.
+    final nameSize = n == 1 ? 34.0 : (n == 2 ? 25.0 : 19.0);
+    final codeSize = n == 1 ? 13.0 : (n == 2 ? 11.0 : 9.5);
+    final bcHeight = n == 1 ? 110.0 : (n == 2 ? 78.0 : 58.0);
+    final bcWidth = n == 1 ? 400.0 : (n == 2 ? 330.0 : 280.0);
+    final pad = n == 1 ? 24.0 : (n == 2 ? 18.0 : 12.0);
+
+    // Urunleri sablon kapasitesine gore SAYFALARA BOL.
+    for (var start = 0; start < items.length; start += n) {
+      final chunk = items.sublist(
+          start, (start + n) > items.length ? items.length : start + n);
+      doc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(16),
+          build: (ctx) => pw.Column(
+            children: [
+              for (var i = 0; i < n; i++) ...[
+                pw.Expanded(
+                  child: i < chunk.length
+                      // DOLU HUCRE: etiket
+                      ? pw.Container(
+                          width: double.infinity,
+                          padding: pw.EdgeInsets.all(pad),
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border.all(
+                                width: 1.2, color: PdfColors.grey600),
+                            borderRadius: pw.BorderRadius.circular(8),
+                          ),
+                          child: pw.Column(
+                            mainAxisAlignment:
+                                pw.MainAxisAlignment.spaceEvenly,
+                            crossAxisAlignment:
+                                pw.CrossAxisAlignment.center,
+                            children: [
+                              pw.Text(
+                                chunk[i].name,
+                                textAlign: pw.TextAlign.center,
+                                maxLines: 3,
+                                style: pw.TextStyle(
+                                    fontSize: nameSize,
+                                    fontWeight: pw.FontWeight.bold),
+                              ),
+                              if (chunk[i].note != null &&
+                                  chunk[i].note!.trim().isNotEmpty)
+                                pw.Text(
+                                  chunk[i].note!,
+                                  textAlign: pw.TextAlign.center,
+                                  style: pw.TextStyle(
+                                      fontSize: codeSize + 1,
+                                      color: PdfColors.grey700),
+                                ),
+                              pw.BarcodeWidget(
+                                barcode: _barcodeFor(chunk[i].barcode),
+                                data: chunk[i].barcode,
+                                width: bcWidth,
+                                height: bcHeight,
+                                drawText: true,
+                                textStyle:
+                                    pw.TextStyle(fontSize: codeSize),
+                              ),
+                            ],
+                          ),
+                        )
+                      // BOS HUCRE: sablon tamamlanmadiysa kesme cizgili
+                      // bos alan (kagit duzeni bozulmaz).
+                      : pw.Container(
+                          width: double.infinity,
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border.all(
+                                width: 0.5, color: PdfColors.grey300),
+                            borderRadius: pw.BorderRadius.circular(8),
+                          ),
+                        ),
+                ),
+                if (i < n - 1) pw.SizedBox(height: 10),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return doc.save();
+  }
+
+  Future<void> printTeshirLabels({
+    required List<TeshirLabelData> items,
+    int perPage = 3,
+  }) async {
+    await Printing.layoutPdf(
+      name: 'teshir_etiketleri_${perPage}li',
+      onLayout: (_) => buildTeshirLabels(items: items, perPage: perPage),
+    );
+  }
+
   /// Barkod tipini SECER: gecerli EAN-13 / UPC-A ise onu, degilse
   /// Code128 (her el terminali okur). Gecersiz veriyle EAN cizmek
   /// PDF uretimini patlatir — bu yuzden once dogrulanir.
@@ -622,4 +731,17 @@ class WaybillFile {
       : sizeBytes < 1024 * 1024
           ? '${(sizeBytes / 1024).toStringAsFixed(0)} KB'
           : '${(sizeBytes / 1048576).toStringAsFixed(1)} MB';
+}
+
+
+/// A4 teshir etiketi icin tek urun verisi.
+class TeshirLabelData {
+  final String barcode;
+  final String name;
+  final String? note; // teshir yeri (ör. "Kasa önü ada")
+  const TeshirLabelData({
+    required this.barcode,
+    required this.name,
+    this.note,
+  });
 }

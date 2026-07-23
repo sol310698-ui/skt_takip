@@ -6,7 +6,9 @@ import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/price_change_service.dart';
+import '../../core/services/teshir_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../widgets/label_target_sheet.dart';
 import 'label_print_screen.dart' show LabelGroup, LabelGroupX;
 
 /// ════════════════════════════════════════════════════════════════════
@@ -34,6 +36,13 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
   // Urun degisince (index degisince) sifirlanir.
   String? _sendToLabelGroup;
 
+  /// Urun teshirdeyse "teshir etiketi de gonderilsin" secimi.
+  bool _alsoTeshirLabel = false;
+
+  /// Gosterilen urun teshirde mi (rozet + secici icin) — index degisince
+  /// yeniden sorgulanir.
+  Map<String, Object?>? _teshirRec;
+
   // Barkod -> resim URL onbellegi (tekrar sorgulamamak icin).
   final Map<String, String?> _imageCache = {};
 
@@ -54,6 +63,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
       _index = firstPending >= 0 ? firstPending : 0;
     });
     _prefetchImage();
+    _loadTeshir();
   }
 
   /// Mevcut + sonraki urunun resmini OFF'tan onceden indir.
@@ -70,6 +80,18 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     }
   }
 
+  /// Gosterilen urun teshirde mi — index degisince tazelenir.
+  Future<void> _loadTeshir() async {
+    if (_items.isEmpty) return;
+    final b = _items[_index].barcode;
+    try {
+      final rec = await TeshirService.instance.find(b);
+      if (mounted) setState(() => _teshirRec = rec);
+    } catch (_) {
+      if (mounted) setState(() => _teshirRec = null);
+    }
+  }
+
   void _goTo(int i) {
     if (i < 0 || i >= _items.length) return;
     setState(() {
@@ -77,6 +99,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
       _sendToLabelGroup = null;
     });
     _prefetchImage();
+    _loadTeshir();
   }
 
   Future<void> _markDone() async {
@@ -98,6 +121,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     // sonra kalici yolu isaretlemeye ver.
     final persistentPath = await CameraHelper.persistPhoto(shot.path);
     await PriceChangeService.instance.markChanged(item.id!, persistentPath);
+    final alsoTeshir = _alsoTeshirLabel;
     if (labelGroup != null) {
       await LabelPendingQueueService.instance.push(
         barcode: item.barcode,
@@ -106,81 +130,58 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
         source: 'price_change_guide',
       );
     }
+    // TESHIR ETIKETI: urun teshirde ve kullanici istediyse IKINCI etiket
+    // ayri "Teşhir" grubuna dusulur (basimda ayirt edilebilsin).
+    if (alsoTeshir) {
+      await LabelPendingQueueService.instance.push(
+        barcode: item.barcode,
+        productName: item.productName ?? item.barcode,
+        groupKey: labelGroup ?? 'Teşhir',
+        source: 'teshir',
+      );
+    }
     _items[_index] = item.copyWith(changed: true, photoPath: shot.path);
     setState(() {
       _busy = false;
       _sendToLabelGroup = null;
+      _alsoTeshirLabel = false;
     });
-    if (labelGroup != null && mounted) {
-      final title =
-          LabelGroup.values.firstWhere((g) => g.name == labelGroup).title;
+    if ((labelGroup != null || alsoTeshir) && mounted) {
+      final title = labelGroup == null
+          ? 'Teşhir'
+          : LabelGroup.values
+              .firstWhere((g) => g.name == labelGroup)
+              .title;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Etiket Basım → $title\'a gönderildi'),
+          content: Text('Etiket Basım → $title'
+              '${alsoTeshir && labelGroup != null ? ' + teşhir etiketi' : ''}'),
           backgroundColor: AppTheme.accent,
-          duration: const Duration(milliseconds: 1200),
+          duration: const Duration(milliseconds: 1400),
         ),
       );
     }
     _nextOrFinish();
   }
 
-  /// Etiket Basim'daki 5 listeyi gosteren secim sheet'i (price_change_
-  /// session_screen.dart'taki ile ayni mantik). Secilen grup
-  /// _sendToLabelGroup'a yazilir.
+  /// ZENGIN ETIKET HEDEFI SECICI (v158): liste aciklamalari, o listede
+  /// bekleyen sayisi ve TESHIR entegrasyonu ile.
   Future<void> _pickLabelGroup() async {
-    final result = await showModalBottomSheet<String?>(
-      context: context,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                  color: AppTheme.hairline,
-                  borderRadius: BorderRadius.circular(2)),
-            ),
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Hangi listeye gönderilsin?',
-                  style:
-                      TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-            ),
-            for (final g in LabelGroup.values)
-              ListTile(
-                leading: Icon(
-                  _sendToLabelGroup == g.name
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  color: _sendToLabelGroup == g.name
-                      ? AppTheme.accent
-                      : AppTheme.textTertiary,
-                ),
-                title: Text(g.title),
-                onTap: () => Navigator.pop(context, g.name),
-              ),
-            if (_sendToLabelGroup != null)
-              ListTile(
-                leading: const Icon(Icons.close_rounded,
-                    color: AppTheme.statusExpired),
-                title: const Text('Gönderme (vazgeç)',
-                    style: TextStyle(color: AppTheme.statusExpired)),
-                onTap: () => Navigator.pop(context, ''),
-              ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
+    final item = _items[_index];
+    final res = await showLabelTargetSheet(
+      context,
+      barcode: item.barcode,
+      productName: item.productName ?? item.barcode,
+      currentGroupKey: _sendToLabelGroup,
+      currentAlsoTeshir: _alsoTeshirLabel,
+      oldPrice: item.oldPrice,
+      newPrice: item.newPrice,
     );
-    if (result == null || !mounted) return;
-    setState(() => _sendToLabelGroup = result.isEmpty ? null : result);
+    if (res == null || !mounted) return;
+    setState(() {
+      _sendToLabelGroup = res.groupKey;
+      _alsoTeshirLabel = res.alsoTeshir;
+    });
   }
 
   Future<void> _undo() async {
@@ -266,35 +267,97 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-        title: Text('${_index + 1} / ${_items.length}'),
-        actions: [
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Text(
-                '$doneCount ✓',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w800),
+      body: Column(
+        children: [
+          _hero(doneCount),
+          Expanded(child: _itemView(item)),
+          _bottomBar(item),
+        ],
+      ),
+    );
+  }
+
+  /// GRADYAN HERO — uygulamanin tasarim dili: sira, tamamlanan sayisi ve
+  /// ilerleme cubugu tek panelde.
+  Widget _hero(int doneCount) {
+    final topPad = MediaQuery.of(context).padding.top;
+    final total = _items.length;
+    final ratio = total == 0 ? 0.0 : doneCount / total;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(8, topPad + 6, 8, 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppTheme.primary,
+            Color.lerp(AppTheme.primary, AppTheme.accent, 0.5)!,
+          ],
+        ),
+        borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(AppTheme.rLg)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded,
+                    color: Colors.white),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${_index + 1} / $total',
+                        style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white)),
+                    Text('$doneCount tamam · ${total - doneCount} kaldı',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: Colors.white70)),
+                  ],
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 11, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(AppTheme.rPill),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_rounded,
+                        size: 15, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text('$doneCount',
+                        style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: ratio,
+                backgroundColor: Colors.black.withOpacity(0.18),
+                color: Colors.white,
+                minHeight: 6,
               ),
             ),
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Ilerleme cubugu
-          LinearProgressIndicator(
-            value: _items.isEmpty ? 0 : doneCount / _items.length,
-            backgroundColor: AppTheme.surfaceAlt,
-            color: AppTheme.statusSafe,
-            minHeight: 6,
-          ),
-          Expanded(child: _itemView(item)),
-          _bottomBar(item),
         ],
       ),
     );
@@ -476,6 +539,96 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     );
   }
 
+  /// ETIKET HEDEFI SATIRI (detayli): secilmediyse yonlendirir; secildiyse
+  /// hangi listeye gidecegini ve teshir etiketi durumunu ACIKCA gosterir.
+  Widget _labelTargetRow() {
+    final hasGroup = _sendToLabelGroup != null;
+    final onTeshir = _teshirRec != null;
+    final active = hasGroup || _alsoTeshirLabel;
+    final groupTitle = hasGroup
+        ? LabelGroup.values
+            .firstWhere((g) => g.name == _sendToLabelGroup!)
+            .title
+        : null;
+    return InkWell(
+      onTap: _busy ? null : _pickLabelGroup,
+      borderRadius: BorderRadius.circular(AppTheme.rMd),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: active
+              ? AppTheme.accent.withOpacity(0.10)
+              : AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(
+              color: active
+                  ? AppTheme.accent.withOpacity(0.5)
+                  : AppTheme.hairline),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              active
+                  ? Icons.check_box_rounded
+                  : Icons.check_box_outline_blank_rounded,
+              size: 21,
+              color: active ? AppTheme.accent : AppTheme.textTertiary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    active
+                        ? 'Etiket Basım → ${groupTitle ?? 'Teşhir'}'
+                        : 'Etiket Basım listesine de gönder',
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight:
+                            active ? FontWeight.w800 : FontWeight.w600,
+                        color: active
+                            ? AppTheme.accent
+                            : AppTheme.textSecondary),
+                  ),
+                  // Teshir bilgisi: urun teshirdeyse HER ZAMAN gorunur.
+                  if (onTeshir)
+                    Row(
+                      children: [
+                        const Icon(Icons.storefront_rounded,
+                            size: 12, color: AppTheme.coral),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _alsoTeshirLabel
+                                ? 'Teşhir etiketi de eklenecek'
+                                : 'Bu ürün teşhirde — teşhir etiketi de gerekli',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.coral),
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (!active)
+                    Text('5 listeden birini seç',
+                        style: TextStyle(
+                            fontSize: 11, color: AppTheme.textTertiary)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppTheme.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _bottomBar(PriceChangeItem item) {
     final isDone = item.changed;
     return Container(
@@ -491,47 +644,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
           children: [
             // "Etiket Basim'a da gonder" secimi — sadece henuz
             // isaretlenmemis urunlerde gosterilir.
-            if (!isDone)
-              InkWell(
-                onTap: _busy ? null : _pickLabelGroup,
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 4, vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _sendToLabelGroup != null
-                            ? Icons.check_box_rounded
-                            : Icons.check_box_outline_blank_rounded,
-                        color: _sendToLabelGroup != null
-                            ? AppTheme.accent
-                            : AppTheme.textTertiary,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _sendToLabelGroup == null
-                              ? 'Etiket Basım listesine de gönder'
-                              : 'Etiket Basım → ${LabelGroup.values.firstWhere((g) => g.name == _sendToLabelGroup!).title}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: _sendToLabelGroup != null
-                                ? AppTheme.accent
-                                : AppTheme.textSecondary,
-                            fontWeight: _sendToLabelGroup != null
-                                ? FontWeight.w700
-                                : FontWeight.w400,
-                          ),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: AppTheme.textTertiary),
-                    ],
-                  ),
-                ),
-              ),
+            if (!isDone) _labelTargetRow(),
             // Ana eylem: Cekildi / Geri al
             SizedBox(
               width: double.infinity,
