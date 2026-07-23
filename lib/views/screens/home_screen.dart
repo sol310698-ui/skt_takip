@@ -923,6 +923,9 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
       BarcodeFormat.code39,
       BarcodeFormat.upcA,
       BarcodeFormat.upcE,
+      // KOLI BARKODU: ITF-14 (depo/koli etiketleri). ScanParser bunu
+      // otomatik olarak perakende EAN-13'e cevirir.
+      BarcodeFormat.itf,
     ],
   );
   bool _handled = false;

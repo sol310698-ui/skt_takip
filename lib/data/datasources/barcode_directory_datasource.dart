@@ -18,12 +18,32 @@ class BarcodeDirectoryDataSource {
     if (code.isEmpty) return null;
     final rows = await db.query(
       AppConstants.barcodeTable,
-      where: 'TRIM(barcode) = ?',
-      whereArgs: [code],
+      where: 'TRIM(barcode) = ${_altWhere(code)}',
+      whereArgs: _altArgs(code),
       limit: 1,
     );
     if (rows.isEmpty) return null;
     return BarcodeEntry.fromMap(rows.first);
+  }
+
+  /// KOLI ↔ PERAKENDE ESLESMESI (v153)
+  /// Dizinde kayit bazen KOLI (ITF-14, 14 hane) bazen PERAKENDE (EAN-13)
+  /// olarak durur. Aranan kod 13 haneli ise, govdesi ayni olan 14 haneli
+  /// koli kaydi da kabul edilir; 14 haneli ise tersi.
+  /// Govde = EAN-13'un ilk 12 hanesi = GTIN-14'un 2..13 haneleri.
+  static String? _bodyOf(String code) {
+    if (RegExp(r'^\d{13}$').hasMatch(code)) return code.substring(0, 12);
+    if (RegExp(r'^\d{14}$').hasMatch(code)) return code.substring(1, 13);
+    return null;
+  }
+
+  static String _altWhere(String code) =>
+      _bodyOf(code) == null ? '?' : '? OR SUBSTR(TRIM(barcode), 1, 12) = ? '
+          'OR SUBSTR(TRIM(barcode), 2, 12) = ?';
+
+  static List<Object?> _altArgs(String code) {
+    final body = _bodyOf(code);
+    return body == null ? [code] : [code, body, body];
   }
 
   /// Stok kodu ile tam BarcodeEntry dondurur (etiket/raf akisinda kullanilir).
@@ -49,8 +69,8 @@ class BarcodeDirectoryDataSource {
     final rows = await db.query(
       AppConstants.barcodeTable,
       columns: ['product_name'],
-      where: 'TRIM(barcode) = ?',
-      whereArgs: [code],
+      where: 'TRIM(barcode) = ${_altWhere(code)}',
+      whereArgs: _altArgs(code),
       limit: 1,
     );
     if (rows.isEmpty) return null;

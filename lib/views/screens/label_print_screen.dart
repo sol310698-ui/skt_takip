@@ -1395,6 +1395,9 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
       BarcodeFormat.code39,
       BarcodeFormat.upcA,
       BarcodeFormat.upcE,
+      // KOLI BARKODU: ITF-14 (depo/koli etiketleri). ScanParser bunu
+      // otomatik olarak perakende EAN-13'e cevirir.
+      BarcodeFormat.itf,
     ],
   );
 

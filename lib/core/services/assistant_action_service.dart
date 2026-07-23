@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../data/datasources/barcode_directory_datasource.dart';
+import '../../data/models/barcode_entry.dart';
 import 'database_service.dart';
 import 'shelf_layout_service.dart';
 import 'app_lock_service.dart';
@@ -57,6 +58,8 @@ enum AssistantActionType {
   removeTeshir,
   addRestock,
   clearNotifications,
+  // ── BARKOD DIZINI ──
+  addBarcodeEntry,
   // ── ALARM / CALISMA PROGRAMI ──
   addAlarm,
   deleteAlarm,
@@ -116,6 +119,8 @@ class AssistantAction {
         return 'Reyona açılacaklara ekle';
       case AssistantActionType.clearNotifications:
         return 'Tüm bildirimleri iptal et';
+      case AssistantActionType.addBarcodeEntry:
+        return 'Barkod dizinine ürün ekle';
       case AssistantActionType.addAlarm:
         return 'Alarm kur';
       case AssistantActionType.deleteAlarm:
@@ -247,6 +252,13 @@ class AssistantAction {
         ];
       case AssistantActionType.clearNotifications:
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
+      case AssistantActionType.addBarcodeEntry:
+        return [
+          (label: 'Ürün', value: s('name')),
+          (label: 'Barkod', value: s('barcode')),
+          if (args['stockCode'] != null)
+            (label: 'Stok kodu', value: s('stockCode')),
+        ];
       case AssistantActionType.addAlarm:
         return [
           (label: 'Saat', value: _alarmTimeLabel(args)),
@@ -339,6 +351,7 @@ class AssistantActionService {
       'remove_teshir' => AssistantActionType.removeTeshir,
       'add_restock' => AssistantActionType.addRestock,
       'clear_notifications' => AssistantActionType.clearNotifications,
+      'add_barcode_entry' => AssistantActionType.addBarcodeEntry,
       'add_alarm' => AssistantActionType.addAlarm,
       'delete_alarm' => AssistantActionType.deleteAlarm,
       'db_write' => AssistantActionType.dbWrite,
@@ -682,6 +695,31 @@ class AssistantActionService {
             return '✅ Bekleyen tüm bildirimler iptal edildi.';
           }
 
+        // ── BARKOD DIZINI: ad + barkod eslesmesi (SKT gerekmez) ──
+        // "Urunu veritabanina ekle" isteginin dogru karsiligi cogunlukla
+        // BUDUR; products tablosu SKT (expiry_date) zorunlu kildigi icin
+        // oraya ham SQL ile eklemek NOT NULL hatasi verir.
+        case AssistantActionType.addBarcodeEntry:
+          {
+            final barcode = (a.args['barcode'] ?? '').toString().trim();
+            final name = (a.args['name'] ?? '').toString().trim();
+            if (barcode.isEmpty || name.isEmpty) {
+              return '❌ Barkod ve ürün adı gerekli.';
+            }
+            final sc = a.args['stockCode']?.toString().trim();
+            await BarcodeDirectoryDataSource(DatabaseService.instance)
+                .importAll([
+              BarcodeEntry(
+                barcode: barcode,
+                productName: name,
+                stockCode: (sc == null || sc.isEmpty) ? null : sc,
+                importedAt: DateTime.now(),
+                source: BarcodeSource.manual,
+              )
+            ]);
+            return '✅ Barkod dizinine eklendi: $name';
+          }
+
         // ── ALARM: GERCEK haftalik alarm kurar (sadece DB satiri degil;
         // ScheduleService.setAlarm ile Android alarmi da planlanir) ──
         case AssistantActionType.addAlarm:
@@ -768,6 +806,18 @@ class AssistantActionService {
             }
             final db = await DatabaseService.instance.database;
             if (head.startsWith('insert')) {
+              // ON KONTROL: zorunlu (NOT NULL, varsayilansiz) kolonlar
+              // eksikse SQL'i CALISTIRMADAN anlasilir uyari ver. Boylece
+              // "NOT NULL constraint failed" gibi ham hatalar cikmaz.
+              final miss = await _missingRequiredColumns(db, sql);
+              if (miss.isNotEmpty) {
+                return '❌ Eksik zorunlu alan: ${miss.join(', ')}.\n'
+                    'Bu tabloya kayıt için bu alanlar şart. '
+                    'Ürün + son kullanma tarihi ekliyorsan '
+                    '"add_skt_product", sadece ürün adı + barkod '
+                    'eşleştirmesi yapıyorsan "add_barcode_entry" '
+                    'eylemini kullan.';
+              }
               final id = await db.rawInsert(sql);
               return '✅ Eklendi (id: $id).';
             } else if (head.startsWith('update')) {
@@ -809,6 +859,43 @@ class AssistantActionService {
       }
     } catch (e) {
       return '❌ İşlem başarısız: $e';
+    }
+  }
+
+  /// INSERT ifadesindeki tabloyu ve kolon listesini cozup, tabloda
+  /// ZORUNLU (notnull=1, varsayilani yok, birincil anahtar degil) olup
+  /// ifadede GECMEYEN kolonlari dondurur.
+  Future<List<String>> _missingRequiredColumns(dynamic db, String sql) async {
+    try {
+      final m = RegExp(
+        r'insert\s+(?:or\s+\w+\s+)?into\s+["`\[]?(\w+)["`\]]?\s*\(([^)]*)\)',
+        caseSensitive: false,
+      ).firstMatch(sql);
+      if (m == null) return const [];
+      final table = m.group(1)!;
+      final cols = (m.group(2) ?? '')
+          .split(',')
+          .map((c) => c.trim().replaceAll(RegExp(r'["`\[\]]'), ''))
+          .where((c) => c.isNotEmpty)
+          .map((c) => c.toLowerCase())
+          .toSet();
+      final info = await db.rawQuery('PRAGMA table_info("$table")');
+      final missing = <String>[];
+      for (final r in info) {
+        final name = (r['name'] ?? '').toString();
+        final notNull = (r['notnull'] as int? ?? 0) == 1;
+        final hasDefault = r['dflt_value'] != null;
+        final isPk = (r['pk'] as int? ?? 0) > 0;
+        if (notNull &&
+            !hasDefault &&
+            !isPk &&
+            !cols.contains(name.toLowerCase())) {
+          missing.add(name);
+        }
+      }
+      return missing;
+    } catch (_) {
+      return const []; // cozemedikse engelleme, SQL kendi hatasini versin
     }
   }
 
