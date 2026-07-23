@@ -1552,17 +1552,20 @@ class _MapAislePainter extends CustomPainter {
         ).createShader(Rect.fromLTWH(0, vpY, w, aisleH)),
     );
 
-    // ── TAVAN ARMATURLERI: TERS PERSPEKTIF ────────────────────────
-    // Kacis noktasi ASAGIDA oldugu icin isiklar EN USTTE en genis,
-    // asagi indikce daralarak kacis noktasinda birlesir.
-    final ceilNear = w * 0.36; // en ustteki armaturun yari genisligi
+    // ── TAVAN ARMATURLERI: PERSPEKTIF (yakin BUYUK → uzak KUCUK) ──
+    // Izleyiciye EN YAKIN armatur ekranin ALT kismindadir (koridor
+    // agzinin hemen ustu): en genis ve en kalin. Uzaklastikca YUKARI
+    // dogru kuculur, incelir ve BIRBIRINE YAKLASIR (uzakta sikisma).
+    final ceilNear = w * 0.36; // EN YAKIN (alttaki) armaturun yari eni
     const topPad = 10.0;
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(0, 0, w, vpY)); // tavan bolgesi
     for (int i = 0; i < 5; i++) {
-      final d = (i + 0.35) / 5.0; // 0 = ust/yakin ... 1 = kacis noktasi
-      final t = d * d * 0.82 + d * 0.18; // perspektif sikismasi
-      final y = topPad + (vpY - topPad) * t;
+      final u = (i + 0.35) / 5.0; // 0 = YAKIN (alt) ... 1 = UZAK (ust)
+      // Uzakta sikisma: adimlar uzaklastikca kisalir (gercek perspektif).
+      final t = 1 - (1 - u) * (1 - u);
+      // Alttan (vpY) yukari (topPad) dogru diziliyor.
+      final y = vpY - (vpY - topPad) * t;
       final half = ceilNear + (farHalf - ceilNear) * t;
       final lw = (11.0 - 8.5 * t).clamp(1.8, 11.0);
       final rect = Rect.fromCenter(
@@ -1603,7 +1606,14 @@ class _MapAislePainter extends CustomPainter {
           Paint()..color = _tube.withOpacity(0.95 * glow),
         );
         // 5) ISIK KONISI — armaturden asagi yayilan yumusak huzme.
-        final coneBot = (y + (vpY - y) * 0.55).clamp(y, vpY);
+        // Yakin (buyuk) armaturde belirgin, uzakta neredeyse yok.
+        final maxLen = (vpY - y).clamp(0.0, vpY);
+        final want = (vpY - topPad) * 0.22 * (1 - t);
+        // NOT: clamp'ta alt sinir ust siniri gecemez — cok kisa alanda
+        // (maxLen < 4) dogrudan maxLen kullanilir.
+        final coneLen =
+            maxLen < 4.0 ? maxLen : want.clamp(4.0, maxLen);
+        final coneBot = y + coneLen;
         final spread = half * 1.5;
         final cone = Path()
           ..moveTo(cx - half, y)
