@@ -6,12 +6,58 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Eski artifact'leri silebilmek icin 'actions: write' gerekir.
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Kodu al
         uses: actions/checkout@v4
+
+      # ── ESKI ARTIFACT'LERI SIL (depo kotasi) ──────────────────────────
+      # Her derlemede ~100 MB APK+AAB birikiyordu ve kota dolunca
+      # "Artifact storage quota has been hit" hatasi aliniyordu.
+      # Derlemeden ONCE calisir ki yer acilmis olsun; hata verirse
+      # derlemeyi durdurmaz (continue-on-error).
+      - name: Eski artifact'leri temizle
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            // Once TUMUNU topla (silerken sayfalama kaymasin).
+            const all = [];
+            for (let page = 1; page <= 50; page++) {
+              const res = await github.rest.actions.listArtifactsForRepo({
+                owner, repo, per_page: 100, page,
+              });
+              all.push(...res.data.artifacts);
+              if (res.data.artifacts.length < 100) break;
+            }
+            let deleted = 0, freed = 0, failed = 0;
+            for (const a of all) {
+              // Bu run'in kendi ciktilarina dokunma.
+              if (a.workflow_run && a.workflow_run.id === context.runId) continue;
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner, repo, artifact_id: a.id,
+                });
+                deleted++;
+                freed += a.size_in_bytes || 0;
+              } catch (e) {
+                failed++;
+                core.info(`Silinemedi: ${a.name} (${e.message})`);
+              }
+            }
+            core.notice(
+              `${deleted} eski artifact silindi, ` +
+              `${(freed / 1048576).toFixed(1)} MB boşaldı` +
+              (failed ? `, ${failed} tanesi silinemedi` : '')
+            );
 
       - name: Java 17 kur
         uses: actions/setup-java@v4
@@ -69,6 +115,9 @@ jobs:
           name: skt-takip-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: warn
+          # Kota bir daha dolmasin: cikti 5 gun sonra kendiliginden silinir.
+          retention-days: 5
+          compression-level: 0  # APK zaten sikistirilmis; CPU harcamayalim
 
       - name: AAB'yi yukle (Play icin)
         uses: actions/upload-artifact@v4
@@ -76,3 +125,5 @@ jobs:
           name: skt-takip-aab-play
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: warn
+          retention-days: 5
+          compression-level: 0

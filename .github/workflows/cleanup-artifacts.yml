@@ -1,0 +1,73 @@
+name: Artifact Temizligi
+
+# Derleme yapmadan SADECE eski ciktilari siler (birkac saniye surer).
+#   - Elle: Actions > "Artifact Temizligi" > Run workflow
+#   - Otomatik: her Pazar 03:00 UTC
+on:
+  workflow_dispatch:
+    inputs:
+      keep_days:
+        description: 'Bu kadar gunden YENI olanlari koru (0 = hepsini sil)'
+        required: false
+        default: '0'
+  schedule:
+    - cron: '0 3 * * 0'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Eski artifact'leri sil
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const keepDays = parseInt(
+              (context.payload.inputs && context.payload.inputs.keep_days) || '0',
+              10
+            );
+            const cutoff = keepDays > 0
+              ? Date.now() - keepDays * 24 * 60 * 60 * 1000
+              : null;
+
+            // Once TUMUNU topla; silerken sayfalama kaymasin.
+            const all = [];
+            for (let page = 1; page <= 50; page++) {
+              const res = await github.rest.actions.listArtifactsForRepo({
+                owner, repo, per_page: 100, page,
+              });
+              all.push(...res.data.artifacts);
+              if (res.data.artifacts.length < 100) break;
+            }
+
+            let deleted = 0, freed = 0, kept = 0, failed = 0;
+            for (const a of all) {
+              if (cutoff && new Date(a.created_at).getTime() > cutoff) {
+                kept++;
+                continue;
+              }
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner, repo, artifact_id: a.id,
+                });
+                deleted++;
+                freed += a.size_in_bytes || 0;
+              } catch (e) {
+                failed++;
+                core.info(`Silinemedi: ${a.name} (${e.message})`);
+              }
+            }
+            core.notice(
+              `Toplam ${all.length} artifact · ${deleted} silindi · ` +
+              `${(freed / 1048576).toFixed(1)} MB boşaldı` +
+              (kept ? ` · ${kept} korundu` : '') +
+              (failed ? ` · ${failed} silinemedi` : '')
+            );
+            core.notice(
+              'NOT: GitHub kota kullanimini 6-12 saatte bir yeniden ' +
+              'hesaplar; yer hemen yansimayabilir.'
+            );
