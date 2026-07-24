@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/services/assistant_action_service.dart';
+import '../../core/services/assistant_auto_prefs.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
@@ -262,6 +263,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
           : parsed.cleanText;
       setState(() => _messages
           .add(_ChatMsg(false, display, actions: parsed.actions)));
+      // AKILLI OTOMATIK MOD: acikken zararsiz eylemleri onay beklemeden
+      // hemen calistir (riskli olanlar yine kart ile onay bekler).
+      _maybeAutoRun(_messages.last);
       // Sesli moddaysa cevabi oku (mevcut native TTS ile).
       if (_voiceMode) {
         final speakText = display.length > 300
@@ -293,9 +297,25 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
 
   // ── EYLEM ONAYI ────────────────────────────────────────────────────
   /// Kullanici bir eylem kartinda "Onayla" der -> gercek islemi calistir.
-  Future<void> _approveAction(_ChatMsg msg, int index) async {
+  Future<void> _approveAction(_ChatMsg msg, int index) =>
+      _executeAction(msg, index);
+
+  /// AKILLI OTOMATIK: onay beklemeden ZARARSIZ eylemleri sirayla calistir.
+  /// Riskli (isDestructive) eylemler atlanir -> onlar kart ile elle onaylanir.
+  Future<void> _maybeAutoRun(_ChatMsg msg) async {
+    if (!AssistantAutoPrefs.instance.auto) return;
+    for (var i = 0; i < msg.actions.length; i++) {
+      if (msg.actionStates[i] != null) continue; // zaten islenmis
+      if (msg.actions[i].isDestructive) continue; // riskli -> elle onay
+      await _executeAction(msg, i, haptic: false);
+    }
+  }
+
+  /// Bir eylemi gercekten calistirir (hem elle onay hem otomatik moddan).
+  Future<void> _executeAction(_ChatMsg msg, int index,
+      {bool haptic = true}) async {
     if (msg.actionStates[index] != null) return; // zaten islenmis
-    HapticFeedback.mediumImpact();
+    if (haptic) HapticFeedback.mediumImpact();
     setState(() => msg.actionStates[index] = true);
     final result =
         await AssistantActionService.instance.execute(msg.actions[index]);
@@ -337,14 +357,21 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? _emptyState()
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(14),
-                    itemCount: _messages.length + (_sending ? 1 : 0),
-                    itemBuilder: (_, i) {
-                      if (i == _messages.length) return _typingBubble();
-                      return _bubble(_messages[i]);
-                    },
+                // SelectionArea: tek bir secim katmani ile TUM sohbet
+                // kopyalanabilir. Boylece her baloncukta ayri SelectableText
+                // (pahali) kullanmaya gerek kalmaz -> yazma/kaydirma akici.
+                : SelectionArea(
+                    child: ListView.builder(
+                      controller: _scroll,
+                      padding: const EdgeInsets.all(14),
+                      itemCount: _messages.length + (_sending ? 1 : 0),
+                      itemBuilder: (_, i) {
+                        if (i == _messages.length) return _typingBubble();
+                        // RepaintBoundary: klavye acilip kapanirken ya da
+                        // yeni mesaj gelirken her baloncuk yeniden BOYANMAZ.
+                        return RepaintBoundary(child: _bubble(_messages[i]));
+                      },
+                    ),
                   ),
           ),
           _composer(),
@@ -405,7 +432,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
                       ? (_toolNote == null
                           ? 'düşünüyor…'
                           : 'araç: $_toolNote')
-                      : 'sorar · bulur · onayınla yapar',
+                      : (AssistantAutoPrefs.instance.auto
+                          ? 'otomatik mod · sorar · bulur · yapar'
+                          : 'sorar · bulur · onayınla yapar'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -413,6 +442,30 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
                 ),
               ],
             ),
+          ),
+          // OTOMATIK MOD: acikken zararsiz eylemler onay beklemeden calisir.
+          IconButton(
+            tooltip: AssistantAutoPrefs.instance.auto
+                ? 'Otomatik mod AÇIK — zararsız işlemler onaysız yapılır'
+                : 'Otomatik mod kapalı — her işlem onay ister',
+            onPressed: () async {
+              await AssistantAutoPrefs.instance.toggle();
+              if (!mounted) return;
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                duration: const Duration(seconds: 2),
+                content: Text(AssistantAutoPrefs.instance.auto
+                    ? 'Otomatik mod açık: zararsız işlemler onay beklemeden '
+                        'yapılır (silme/PIN/SQL yine sorar).'
+                    : 'Otomatik mod kapalı: her işlem onayınızı bekler.'),
+              ));
+            },
+            icon: Icon(
+                AssistantAutoPrefs.instance.auto
+                    ? Icons.bolt_rounded
+                    : Icons.bolt_outlined,
+                color:
+                    AssistantAutoPrefs.instance.auto ? Colors.black : Colors.black45),
           ),
           // YUZEN BALONCUK: telefonun her yerinde asistan.
           IconButton(
@@ -524,9 +577,14 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Ürün yerini sor, SKT kontrol et ya da işlem yaptır. '
-          'Gerekirse verilerini kendim inceler, çözümü bulurum — '
-          'her değişikliği senin onayınla yaparım.',
+          AssistantAutoPrefs.instance.auto
+              ? 'Ürün yerini sor, SKT kontrol et ya da işlem yaptır. '
+                  'Gerekirse verilerini kendim inceler, çözümü bulurum. '
+                  'Otomatik mod açık: zararsız işlemleri hemen yaparım '
+                  '(silme/PIN gibi riskli olanları yine sorarım).'
+              : 'Ürün yerini sor, SKT kontrol et ya da işlem yaptır. '
+                  'Gerekirse verilerini kendim inceler, çözümü bulurum — '
+                  'her değişikliği senin onayınla yaparım.',
           textAlign: TextAlign.center,
           style: TextStyle(
               color: AppTheme.textTertiary, fontSize: 13, height: 1.35),
@@ -601,8 +659,10 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             margin: const EdgeInsets.symmetric(vertical: 5),
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            // sizeOf: yalnizca ekran boyutuna abone olur; klavye acilinca
+            // degisen viewInsets bu baloncuklari yeniden CIZDIRMEZ.
             constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.78),
+                maxWidth: MediaQuery.sizeOf(context).width * 0.78),
             decoration: BoxDecoration(
               color: isUser ? AppTheme.accent : AppTheme.surface,
               borderRadius: BorderRadius.only(
@@ -615,8 +675,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             ),
             child: isUser
                 // Accent zeminde SIYAH yazi — uygulamanin accent buton
-                // dili (beyaz yazi acik turkuazda okunmuyordu).
-                ? SelectableText(
+                // dili (beyaz yazi acik turkuazda okunmuyordu). Secim/kopya
+                // ust katmandaki SelectionArea ile saglanir (Text ucuzdur).
+                ? Text(
                     m.text,
                     style: const TextStyle(
                         color: Colors.black, fontSize: 14.5, height: 1.3),
@@ -660,7 +721,10 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     );
   }
 
-  Widget _chatText(String t) => SelectableText(
+  // Duz Text: secim/kopyalama ust katmandaki SelectionArea ile calisir.
+  // (Onceki SelectableText her baloncukta ayri gecidi/overlay olusturup
+  //  yazarken/kaydirirken kasmaya yol aciyordu.)
+  Widget _chatText(String t) => Text(
         t,
         style: TextStyle(
             color: AppTheme.textPrimary, fontSize: 14.5, height: 1.3),
