@@ -6,9 +6,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# Eski artifact'leri silebilmek icin 'actions: write' gerekir.
+# contents: write -> Release olusturup APK/AAB yukleyebilmek icin.
+# actions: write  -> eski artifact'leri silebilmek icin.
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -108,22 +109,23 @@ jobs:
       - name: AAB derle (Google Play)
         run: flutter build appbundle --release --build-number=${{ github.run_number }}
 
-      # ── CIKTILARI YUKLE (Actions > ilgili run > Artifacts'tan indirilir) ──
-      - name: APK'yi yukle
-        uses: actions/upload-artifact@v4
+      # ── CIKTILARI RELEASE OLARAK YAYINLA ──────────────────────────────
+      # NEDEN artifact degil de Release?
+      #   Actions artifact'lerinin ortak bir depolama kotasi var (ucretsiz
+      #   planda ~500 MB) ve her derleme ~100 MB birikince "Artifact storage
+      #   quota has been hit" hatasi veriyordu. Release dosyalari bu kotayi
+      #   HIC kullanmaz -> kota bir daha dolmaz, ustelik APK'ya sabit bir
+      #   indirme linkinden ulasilir:
+      #     repo > Releases > build-<numara> > app-release.apk
+      - name: Release olarak yayinla (APK + AAB)
+        uses: softprops/action-gh-release@v2
         with:
-          name: skt-takip-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: warn
-          # Kota bir daha dolmasin: cikti 5 gun sonra kendiliginden silinir.
-          retention-days: 5
-          compression-level: 0  # APK zaten sikistirilmis; CPU harcamayalim
-
-      - name: AAB'yi yukle (Play icin)
-        uses: actions/upload-artifact@v4
-        with:
-          name: skt-takip-aab-play
-          path: build/app/outputs/bundle/release/app-release.aab
-          if-no-files-found: warn
-          retention-days: 5
-          compression-level: 0
+          tag_name: build-${{ github.run_number }}
+          name: SKT Takip build ${{ github.run_number }}
+          body: |
+            Otomatik derleme (run #${{ github.run_number }}) · commit ${{ github.sha }}
+            İmza: ${{ steps.signing.outputs.signed == 'true' && 'release (imzalı)' || 'imzasız/debug' }}
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+          fail_on_unmatched_files: false
