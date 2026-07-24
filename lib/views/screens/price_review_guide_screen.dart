@@ -39,6 +39,12 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
   /// Urun teshirdeyse "teshir etiketi de gonderilsin" secimi.
   bool _alsoTeshirLabel = false;
 
+  /// Teshir etiketinin gidecegi GECERLI liste (LabelGroup.name).
+  String? _teshirGroupKey;
+
+  /// Ayni A4 kagidindaki TUM urunler (grup). Biri degisince hepsi basilir.
+  List<(String, String)> _teshirMembers = const [];
+
   /// Gosterilen urun teshirde mi (rozet + secici icin) — index degisince
   /// yeniden sorgulanir.
   Map<String, Object?>? _teshirRec;
@@ -133,29 +139,39 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     // TESHIR ETIKETI: urun teshirde ve kullanici istediyse IKINCI etiket
     // ayri "Teşhir" grubuna dusulur (basimda ayirt edilebilsin).
     if (alsoTeshir) {
-      await LabelPendingQueueService.instance.push(
-        barcode: item.barcode,
-        productName: item.productName ?? item.barcode,
-        groupKey: labelGroup ?? 'Teşhir',
-        source: 'teshir',
-      );
+      // GRUBUN TAMAMI: ayni A4 kagidindaki tum urunler listeye gider
+      // (kagit yeniden basilacagi icin biri yetmez). Grup yoksa tek urun.
+      final gKey = _teshirGroupKey ?? LabelGroup.a4.name;
+      final members = _teshirMembers.isEmpty
+          ? [(item.barcode, item.productName ?? item.barcode)]
+          : _teshirMembers;
+      for (final m in members) {
+        await LabelPendingQueueService.instance.push(
+          barcode: m.$1,
+          productName: m.$2,
+          groupKey: gKey,
+          source: 'teshir',
+        );
+      }
     }
     _items[_index] = item.copyWith(changed: true, photoPath: shot.path);
     setState(() {
       _busy = false;
       _sendToLabelGroup = null;
       _alsoTeshirLabel = false;
+      _teshirGroupKey = null;
+      _teshirMembers = const [];
     });
     if ((labelGroup != null || alsoTeshir) && mounted) {
-      final title = labelGroup == null
-          ? 'Teşhir'
-          : LabelGroup.values
-              .firstWhere((g) => g.name == labelGroup)
-              .title;
+      final shownKey = labelGroup ?? _teshirGroupKey ?? LabelGroup.a4.name;
+      final title = LabelGroup.values
+          .firstWhere((g) => g.name == shownKey,
+              orElse: () => LabelGroup.a4)
+          .title;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Etiket Basım → $title'
-              '${alsoTeshir && labelGroup != null ? ' + teşhir etiketi' : ''}'),
+              '${alsoTeshir ? ' + teşhir (${_teshirMembers.isEmpty ? 1 : _teshirMembers.length} ürün)' : ''}'),
           backgroundColor: AppTheme.accent,
           duration: const Duration(milliseconds: 1400),
         ),
@@ -174,6 +190,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
       productName: item.productName ?? item.barcode,
       currentGroupKey: _sendToLabelGroup,
       currentAlsoTeshir: _alsoTeshirLabel,
+      currentTeshirGroupKey: _teshirGroupKey,
       oldPrice: item.oldPrice,
       newPrice: item.newPrice,
     );
@@ -181,6 +198,8 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     setState(() {
       _sendToLabelGroup = res.groupKey;
       _alsoTeshirLabel = res.alsoTeshir;
+      _teshirGroupKey = res.teshirGroupKey;
+      _teshirMembers = res.teshirMembers;
     });
   }
 
@@ -582,7 +601,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
                 children: [
                   Text(
                     active
-                        ? 'Etiket Basım → ${groupTitle ?? 'Teşhir'}'
+                        ? 'Etiket Basım → ${groupTitle ?? _teshirTitle()}'
                         : 'Etiket Basım listesine de gönder',
                     style: TextStyle(
                         fontSize: 13.5,
@@ -628,6 +647,12 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
       ),
     );
   }
+
+  /// Teshir etiketinin gidecegi listenin adi.
+  String _teshirTitle() => LabelGroup.values
+      .firstWhere((g) => g.name == (_teshirGroupKey ?? LabelGroup.a4.name),
+          orElse: () => LabelGroup.a4)
+      .title;
 
   Widget _bottomBar(PriceChangeItem item) {
     final isDone = item.changed;

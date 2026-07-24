@@ -161,6 +161,115 @@ class PriceCheckChannel {
       return null;
     });
   }
+
+  // ── YUZEN ASISTAN BALONCUGU (v159) ────────────────────────────────
+  /// Baska uygulamalarin uzerine cizme izni var mi.
+  static Future<bool> canDrawOverlays() async {
+    try {
+      return await _ch.invokeMethod<bool>('canDrawOverlays') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Izin ekranini acar (kullanici elle vermeli).
+  static Future<void> requestOverlayPermission() async {
+    try {
+      await _ch.invokeMethod('requestOverlayPermission');
+    } catch (_) {}
+  }
+
+  /// Baloncugu baslatir. Izin yoksa false doner.
+  static Future<bool> startBubble() async {
+    try {
+      return await _ch.invokeMethod<bool>('startBubble') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> stopBubble() async {
+    try {
+      await _ch.invokeMethod('stopBubble');
+    } catch (_) {}
+  }
+
+  static Future<bool> isBubbleRunning() async {
+    try {
+      return await _ch.invokeMethod<bool>('isBubbleRunning') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── AJAN: EKRANA DOKUNMA / OKUMA (v160) ───────────────────────────
+  static Future<bool> agentClickText(String text) async {
+    try {
+      return await _ch.invokeMethod<bool>('agentClickText', {'text': text}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> agentTap(double x, double y) async {
+    try {
+      return await _ch.invokeMethod<bool>('agentTap', {'x': x, 'y': y}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> agentSwipe(
+      double x1, double y1, double x2, double y2, int ms) async {
+    try {
+      return await _ch.invokeMethod<bool>('agentSwipe',
+              {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'ms': ms}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 'back' | 'home' | 'recents' | 'notifications'
+  static Future<bool> agentGlobal(String action) async {
+    try {
+      return await _ch
+              .invokeMethod<bool>('agentGlobal', {'action': action}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<String> agentReadScreen() async {
+    try {
+      return await _ch.invokeMethod<String>('agentReadScreen') ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Baska bir uygulamayi paket adiyla acar.
+  static Future<bool> openApp(String package) async {
+    try {
+      return await _ch
+              .invokeMethod<bool>('openApp', {'package': package}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Baloncuktan gelen bekleyen soruyu BIR KEZ okur (yoksa null).
+  static Future<String?> consumePendingQuestion() async {
+    try {
+      return await _ch.invokeMethod<String>('consumePendingQuestion');
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Native tarafin tek bir anda gonderdigi sistem fiyati + urun bilgisi

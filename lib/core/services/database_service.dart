@@ -55,11 +55,21 @@ class DatabaseService {
   /// Yeni kurulum.
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('CREATE TABLE IF NOT EXISTS '
+        '${AppConstants.agentMemoryTable} ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'note TEXT NOT NULL, '
+        'kind TEXT NOT NULL DEFAULT \'kural\', '
+        'hits INTEGER NOT NULL DEFAULT 1, '
+        'created_at INTEGER NOT NULL, '
+        'updated_at INTEGER NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS '
         '${AppConstants.teshirTable} ('
         'id INTEGER PRIMARY KEY AUTOINCREMENT, '
         'barcode TEXT NOT NULL UNIQUE, '
         'product_name TEXT, '
         'note TEXT, '
+        'group_id TEXT, '
+        'group_size INTEGER NOT NULL DEFAULT 1, '
         'added_at INTEGER NOT NULL)');
     await db.execute('CREATE TABLE IF NOT EXISTS '
         '${AppConstants.restockTable} ('
@@ -209,6 +219,32 @@ class DatabaseService {
       await db.execute(
           'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
       await _createShelfLayoutTables(db);
+    }
+    if (oldVersion < 31) {
+      // TESHIR GRUPLARI: ayni A4 kagidina basilacak urunler. Biri
+      // degisince kagit yeniden basilacagi icin GRUBUN TAMAMI gerekir.
+      for (final sql in [
+        "ALTER TABLE ${AppConstants.teshirTable} ADD COLUMN group_id TEXT",
+        "ALTER TABLE ${AppConstants.teshirTable} "
+            "ADD COLUMN group_size INTEGER NOT NULL DEFAULT 1",
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Kolon zaten varsa yok say.
+        }
+      }
+    }
+    if (oldVersion < 30) {
+      // AJAN HAFIZASI: asistanin ogrendigi kurallar/hatalar.
+      await db.execute('CREATE TABLE IF NOT EXISTS '
+        '${AppConstants.agentMemoryTable} ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'note TEXT NOT NULL, '
+        'kind TEXT NOT NULL DEFAULT \'kural\', '
+        'hits INTEGER NOT NULL DEFAULT 1, '
+        'created_at INTEGER NOT NULL, '
+        'updated_at INTEGER NOT NULL)');
     }
     if (oldVersion < 29) {
       // TESHIR: reyon disinda teshirde (stand/ada) duran urunler. Fiyat

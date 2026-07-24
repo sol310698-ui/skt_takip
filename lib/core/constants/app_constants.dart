@@ -6,11 +6,12 @@ class AppConstants {
 
   static const String appName = 'SKT Takip';
   static const String dbName = 'skt_takip.db';
-  static const int dbVersion = 29; // v26: reyon dizilim + urun yerel fotografi
+  static const int dbVersion = 31; // v26: reyon dizilim + urun yerel fotografi
   // Reyon dizilim (planogram): bir reyon = bolum(sutun) x satir(kat) izgarasi.
   static const String shelfUnitTable = 'shelf_units';   // reyon tanimi
   static const String restockTable = 'shelf_restock_items'; // reyona acilacaklar
   static const String teshirTable = 'teshir_items';         // teshirdeki urunler
+  static const String agentMemoryTable = 'agent_memory';    // ajanin ogrendikleri
   static const String shelfSlotTable = 'shelf_slots';   // reyondaki tek urun (foto)
   static const String countTable = 'count_items'; // bagimsiz sayim oturumu
   static const String labelDeletedTable = 'label_deleted'; // silinen etiketler

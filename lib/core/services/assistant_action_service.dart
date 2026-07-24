@@ -7,6 +7,8 @@ import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import 'database_service.dart';
 import 'shelf_layout_service.dart';
+import 'agent_memory_service.dart';
+import 'agent_nav_service.dart';
 import 'app_lock_service.dart';
 import 'flow_prefs.dart';
 import 'location_reveal_prefs.dart';
@@ -14,6 +16,7 @@ import 'notification_service.dart';
 import 'price_check_channel.dart';
 import 'schedule_service.dart';
 import 'shelf_restock_service.dart';
+import 'termux_service.dart';
 import 'teshir_service.dart';
 import 'theme_prefs.dart';
 import 'warehouse_service.dart';
@@ -58,6 +61,14 @@ enum AssistantActionType {
   removeTeshir,
   addRestock,
   clearNotifications,
+  // ── UYGULAMAYI KULLANMA (senin yerine) ──
+  openScreen,
+  // ── TELEFONU KULLANMA (ajan) ──
+  tapText,
+  globalAction,
+  openApp,
+  shellExec,
+  remember,
   // ── BARKOD DIZINI ──
   addBarcodeEntry,
   // ── ALARM / CALISMA PROGRAMI ──
@@ -119,6 +130,19 @@ class AssistantAction {
         return 'Reyona açılacaklara ekle';
       case AssistantActionType.clearNotifications:
         return 'Tüm bildirimleri iptal et';
+      case AssistantActionType.tapText:
+        return 'Ekranda "${args['text'] ?? ''}" ögesine dokun';
+      case AssistantActionType.globalAction:
+        return 'Telefon eylemi: ${args['action'] ?? ''}';
+      case AssistantActionType.openApp:
+        return 'Uygulamayı aç: ${args['package'] ?? ''}';
+      case AssistantActionType.shellExec:
+        return 'Terminal komutu çalıştır';
+      case AssistantActionType.remember:
+        return 'Bunu öğren (hatırla)';
+      case AssistantActionType.openScreen:
+        return 'Ekranı aç: '
+            '${AgentNavService.titleOf(args['screen']?.toString() ?? '') ?? args['screen'] ?? '?'}';
       case AssistantActionType.addBarcodeEntry:
         return 'Barkod dizinine ürün ekle';
       case AssistantActionType.addAlarm:
@@ -252,6 +276,35 @@ class AssistantAction {
         ];
       case AssistantActionType.clearNotifications:
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
+      case AssistantActionType.tapText:
+        return [(label: 'Öge', value: s('text'))];
+      case AssistantActionType.globalAction:
+        return [(label: 'Eylem', value: s('action'))];
+      case AssistantActionType.openApp:
+        return [(label: 'Paket', value: s('package'))];
+      case AssistantActionType.shellExec:
+        return [
+          if (args['description'] != null)
+            (label: 'Amaç', value: s('description')),
+          (label: 'Komut', value: s('command')),
+          (
+            label: 'Risk',
+            value: TermuxService.riskLabel(
+                TermuxService.classify(s('command')))
+          ),
+        ];
+      case AssistantActionType.remember:
+        return [
+          (label: 'Not', value: s('note')),
+          (label: 'Tür', value: args['kind']?.toString() ?? 'kural'),
+        ];
+      case AssistantActionType.openScreen:
+        return [
+          (
+            label: 'Ekran',
+            value: AgentNavService.titleOf(s('screen')) ?? s('screen')
+          ),
+        ];
       case AssistantActionType.addBarcodeEntry:
         return [
           (label: 'Ürün', value: s('name')),
@@ -296,7 +349,8 @@ class AssistantAction {
       (type == AssistantActionType.setAppLock && args['enabled'] == false) ||
       // Ham SQL: her zaman dikkatli onay istenir.
       type == AssistantActionType.dbWrite ||
-      type == AssistantActionType.deleteAlarm;
+      type == AssistantActionType.deleteAlarm ||
+      type == AssistantActionType.shellExec;
 }
 
 class AssistantActionService {
@@ -351,6 +405,12 @@ class AssistantActionService {
       'remove_teshir' => AssistantActionType.removeTeshir,
       'add_restock' => AssistantActionType.addRestock,
       'clear_notifications' => AssistantActionType.clearNotifications,
+      'open_screen' => AssistantActionType.openScreen,
+      'tap_text' => AssistantActionType.tapText,
+      'global_action' => AssistantActionType.globalAction,
+      'open_app' => AssistantActionType.openApp,
+      'shell_exec' => AssistantActionType.shellExec,
+      'remember' => AssistantActionType.remember,
       'add_barcode_entry' => AssistantActionType.addBarcodeEntry,
       'add_alarm' => AssistantActionType.addAlarm,
       'delete_alarm' => AssistantActionType.deleteAlarm,
@@ -693,6 +753,85 @@ class AssistantActionService {
           {
             await NotificationService.instance.cancelAll();
             return '✅ Bekleyen tüm bildirimler iptal edildi.';
+          }
+
+        // ── TELEFONU SENIN YERINE KULLAN (erisilebilirlik) ──
+        case AssistantActionType.tapText:
+          {
+            final t = (a.args['text'] ?? '').toString().trim();
+            if (t.isEmpty) return '❌ Dokunulacak metin belirtilmedi.';
+            if (!await PriceCheckChannel.isServiceRunning()) {
+              return '❌ Erişilebilirlik servisi kapalı; ekrana dokunamam.';
+            }
+            final ok = await PriceCheckChannel.agentClickText(t);
+            return ok
+                ? '✅ "$t" ögesine dokunuldu.'
+                : '❌ Ekranda "$t" bulunamadı.';
+          }
+
+        case AssistantActionType.globalAction:
+          {
+            final act = (a.args['action'] ?? '').toString().trim();
+            if (!await PriceCheckChannel.isServiceRunning()) {
+              return '❌ Erişilebilirlik servisi kapalı.';
+            }
+            final ok = await PriceCheckChannel.agentGlobal(act);
+            return ok ? '✅ Yapıldı: $act' : '❌ "$act" uygulanamadı.';
+          }
+
+        case AssistantActionType.openApp:
+          {
+            final pkg = (a.args['package'] ?? '').toString().trim();
+            if (pkg.isEmpty) return '❌ Paket adı gerekli.';
+            final ok = await PriceCheckChannel.openApp(pkg);
+            return ok ? '✅ Uygulama açıldı.' : '❌ Uygulama bulunamadı: $pkg';
+          }
+
+        // ── TERMUX: onayli komut calistirma ──
+        case AssistantActionType.shellExec:
+          {
+            final cmd = (a.args['command'] ?? '').toString().trim();
+            if (cmd.isEmpty) return '❌ Komut boş.';
+            final risk = TermuxService.classify(cmd);
+            if (risk == ShellRisk.blocked) {
+              return '⛔ Bu komut güvenlik süzgecinde engellendi — '
+                  'cihaza kalıcı zarar verebilir. Çalıştırmadım.';
+            }
+            if (!await TermuxService.instance.isInstalled()) {
+              return '❌ Termux kurulu değil.';
+            }
+            final res = await TermuxService.instance
+                .run(cmd, allowSystemChange: true, timeoutMs: 60000);
+            return res.ok
+                ? '✅ Komut çalıştı.\n${res.summary}'
+                : '⚠️ Komut hata verdi.\n${res.summary}';
+          }
+
+        // ── OGRENME: kullaniciyi hatalardan korumak icin not al ──
+        case AssistantActionType.remember:
+          {
+            final note = (a.args['note'] ?? '').toString().trim();
+            if (note.isEmpty) return '❌ Not boş.';
+            await AgentMemoryService.instance.add(
+              note,
+              kind: (a.args['kind'] ?? 'kural').toString(),
+            );
+            return '✅ Öğrendim: $note';
+          }
+
+        // ── UYGULAMAYI SENIN YERINE KULLAN: ekran ac ──
+        case AssistantActionType.openScreen:
+          {
+            final key = (a.args['screen'] ?? '').toString().trim();
+            if (key.isEmpty) return '❌ Hangi ekran açılacak belirtilmedi.';
+            if (!AgentNavService.exists(key)) {
+              return '❌ "$key" diye bir ekran yok. '
+                  'Kullanılabilir: ${AgentNavService.keyList}';
+            }
+            final ok = await AgentNavService.instance.open(key);
+            return ok
+                ? '✅ ${AgentNavService.titleOf(key)} açıldı.'
+                : '❌ Ekran açılamadı.';
           }
 
         // ── BARKOD DIZINI: ad + barkod eslesmesi (SKT gerekmez) ──

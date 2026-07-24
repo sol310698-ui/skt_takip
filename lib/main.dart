@@ -22,11 +22,14 @@ import 'core/services/skt_alarm_settings.dart';
 import 'core/theme/app_theme.dart';
 import 'views/screens/label_inspect_screen.dart';
 import 'views/screens/lock_screen.dart';
+import 'core/app_navigator.dart';
 import 'views/screens/main_shell.dart';
 import 'views/widgets/label_inspect_fab.dart';
 
 /// Global navigator — alarm caldiginda ekrani acmak icin.
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+/// Tanim core/app_navigator.dart'a tasindi (servisler main.dart'a bagimli
+/// olmasin diye); burada yeniden disa aktariliyor.
+export 'core/app_navigator.dart' show navigatorKey;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

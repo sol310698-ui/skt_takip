@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'agent_memory_service.dart';
 import 'database_service.dart';
+import 'price_check_channel.dart';
+import 'termux_service.dart';
 
 /// ════════════════════════════════════════════════════════════════════
 ///  AGENT ARAC KATMANI (v146)
@@ -76,13 +79,65 @@ class AgentToolService {
           return _query(c.args['sql']?.toString() ?? '');
         case 'prefs_list':
           return _prefsList(c.args['prefix']?.toString());
+        case 'shell_run':
+          return _shell(c.args['command']?.toString() ?? '',
+              c.args['workdir']?.toString());
+        case 'read_screen':
+          return _readScreen();
+        case 'memory_list':
+          return _memoryList();
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
-              'Kullanılabilir: db_schema, db_query, prefs_list.';
+              'Kullanılabilir: db_schema, db_query, prefs_list, '
+              'shell_run, read_screen, memory_list.';
       }
     } catch (e) {
       return '❌ Araç hatası: $e';
     }
+  }
+
+  // ── KABUK / EKRAN / HAFIZA ARACLARI (v160) ─────────────────────────
+
+  /// Termux'ta YALNIZCA zararsiz komut calistirir. Sistemi degistiren
+  /// komutlar burada calismaz; onlar icin onay kartli shell_exec eylemi
+  /// uretilmelidir.
+  Future<String> _shell(String command, String? workdir) async {
+    if (command.trim().isEmpty) return '❌ command alanı boş.';
+    if (!await TermuxService.instance.isInstalled()) {
+      return '❌ Termux kurulu değil. Kabuk komutları kullanılamıyor.';
+    }
+    final risk = TermuxService.classify(command);
+    if (risk != ShellRisk.safe) {
+      return '⚠️ Bu komut "${TermuxService.riskLabel(risk)}" sınıfında; '
+          'araçla çalıştırılamaz. Gerçekten gerekliyse onay kartı için '
+          '```action bloğunda shell_exec kullan.';
+    }
+    final res = await TermuxService.instance.run(command);
+    return res.summary;
+  }
+
+  /// Ekranda ne yazdigini okur (ajan ne gordugunu bilsin).
+  Future<String> _readScreen() async {
+    try {
+      final txt = await PriceCheckChannel.agentReadScreen();
+      if (txt.trim().isEmpty) {
+        return 'Ekran okunamadı (erişilebilirlik servisi kapalı olabilir).';
+      }
+      return 'EKRANDAKİ METİNLER:\n$txt';
+    } catch (e) {
+      return '❌ Ekran okunamadı: $e';
+    }
+  }
+
+  /// Daha once ogrenilen kurallar/hatalar.
+  Future<String> _memoryList() async {
+    final rows = await AgentMemoryService.instance.list(limit: 40);
+    if (rows.isEmpty) return 'Henüz öğrenilmiş not yok.';
+    final buf = StringBuffer('ÖĞRENİLEN NOTLAR (${rows.length}):\n');
+    for (final r in rows) {
+      buf.writeln('- [${r['kind']}] ${r['note']} (${r['hits']}×)');
+    }
+    return buf.toString().trim();
   }
 
   // ── OKUMA ARACLARI ─────────────────────────────────────────────────

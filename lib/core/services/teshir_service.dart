@@ -13,7 +13,12 @@ class TeshirService {
   static final TeshirService instance = TeshirService._();
 
   /// Teshire ekle (ayni barkod varsa adi/notu tazeler).
-  Future<void> add(String barcode, {String? productName, String? note}) async {
+  /// [groupId]/[groupSize] verilirse urun o A4 grubuna baglanir.
+  Future<void> add(String barcode,
+      {String? productName,
+      String? note,
+      String? groupId,
+      int? groupSize}) async {
     final db = await DatabaseService.instance.database;
     final code = barcode.trim();
     if (code.isEmpty) return;
@@ -24,6 +29,8 @@ class TeshirService {
         'barcode': code,
         'product_name': productName,
         'note': note,
+        'group_id': groupId,
+        'group_size': groupSize ?? 1,
         'added_at': DateTime.now().millisecondsSinceEpoch,
       });
     } else {
@@ -33,6 +40,8 @@ class TeshirService {
           if (productName != null && productName.trim().isNotEmpty)
             'product_name': productName.trim(),
           if (note != null) 'note': note,
+          if (groupId != null) 'group_id': groupId,
+          if (groupSize != null) 'group_size': groupSize,
         },
         where: 'barcode = ?',
         whereArgs: [code],
@@ -73,6 +82,37 @@ class TeshirService {
   Future<void> setNote(int id, String? note) async {
     final db = await DatabaseService.instance.database;
     await db.update(AppConstants.teshirTable, {'note': note},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── A4 GRUPLARI ────────────────────────────────────────────────────
+  /// Yeni grup kimligi uretir.
+  String newGroupId() =>
+      'g${DateTime.now().millisecondsSinceEpoch}';
+
+  /// Bir grubun TUM uyeleri (ayni A4 kagidina basilacak urunler).
+  Future<List<Map<String, Object?>>> groupMembers(String groupId) async {
+    final db = await DatabaseService.instance.database;
+    return db.query(AppConstants.teshirTable,
+        where: 'group_id = ?', whereArgs: [groupId], orderBy: 'added_at ASC');
+  }
+
+  /// Barkodun bagli oldugu grubun uyeleri. Grup yoksa yalnizca kendisi.
+  /// Fiyat degisiminde "kagidin tamamini bas" icin kullanilir.
+  Future<List<Map<String, Object?>>> groupOf(String barcode) async {
+    final rec = await find(barcode);
+    if (rec == null) return const [];
+    final gid = rec['group_id'] as String?;
+    if (gid == null || gid.isEmpty) return [rec];
+    final members = await groupMembers(gid);
+    return members.isEmpty ? [rec] : members;
+  }
+
+  /// Gruptan cikar (urun teshirde kalir, tekli olur).
+  Future<void> detach(int id) async {
+    final db = await DatabaseService.instance.database;
+    await db.update(AppConstants.teshirTable,
+        {'group_id': null, 'group_size': 1},
         where: 'id = ?', whereArgs: [id]);
   }
 

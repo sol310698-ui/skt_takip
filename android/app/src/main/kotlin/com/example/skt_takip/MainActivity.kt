@@ -40,6 +40,9 @@ class MainActivity : FlutterFragmentActivity() {
     // gecikmesinden ibaret (genelde <100ms), polling araligindan degil.
     private val priceEventChannel = "skt_takip/price_check_events"
     private val autoEntryChannel = "skt_takip/auto_entry_events"
+    // Baloncuktan gonderilen ve henuz Flutter'a verilmemis soru.
+    private var pendingBubbleQuestion: String? = null
+
     private var autoEntrySink: EventChannel.EventSink? = null
     private var priceEventSink: EventChannel.EventSink? = null
 
@@ -90,6 +93,16 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        readBubbleQuestion(intent)
+    }
+
+    /**
+     * Yuzen baloncuk uygulamayi acarken soruyu extra olarak gonderir;
+     * Flutter tarafi "consumePendingQuestion" ile bir kez okur.
+     */
+    private fun readBubbleQuestion(intent: Intent?) {
+        val q = intent?.getStringExtra(AssistantBubbleService.EXTRA_QUESTION)
+        if (!q.isNullOrBlank()) pendingBubbleQuestion = q
     }
 
     override fun onResume() {
@@ -105,6 +118,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
+        readBubbleQuestion(intent)
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel)
             .setMethodCallHandler { call, result ->
@@ -203,6 +217,106 @@ class MainActivity : FlutterFragmentActivity() {
                     "stopAutoEntry" -> {
                         PriceAccessibilityService.requestStopAuto()
                         result.success(true)
+                    }
+                    // ── YUZEN ASISTAN BALONCUGU ────────────────────────
+                    "canDrawOverlays" -> {
+                        result.success(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                                Settings.canDrawOverlays(this)
+                            else true
+                        )
+                    }
+                    "requestOverlayPermission" -> {
+                        try {
+                            val i = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + packageName)
+                            )
+                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(i)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "startBubble" -> {
+                        val ok = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                            Settings.canDrawOverlays(this) else true
+                        if (!ok) {
+                            result.success(false)
+                        } else {
+                            val i = Intent(this, AssistantBubbleService::class.java)
+                            i.action = AssistantBubbleService.ACTION_START
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                                startForegroundService(i) else startService(i)
+                            result.success(true)
+                        }
+                    }
+                    "stopBubble" -> {
+                        val i = Intent(this, AssistantBubbleService::class.java)
+                        i.action = AssistantBubbleService.ACTION_STOP
+                        stopService(i)
+                        result.success(true)
+                    }
+                    "isBubbleRunning" ->
+                        result.success(AssistantBubbleService.running)
+                    // ── AJAN: EKRANA DOKUNMA (erisilebilirlik) ─────────
+                    "agentClickText" -> {
+                        val t = call.argument<String>("text") ?: ""
+                        result.success(
+                            PriceAccessibilityService.agentClickText(t))
+                    }
+                    "agentTap" -> {
+                        val x = (call.argument<Double>("x") ?: 0.0).toFloat()
+                        val y = (call.argument<Double>("y") ?: 0.0).toFloat()
+                        result.success(PriceAccessibilityService.agentTap(x, y))
+                    }
+                    "agentSwipe" -> {
+                        val x1 = (call.argument<Double>("x1") ?: 0.0).toFloat()
+                        val y1 = (call.argument<Double>("y1") ?: 0.0).toFloat()
+                        val x2 = (call.argument<Double>("x2") ?: 0.0).toFloat()
+                        val y2 = (call.argument<Double>("y2") ?: 0.0).toFloat()
+                        val ms = (call.argument<Int>("ms") ?: 300).toLong()
+                        result.success(
+                            PriceAccessibilityService.agentSwipe(x1, y1, x2, y2, ms))
+                    }
+                    "agentGlobal" -> {
+                        val a = call.argument<String>("action") ?: ""
+                        result.success(PriceAccessibilityService.agentGlobal(a))
+                    }
+                    "agentReadScreen" ->
+                        result.success(PriceAccessibilityService.agentReadScreen())
+                    "openApp" -> {
+                        val pkg = call.argument<String>("package") ?: ""
+                        try {
+                            val i = packageManager.getLaunchIntentForPackage(pkg)
+                            if (i == null) {
+                                result.success(false)
+                            } else {
+                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                startActivity(i)
+                                result.success(true)
+                            }
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    // ── AJAN: TERMUX KABUGU ───────────────────────────
+                    "termuxInstalled" ->
+                        result.success(TermuxBridge.isInstalled(this))
+                    "termuxRun" -> {
+                        val cmd = call.argument<String>("command") ?: ""
+                        val wd = call.argument<String>("workdir")
+                        val to = (call.argument<Int>("timeoutMs") ?: 30000).toLong()
+                        TermuxBridge.run(this, cmd, wd, to) { res ->
+                            runOnUiThread { result.success(res) }
+                        }
+                    }
+                    // Baloncuktan gelen soruyu Flutter'a devret (bir kez).
+                    "consumePendingQuestion" -> {
+                        val q = pendingBubbleQuestion
+                        pendingBubbleQuestion = null
+                        result.success(q)
                     }
                     else -> result.notImplemented()
                 }

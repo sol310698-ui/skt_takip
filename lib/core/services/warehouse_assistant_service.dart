@@ -2,6 +2,7 @@ import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/datasources/product_local_datasource.dart';
 import '../../data/datasources/shift_local_datasource.dart';
 import 'database_service.dart';
+import 'agent_memory_service.dart';
 import 'agent_tool_service.dart';
 import 'gemini_ocr_service.dart';
 import 'label_pending_queue_service.dart';
@@ -145,7 +146,11 @@ class WarehouseAssistantService {
     } catch (_) {}
 
     final out = buf.toString().trim();
-    return out.isEmpty ? '(Kayıtlı veri yok.)' : out;
+    // AJAN HAFIZASI: ogrenilen kurallar/hatalar baglama eklenir ki
+    // kullanici ayni hatayi tekrar etmeden ONCE uyarilabilsin.
+    final learned = await AgentMemoryService.instance.promptBlock();
+    final baseCtx = out.isEmpty ? '(Kayıtlı veri yok.)' : out;
+    return learned.isEmpty ? baseCtx : '$baseCtx\n\n$learned';
   }
 
   /// Kullanicinin sorusunu (gecmisle birlikte) yanitlar.

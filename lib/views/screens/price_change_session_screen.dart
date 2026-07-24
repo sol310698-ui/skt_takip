@@ -70,6 +70,12 @@ class _PriceChangeSessionScreenState
   String? _sendToLabelGroup;
   /// Teshir etiketi de gonderilsin mi (urun teshirdeyse).
   bool _alsoTeshirLabel = false;
+
+  /// Teshir etiketinin gidecegi GECERLI liste (LabelGroup.name).
+  String? _teshirGroupKey;
+
+  /// Ayni A4 kagidindaki TUM urunler (grup). Biri degisince hepsi basilir.
+  List<(String, String)> _teshirMembers = const [];
   static String? _lastLabelGroup; // oturumlar arasi da hatirla
 
   // ── LISTE FILTRE + ARAMA ──
@@ -514,13 +520,22 @@ class _PriceChangeSessionScreenState
     // DOGRUDAN eklenir (tekrar SORULMAZ). Secici hic acilmadiysa eski
     // davranis: urun teshirdeyse sorulur.
     if (_alsoTeshirLabel) {
-      await LabelPendingQueueService.instance.push(
-        barcode: item.barcode,
-        productName: item.productName ?? item.barcode,
-        groupKey: labelGroup ?? 'Teşhir',
-        source: 'teshir',
-      );
+      // GRUBUN TAMAMI listeye gider (ayni A4 kagidi yeniden basilacak).
+      final gKey = _teshirGroupKey ?? LabelGroup.a4.name;
+      final members = _teshirMembers.isEmpty
+          ? [(item.barcode, item.productName ?? item.barcode)]
+          : _teshirMembers;
+      for (final m in members) {
+        await LabelPendingQueueService.instance.push(
+          barcode: m.$1,
+          productName: m.$2,
+          groupKey: gKey,
+          source: 'teshir',
+        );
+      }
       _alsoTeshirLabel = false;
+      _teshirGroupKey = null;
+      _teshirMembers = const [];
     } else {
       await _maybeAskTeshirLabel(item, labelGroup);
     }
@@ -626,8 +641,8 @@ class _PriceChangeSessionScreenState
     await LabelPendingQueueService.instance.push(
       barcode: item.barcode,
       productName: item.productName ?? item.barcode,
-      // Kullanici bir grup sectiyse ayni gruba, secmediyse TESHIR grubuna.
-      groupKey: labelGroup ?? 'Teşhir',
+      // Grup secilmediyse A4 (teshir etiketleri A4 sablonundadir).
+      groupKey: labelGroup ?? LabelGroup.a4.name,
       source: 'teshir',
     );
     if (!mounted) return;
@@ -688,7 +703,7 @@ class _PriceChangeSessionScreenState
                 children: [
                   Text(
                     active
-                        ? 'Etiket Basım → ${groupTitle ?? 'Teşhir'}'
+                        ? 'Etiket Basım → ${groupTitle ?? _teshirTitle()}'
                         : 'Etiket Basım listesine de gönder',
                     style: TextStyle(
                         fontSize: 13.5,
@@ -724,6 +739,12 @@ class _PriceChangeSessionScreenState
     );
   }
 
+  /// Teshir etiketinin gidecegi listenin adi.
+  String _teshirTitle() => LabelGroup.values
+      .firstWhere((g) => g.name == (_teshirGroupKey ?? LabelGroup.a4.name),
+          orElse: () => LabelGroup.a4)
+      .title;
+
   /// ZENGIN ETIKET HEDEFI SECICI (v158) — liste aciklamalari, bekleyen
   /// sayilari ve TESHIR entegrasyonu ortak bilesende.
   Future<void> _pickLabelGroup() async {
@@ -734,6 +755,7 @@ class _PriceChangeSessionScreenState
       productName: item?.productName ?? item?.barcode ?? 'Ürün',
       currentGroupKey: _sendToLabelGroup,
       currentAlsoTeshir: _alsoTeshirLabel,
+      currentTeshirGroupKey: _teshirGroupKey,
       oldPrice: item?.oldPrice,
       newPrice: item?.newPrice,
     );
@@ -741,6 +763,8 @@ class _PriceChangeSessionScreenState
     setState(() {
       _sendToLabelGroup = res.groupKey;
       _alsoTeshirLabel = res.alsoTeshir;
+      _teshirGroupKey = res.teshirGroupKey;
+      _teshirMembers = res.teshirMembers;
     });
   }
 

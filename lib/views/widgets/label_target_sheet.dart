@@ -13,7 +13,22 @@ class LabelTargetChoice {
   /// Urun teshirde ise TESHIR ETIKETI de istendi mi.
   final bool alsoTeshir;
 
-  const LabelTargetChoice({this.groupKey, this.alsoTeshir = false});
+  /// Teshir etiketinin gidecegi liste (LabelGroup.name). Teshir etiketleri
+  /// genelde A4 sablonlarindan biridir; kullanici burada secer.
+  /// NOT: Gecerli bir LabelGroup adi OLMALI — aksi halde Etiket Basim
+  /// ekrani onu taniyamaz.
+  final String? teshirGroupKey;
+
+  /// Teshir grubunun TUM uyeleri (barkod, ad). Ayni A4 kagidina
+  /// basildiklari icin biri degisse bile HEPSI listeye gitmelidir.
+  final List<(String, String)> teshirMembers;
+
+  const LabelTargetChoice({
+    this.groupKey,
+    this.alsoTeshir = false,
+    this.teshirGroupKey,
+    this.teshirMembers = const [],
+  });
 }
 
 /// ════════════════════════════════════════════════════════════════════
@@ -32,6 +47,7 @@ Future<LabelTargetChoice?> showLabelTargetSheet(
   required String productName,
   String? currentGroupKey,
   bool currentAlsoTeshir = false,
+  String? currentTeshirGroupKey,
   double? oldPrice,
   double? newPrice,
 }) {
@@ -47,6 +63,7 @@ Future<LabelTargetChoice?> showLabelTargetSheet(
       productName: productName,
       currentGroupKey: currentGroupKey,
       currentAlsoTeshir: currentAlsoTeshir,
+      currentTeshirGroupKey: currentTeshirGroupKey,
       oldPrice: oldPrice,
       newPrice: newPrice,
     ),
@@ -58,6 +75,7 @@ class _LabelTargetSheet extends StatefulWidget {
   final String productName;
   final String? currentGroupKey;
   final bool currentAlsoTeshir;
+  final String? currentTeshirGroupKey;
   final double? oldPrice;
   final double? newPrice;
   const _LabelTargetSheet({
@@ -65,6 +83,7 @@ class _LabelTargetSheet extends StatefulWidget {
     required this.productName,
     this.currentGroupKey,
     this.currentAlsoTeshir = false,
+    this.currentTeshirGroupKey,
     this.oldPrice,
     this.newPrice,
   });
@@ -76,8 +95,12 @@ class _LabelTargetSheet extends StatefulWidget {
 class _LabelTargetSheetState extends State<_LabelTargetSheet> {
   String? _group;
   bool _alsoTeshir = false;
+
+  /// Teshir etiketi hangi listeye gitsin (varsayilan A4).
+  String _teshirGroup = LabelGroup.a4.name;
   Map<String, int> _counts = {};
   Map<String, Object?>? _teshir; // urun teshirdeyse kaydi
+  List<Map<String, Object?>> _members = const []; // ayni A4 grubundakiler
   bool _loading = true;
 
   @override
@@ -85,6 +108,9 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
     super.initState();
     _group = widget.currentGroupKey;
     _alsoTeshir = widget.currentAlsoTeshir;
+    if (widget.currentTeshirGroupKey != null) {
+      _teshirGroup = widget.currentTeshirGroupKey!;
+    }
     _load();
   }
 
@@ -94,13 +120,27 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
     try {
       counts = await LabelPendingQueueService.instance.pendingCountsByGroup();
     } catch (_) {}
+    List<Map<String, Object?>> members = const [];
     try {
       teshir = await TeshirService.instance.find(widget.barcode);
+      if (teshir != null) {
+        members = await TeshirService.instance.groupOf(widget.barcode);
+      }
     } catch (_) {}
     if (!mounted) return;
     setState(() {
       _counts = counts;
       _teshir = teshir;
+      _members = members;
+      // GRUP LISTEYI BELIRLER: 2'li grup → A4 İkili, 3'lü → A4 Üçlü.
+      final size = members.isEmpty
+          ? ((teshir?['group_size'] as int?) ?? 1)
+          : members.length;
+      _teshirGroup = switch (size) {
+        2 => LabelGroup.a4Double.name,
+        3 => LabelGroup.a4Triple.name,
+        _ => LabelGroup.a4.name,
+      };
       _loading = false;
     });
   }
@@ -232,7 +272,24 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
                               context,
                               LabelTargetChoice(
                                   groupKey: _group,
-                                  alsoTeshir: _alsoTeshir)),
+                                  alsoTeshir: _alsoTeshir,
+                                  teshirGroupKey:
+                                      _alsoTeshir ? _teshirGroup : null,
+                                  teshirMembers: _alsoTeshir
+                                      ? _members
+                                          .map((m) => (
+                                                m['barcode'] as String,
+                                                ((m['product_name']
+                                                            as String?)
+                                                        ?.trim()
+                                                        .isNotEmpty ??
+                                                    false)
+                                                    ? m['product_name']
+                                                        as String
+                                                    : m['barcode'] as String
+                                              ))
+                                          .toList()
+                                      : const [])),
                       child: Text(_group == null && _alsoTeshir
                           ? 'Sadece teşhir etiketi'
                           : 'Onayla'),
@@ -287,10 +344,49 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-              'Reyon etiketi tek başına yetmez — teşhirdeki etiket de '
-              'değişmeli.',
+              _members.length > 1
+                  ? 'Bu ürün ${_members.length}\'li A4 grubunda — aynı kağıt '
+                      'yeniden basılacağı için GRUBUN TAMAMI listeye eklenir:'
+                  : 'Reyon etiketi tek başına yetmez — teşhirdeki etiket de '
+                      'değişmeli.',
               style: TextStyle(
                   fontSize: 11.5, color: AppTheme.textSecondary)),
+          // GRUP UYELERI: kagitta birlikte duran urunler.
+          if (_members.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                spacing: 5,
+                runSpacing: 4,
+                children: [
+                  for (final m in _members)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: (m['barcode'] == widget.barcode
+                                ? AppTheme.coral
+                                : AppTheme.textTertiary)
+                            .withOpacity(0.18),
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.rPill),
+                      ),
+                      child: Text(
+                        ((m['product_name'] as String?)?.trim().isNotEmpty ??
+                                false)
+                            ? m['product_name'] as String
+                            : m['barcode'] as String,
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: m['barcode'] == widget.barcode
+                                ? FontWeight.w900
+                                : FontWeight.w600,
+                            color: AppTheme.textPrimary),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           const SizedBox(height: 4),
           InkWell(
             borderRadius: BorderRadius.circular(8),
@@ -317,6 +413,43 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
               ),
             ),
           ),
+          if (_alsoTeshir && _members.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                  '→ ${LabelGroup.values.firstWhere((g) => g.name == _teshirGroup, orElse: () => LabelGroup.a4).title} '
+                  'listesine ${_members.length} ürün eklenecek',
+                  style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.coral)),
+            ),
+          // TESHIR ETIKETI HANGI LISTEYE: A4 sablonlari (grupsuzsa).
+          if (_alsoTeshir && _members.length <= 1) ...[
+            const SizedBox(height: 2),
+            Text('Teşhir etiketi şu listeye eklensin:',
+                style: TextStyle(
+                    fontSize: 11.5, color: AppTheme.textSecondary)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (final g in const [
+                  LabelGroup.a4,
+                  LabelGroup.a4Double,
+                  LabelGroup.a4Triple,
+                ])
+                  ChoiceChip(
+                    label: Text(g.title,
+                        style: const TextStyle(fontSize: 12)),
+                    selected: _teshirGroup == g.name,
+                    selectedColor: AppTheme.coral.withOpacity(0.25),
+                    onSelected: (_) =>
+                        setState(() => _teshirGroup = g.name),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

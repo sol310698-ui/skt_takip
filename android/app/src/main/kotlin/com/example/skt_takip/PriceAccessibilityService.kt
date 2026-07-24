@@ -261,6 +261,40 @@ class PriceAccessibilityService : AccessibilityService() {
         }
 
         // ════════════════════════════════════════════════════════════════
+        //  AJAN DOKUNMA API'SI (v160)
+        //  Asistanin "senin yerine dokunmasi" icin genel amacli komutlar.
+        //  Sirket uygulamasina ozel akistan BAGIMSIZ calisir: ekranda ne
+        //  varsa onun uzerinde is yapar.
+        // ════════════════════════════════════════════════════════════════
+        /** Ekranda [text] iceren TIKLANABILIR ogeyi bulup basar. */
+        fun agentClickText(text: String): Boolean =
+            instance?.clickByText(text) ?: false
+
+        /** Verilen noktaya gercek dokunus gonderir. */
+        fun agentTap(x: Float, y: Float): Boolean =
+            instance?.tapAt(x, y) ?: false
+
+        /** Kaydirma hareketi (piksel koordinatlari). */
+        fun agentSwipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long)
+            : Boolean = instance?.swipeBetween(x1, y1, x2, y2, ms) ?: false
+
+        /** Geri / Ana ekran / Son uygulamalar gibi genel eylemler. */
+        fun agentGlobal(action: String): Boolean {
+            val svc = instance ?: return false
+            val id = when (action.lowercase()) {
+                "back", "geri" -> GLOBAL_ACTION_BACK
+                "home", "anaekran" -> GLOBAL_ACTION_HOME
+                "recents", "son" -> GLOBAL_ACTION_RECENTS
+                "notifications", "bildirim" -> GLOBAL_ACTION_NOTIFICATIONS
+                else -> return false
+            }
+            return svc.performGlobalAction(id)
+        }
+
+        /** Ekrandaki gorunur metinleri okur (ajan ne gordugunu bilsin). */
+        fun agentReadScreen(): String = instance?.readVisibleTexts() ?: ""
+
+        // ════════════════════════════════════════════════════════════════
         //  OTOMATIK GEZINME AKISI (auto-flow)
         // ────────────────────────────────────────────────────────────────
         //  Amac: kullanici bizim uygulamayi sirket uygulamasinin ustunde
@@ -573,6 +607,102 @@ class PriceAccessibilityService : AccessibilityService() {
             Log.e(TAG, "tapAt hata: ${e.message}")
             false
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  AJAN DOKUNMA/OKUMA GOVDELERI (v160)
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Ekranda [text] iceren ogeyi bulur ve basar. Once TAM eslesme,
+     * bulunamazsa ICEREN eslesme denenir. Bulunan oge tiklanabilir
+     * degilse tiklanabilir bir atasi aranir; o da yoksa ogenin
+     * merkezine gercek dokunus gonderilir.
+     */
+    private fun clickByText(text: String): Boolean {
+        val q = text.trim()
+        if (q.isEmpty()) return false
+        val root = rootInActiveWindow ?: return false
+        val exact = root.findAccessibilityNodeInfosByText(q)
+        val candidates = if (!exact.isNullOrEmpty()) exact
+        else collectAll(root).filter {
+            (it.text?.toString() ?: "").contains(q, ignoreCase = true) ||
+                (it.contentDescription?.toString() ?: "")
+                    .contains(q, ignoreCase = true)
+        }
+        for (node in candidates) {
+            var n: AccessibilityNodeInfo? = node
+            var hops = 0
+            while (n != null && hops < 6) {
+                if (n.isClickable && n.isEnabled) {
+                    if (n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        return true
+                    }
+                }
+                n = n.parent
+                hops++
+            }
+            // Tiklanabilir ata yok -> ogenin merkezine dokun.
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            if (r.width() > 0 && r.height() > 0) {
+                if (tapAt(r.exactCenterX(), r.exactCenterY())) return true
+            }
+        }
+        return false
+    }
+
+    /** Iki nokta arasi kaydirma (scroll/sayfa gecisi icin). */
+    private fun swipeBetween(
+        x1: Float, y1: Float, x2: Float, y2: Float, ms: Long
+    ): Boolean {
+        return try {
+            val path = android.graphics.Path().apply {
+                moveTo(x1, y1)
+                lineTo(x2, y2)
+            }
+            val stroke = GestureDescription.StrokeDescription(
+                path, 0, if (ms <= 0) 300 else ms
+            )
+            dispatchGesture(
+                GestureDescription.Builder().addStroke(stroke).build(),
+                null, null
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "swipe hata: ${e.message}")
+            false
+        }
+    }
+
+    /** Ekrandaki gorunur metinleri satir satir dondurur (en fazla 80). */
+    private fun readVisibleTexts(): String {
+        val root = rootInActiveWindow ?: return ""
+        val out = LinkedHashSet<String>()
+        for (n in collectAll(root)) {
+            val t = (n.text?.toString() ?: n.contentDescription?.toString()
+                ?: "").trim()
+            if (t.isNotEmpty() && t.length <= 120) out.add(t)
+            if (out.size >= 80) break
+        }
+        return out.joinToString("\n")
+    }
+
+    /** Agactaki tum dugumleri toplar (derinlik sinirli). */
+    private fun collectAll(
+        root: AccessibilityNodeInfo,
+        max: Int = 400
+    ): List<AccessibilityNodeInfo> {
+        val out = ArrayList<AccessibilityNodeInfo>()
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        while (stack.isNotEmpty() && out.size < max) {
+            val n = stack.removeLast()
+            out.add(n)
+            for (i in 0 until n.childCount) {
+                n.getChild(i)?.let { stack.addLast(it) }
+            }
+        }
+        return out
     }
 
     /** Sirket uygulamasinin pencere kokunu dondurur (pakete kilitli). */

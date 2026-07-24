@@ -6,7 +6,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/teshir_service.dart';
-import '../../core/services/waybill_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/scan_parser.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
@@ -32,6 +31,11 @@ class _TeshirScreenState extends State<TeshirScreen> {
   List<Map<String, Object?>> _items = [];
   final Map<String, String?> _photoCache = {};
   bool _cameraOn = false;
+
+  /// AKTIF GRUP: sablon secilince baslar, kapasite dolunca kapanir.
+  String? _groupId;
+  int _groupSize = 1;
+  int _groupFilled = 0;
 
   final TextEditingController _hidCtrl = TextEditingController();
   final FocusNode _hidFocus = FocusNode();
@@ -98,8 +102,33 @@ class _TeshirScreenState extends State<TeshirScreen> {
     try {
       name = await _dirRepo.findProductName(code);
     } catch (_) {}
-    await TeshirService.instance.add(code, productName: name);
+    final inGroup = _groupId != null && _groupFilled < _groupSize;
+    await TeshirService.instance.add(
+      code,
+      productName: name,
+      groupId: inGroup ? _groupId : null,
+      groupSize: inGroup ? _groupSize : null,
+    );
     HapticFeedback.mediumImpact();
+    if (inGroup) {
+      setState(() => _groupFilled++);
+      if (_groupFilled >= _groupSize) {
+        // Sablon doldu: grup kapanir, istenirse yenisi baslatilir.
+        final size = _groupSize;
+        setState(() {
+          _groupId = null;
+          _groupFilled = 0;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('$size\'li grup tamamlandı'),
+            backgroundColor: AppTheme.statusSafe,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+      }
+    }
     await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -108,6 +137,135 @@ class _TeshirScreenState extends State<TeshirScreen> {
       duration: const Duration(milliseconds: 900),
       behavior: SnackBarBehavior.floating,
     ));
+  }
+
+  /// ══════════════════════════════════════════════════════════════════
+  ///  A4 GRUBU BASLAT (v162)
+  ///  Ayni kagida basilacak urunleri birlikte kaydeder. Fiyat degisiminde
+  ///  gruptan BIRI degisse bile KAGIDIN TAMAMI etiket listesine gider.
+  /// ══════════════════════════════════════════════════════════════════
+  Future<void> _startGroup() async {
+    final size = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AppTheme.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.dashboard_customize_rounded,
+                      color: AppTheme.coral),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('A4 Grubu Oluştur',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900)),
+                        Text(
+                            'Aynı kağıda basılacak ürünleri arka arkaya '
+                            'okut; grup kalıcı olur',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textTertiary)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final o in const [
+              (1, 'Tekli', 'A4 · kağıtta 1 ürün'),
+              (2, 'İkili', 'A4 İkili · kağıtta 2 ürün'),
+              (3, 'Üçlü', 'A4 Üçlü · kağıtta 3 ürün'),
+            ])
+              ListTile(
+                leading: Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.coral.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${o.$1}',
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.coral)),
+                ),
+                title: Text(o.$2,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(o.$3,
+                    style: const TextStyle(fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, o.$1),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (size == null || !mounted) return;
+    setState(() {
+      _groupId = TeshirService.instance.newGroupId();
+      _groupSize = size;
+      _groupFilled = 0;
+    });
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$size ürün okut — aynı A4 kağıdına yazılacaklar'),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
+
+  /// Aktif grup durumu cubugu.
+  Widget _groupBar() {
+    final label = switch (_groupSize) {
+      2 => 'A4 İkili',
+      3 => 'A4 Üçlü',
+      _ => 'A4',
+    };
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.coral.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: AppTheme.coral.withOpacity(0.45)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.dashboard_customize_rounded,
+              size: 18, color: AppTheme.coral),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+                '$label grubu oluşturuluyor · $_groupFilled/$_groupSize okutuldu',
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.coral)),
+          ),
+          TextButton(
+            onPressed: () => setState(() {
+              _groupId = null;
+              _groupFilled = 0;
+            }),
+            style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: AppTheme.coral),
+            child: const Text('İptal', style: TextStyle(fontSize: 12.5)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openHub(String barcode, String name) async {
@@ -188,100 +346,6 @@ class _TeshirScreenState extends State<TeshirScreen> {
     ));
   }
 
-  /// A4 ETIKET YAZDIR: sablon secimi (tekli/ikili/uclu) → PDF.
-  Future<void> _printLabels() async {
-    final perPage = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.print_rounded, color: AppTheme.coral),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('A4 Teşhir Etiketi',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900)),
-                        Text(
-                            '${_items.length} ürün · şablon dolunca '
-                            'yeni sayfa açılır',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textTertiary)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            for (final opt in const [
-              (1, 'Tekli', 'Sayfada 1 etiket — en büyük'),
-              (2, 'İkili', 'Sayfada 2 etiket'),
-              (3, 'Üçlü', 'Sayfada 3 etiket — en çok ürün'),
-            ])
-              ListTile(
-                leading: Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppTheme.coral.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text('${opt.$1}',
-                      style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.coral)),
-                ),
-                title: Text(opt.$2,
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text(
-                    '${opt.$3} · '
-                    '${(_items.length / opt.$1).ceil()} sayfa',
-                    style: const TextStyle(fontSize: 12)),
-                onTap: () => Navigator.pop(ctx, opt.$1),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (perPage == null || !mounted) return;
-
-    final data = _items.map((it) {
-      final barcode = it['barcode'] as String;
-      final name = (it['product_name'] as String?)?.trim();
-      return TeshirLabelData(
-        barcode: barcode,
-        name: (name == null || name.isEmpty) ? barcode : name,
-        note: it['note'] as String?,
-      );
-    }).toList();
-
-    try {
-      await WaybillService.instance
-          .printTeshirLabels(items: data, perPage: perPage);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Yazdırma hatası: $e'),
-        backgroundColor: AppTheme.statusExpired,
-      ));
-    }
-  }
-
   // ── UI ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -298,6 +362,7 @@ class _TeshirScreenState extends State<TeshirScreen> {
                   onDetect: _onDetect),
             ),
           _hidBar(),
+          if (_groupId != null) _groupBar(),
           Expanded(
             child: _items.isEmpty
                 ? const EmptyState(
@@ -305,8 +370,9 @@ class _TeshirScreenState extends State<TeshirScreen> {
                     title: 'Teşhir listesi boş',
                     subtitle:
                         'Teşhirde (ada, stand, palet teşhiri) duran '
-                        'ürünlerin barkodlarını okutun. Fiyat değişiminde '
-                        'bu ürünler yakalanıp teşhir etiketi sorulur.',
+                        'ürünlerin barkodlarını okutun. Bu ekran yalnızca '
+                        'GRUPLAMA yapar; etiket gönderimi Fiyat Değişim '
+                        'akışında, ürün eşleştiğinde sorulur.',
                   )
                 : ListView.builder(
                     padding: EdgeInsets.fromLTRB(16, 8, 16,
@@ -363,12 +429,6 @@ class _TeshirScreenState extends State<TeshirScreen> {
             ),
           ),
           // A4 TESHIR ETIKETLERI: tekli/ikili/uclu sablon.
-          IconButton(
-            tooltip: 'A4 etiket yazdır',
-            onPressed: _items.isEmpty ? null : _printLabels,
-            icon: Icon(Icons.print_rounded,
-                color: _items.isEmpty ? Colors.white38 : Colors.white),
-          ),
           // Adi cozulmemis kayitlari dizinden tazele.
           if (_missingNameCount > 0)
             IconButton(
@@ -376,6 +436,12 @@ class _TeshirScreenState extends State<TeshirScreen> {
               onPressed: _refreshNames,
               icon: const Icon(Icons.sync_rounded, color: Colors.white),
             ),
+          IconButton(
+            tooltip: 'A4 grubu oluştur',
+            onPressed: _groupId == null ? _startGroup : null,
+            icon: Icon(Icons.dashboard_customize_rounded,
+                color: _groupId == null ? Colors.white : Colors.white38),
+          ),
           IconButton(
             tooltip: _cameraOn ? 'Kamerayı kapat' : 'Kamerayla okut',
             onPressed: () {

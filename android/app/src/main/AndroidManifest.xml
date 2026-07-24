@@ -33,6 +33,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- YUZEN ASISTAN BALONCUGU: telefonun her yerinde gorunen pencere. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- AJAN KABUGU: Termux'ta komut calistirmak icin. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
     <!-- "alarm" paketinin Samsung/Xiaomi/Oppo gibi OEM cihazlarda
@@ -66,6 +72,16 @@
 
         <!-- Kalici on plan servisi: uygulamayi swipe-kill'e karsi ayakta tutar.
              Alarmlarin guvenilir calismasi icin. Kullanici acip kapatabilir. -->
+        <service
+            android:name=".AssistantBubbleService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="assistant_bubble" />
+        </service>
+
         <service
             android:name=".KeepAliveService"
             android:enabled="true"
@@ -136,6 +152,7 @@
         </service>
     </application>
     <queries>
+        <package android:name="com.termux" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

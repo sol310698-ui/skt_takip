@@ -50,6 +50,13 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   // Agent hangi araclari kullaniyor (yazi yaziyor gostergesinde gorunur).
   String? _toolNote;
 
+  /// ELLER SERBEST: cevap seslendirildikten sonra OTOMATIK yeniden
+  /// dinlemeye gecer — depoda telefona dokunmadan konusmak icin.
+  bool _handsFree = false;
+
+  /// Yuzen baloncuk calisiyor mu.
+  bool _bubbleOn = false;
+
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final List<_ChatMsg> _messages = [];
@@ -68,6 +75,11 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Yuzen baloncuktan bir soru geldiyse dogrudan sor.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _consumeBubble());
+    PriceCheckChannel.isBubbleRunning().then((v) {
+      if (mounted) setState(() => _bubbleOn = v);
+    });
     _checkKey();
     _initSpeech();
   }
@@ -147,6 +159,66 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     if (mounted) setState(() => _hasKey = has);
   }
 
+  /// YUZEN BALONCUK ac/kapa. Izin yoksa izin ekranina yonlendirir.
+  Future<void> _toggleBubble() async {
+    if (_bubbleOn) {
+      await PriceCheckChannel.stopBubble();
+      if (mounted) setState(() => _bubbleOn = false);
+      return;
+    }
+    final allowed = await PriceCheckChannel.canDrawOverlays();
+    if (!allowed) {
+      if (!mounted) return;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('İzin gerekli'),
+          content: const Text(
+              'Asistanın telefonun her yerinde baloncuk olarak görünmesi '
+              'için "diğer uygulamaların üzerinde göster" izni gerekiyor. '
+              'Ayarları açalım mı?'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Vazgeç')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Ayarları Aç')),
+          ],
+        ),
+      );
+      if (go == true) await PriceCheckChannel.requestOverlayPermission();
+      return;
+    }
+    final ok = await PriceCheckChannel.startBubble();
+    if (!mounted) return;
+    setState(() => _bubbleOn = ok);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Baloncuk açıldı — telefonun her yerinden sorabilirsin'
+          : 'Baloncuk açılamadı'),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: ok ? AppTheme.statusSafe : AppTheme.statusExpired,
+    ));
+  }
+
+  /// Baloncuktan gelen bekleyen soruyu alip otomatik gonderir.
+  Future<void> _consumeBubble() async {
+    final q = await PriceCheckChannel.consumePendingQuestion();
+    if (q == null || q.trim().isEmpty || !mounted) return;
+    _input.text = q.trim();
+    _send();
+  }
+
+  /// Cevap bittikten sonra eller serbest moddaysak yeniden dinle.
+  void _maybeListenAgain() {
+    if (!_handsFree || !mounted || _sending || _listening) return;
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (_handsFree && mounted && !_sending && !_listening) _toggleListen();
+    });
+  }
+
   Future<void> _send() async {
     final q = _input.text.trim();
     if (q.isEmpty || _sending) return;
@@ -196,6 +268,8 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             ? '${display.substring(0, 300)}…'
             : display;
         await PriceCheckChannel.speak(speakText);
+        // Eller serbest: konusma bitince mikrofonu tekrar ac.
+        _maybeListenAgain();
       }
     } on GeminiOcrException catch (e) {
       if (!mounted) return;
@@ -339,6 +413,34 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
                 ),
               ],
             ),
+          ),
+          // YUZEN BALONCUK: telefonun her yerinde asistan.
+          IconButton(
+            tooltip: 'Yüzen baloncuk',
+            onPressed: _toggleBubble,
+            icon: Icon(
+                _bubbleOn
+                    ? Icons.bubble_chart_rounded
+                    : Icons.bubble_chart_outlined,
+                color: _bubbleOn ? Colors.black : Colors.black45),
+          ),
+          // ELLER SERBEST: cevaptan sonra otomatik yeniden dinler.
+          IconButton(
+            tooltip: _handsFree
+                ? 'Eller serbest AÇIK — konuşmaya devam et'
+                : 'Eller serbest konuşma',
+            onPressed: () {
+              setState(() {
+                _handsFree = !_handsFree;
+                if (_handsFree) _voiceMode = true;
+              });
+              if (_handsFree && !_listening) _toggleListen();
+            },
+            icon: Icon(
+                _handsFree
+                    ? Icons.record_voice_over_rounded
+                    : Icons.voice_over_off_rounded,
+                color: _handsFree ? Colors.black : Colors.black45),
           ),
           // Sesli mod: acikken cevaplar TTS ile okunur.
           IconButton(
