@@ -6,9 +6,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# Eski artifact'leri silebilmek icin 'actions: write' gerekir.
+# Eski artifact'leri silebilmek icin 'actions: write';
+# APK'yi Release olarak yayinlayabilmek icin 'contents: write' gerekir.
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -108,8 +109,29 @@ jobs:
       - name: AAB derle (Google Play)
         run: flutter build appbundle --release --build-number=${{ github.run_number }}
 
-      # ── CIKTILARI YUKLE (Actions > ilgili run > Artifacts'tan indirilir) ──
+      # ── APK'YI RELEASE OLARAK YAYINLA (birincil dagitim) ──────────────
+      # Artifact depolama kotasi dolunca (CreateArtifact quota hatasi) APK
+      # indirilemiyordu. Release varliklari bu kotaya TAKILMAZ ve telefona
+      # kurmak icin kalici, dogrudan indirme linki verir. Derleme basarili
+      # olup APK olustuysa her kosulda calisir.
+      - name: APK'yi Release olarak yayinla
+        if: ${{ always() && hashFiles('build/app/outputs/flutter-apk/app-release.apk') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="apk-${{ github.run_number }}"
+          gh release create "$TAG" \
+            "build/app/outputs/flutter-apk/app-release.apk#SKT-Takip-${{ github.run_number }}.apk" \
+            --title "SKT Takip APK #${{ github.run_number }}" \
+            --notes "Dal: ${{ github.ref_name }} · commit ${{ github.sha }}. Asistan güncellemeleri: list_apps + uygulama açma, imha/iade, SKT güncelle/sil, reyona yerleştir, tam yedek, tüm ekranlara gezinme." \
+            --target "${{ github.sha }}"
+          echo "APK Release olarak yayınlandı: tag $TAG"
+
+      # ── CIKTILARI ARTIFACT OLARAK DA YUKLE (kota varsa) ───────────────
+      # Kota doluysa bu adimlar hata verebilir; is'i DURDURMASIN diye
+      # continue-on-error. Birincil dagitim yukaridaki Release'tir.
       - name: APK'yi yukle
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skt-takip-apk
@@ -120,6 +142,7 @@ jobs:
           compression-level: 0  # APK zaten sikistirilmis; CPU harcamayalim
 
       - name: AAB'yi yukle (Play icin)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skt-takip-aab-play
