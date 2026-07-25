@@ -243,6 +243,17 @@ class PriceCheckChannel {
     }
   }
 
+  /// Odakli (ya da ilk) yazi kutusuna metin yazar — arama kutularini
+  /// doldurmak icin (ajanin baska uygulamalarda arama yapabilmesi).
+  static Future<bool> agentSetText(String text) async {
+    try {
+      return await _ch.invokeMethod<bool>('agentSetText', {'text': text}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String> agentReadScreen() async {
     try {
       return await _ch.invokeMethod<String>('agentReadScreen') ?? '';
@@ -259,6 +270,24 @@ class PriceCheckChannel {
           false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Yuklu (baslatilabilir) uygulamalari listeler — Termux GEREKTIRMEZ.
+  /// Her oge: {'package': ..., 'label': ...}
+  static Future<List<Map<String, String>>> listInstalledApps() async {
+    try {
+      final r = await _ch.invokeMethod<List<dynamic>>('listInstalledApps');
+      if (r == null) return const [];
+      return r.map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return {
+          'package': (m['package'] ?? '').toString(),
+          'label': (m['label'] ?? '').toString(),
+        };
+      }).toList();
+    } catch (_) {
+      return const [];
     }
   }
 

@@ -72,6 +72,35 @@ class TermuxService {
     }
   }
 
+  /// Termux'a komut gonderme izni (RUN_COMMAND) verilmis mi?
+  Future<bool> hasPermission() async {
+    try {
+      return await _ch.invokeMethod<bool>('termuxHasPermission') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Izni RUNTIME'da ister -> sistem izin penceresi acilir. Zaten verilmisse
+  /// true doner. Kullanici pencerede onayladiktan sonra komutlar calisir.
+  Future<bool> requestPermission() async {
+    try {
+      return await _ch.invokeMethod<bool>('requestTermuxPermission') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Termux kurulu ama izin yoksa sistem penceresini bir kez gosterir.
+  /// (Asistan ekrani acilinca cagrilir; kullanici erkenden izin verir.)
+  Future<void> ensurePermissionPrompt() async {
+    try {
+      if (await isInstalled() && !await hasPermission()) {
+        await requestPermission();
+      }
+    } catch (_) {}
+  }
+
   // ── GUVENLIK SUZGECI ───────────────────────────────────────────────
 
   /// Asla calistirilmayacak kaliplar.

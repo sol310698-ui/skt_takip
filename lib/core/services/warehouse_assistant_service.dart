@@ -179,7 +179,7 @@ class WarehouseAssistantService {
   Future<String> askAgent({
     required List<Map<String, String>> history,
     required String question,
-    int maxSteps = 4,
+    int maxSteps = 8,
     void Function(String note)? onStep,
   }) async {
     final context = await buildLocalContext();
@@ -220,6 +220,11 @@ class WarehouseAssistantService {
       ];
       q = 'ARAÇ SONUÇLARI:\n$results\n\n'
           'Bu sonuçlara göre kullanıcının isteğini yerine getir. '
+          'Bir komut/araç HATA verdiyse PES ETME: hatayı oku, nedenini '
+          'anla ve BAŞKA BİR YOL dene — eksik araç varsa kur '
+          '({"tool":"shell_run","command":"pkg install -y ..."}), farklı '
+          'komut/yaklaşım dene, gerekirse adım adım ilerle. Kullanıcı bir şey '
+          '"yap/bul" dediyse yolunu bulana kadar araçlarla DENE. '
           'Gerekiyorsa yeni bir ```tool çağır; bilgi yeterliyse Türkçe '
           'cevabı yaz ve değişiklik gerekiyorsa ```action bloğu üret.';
     }

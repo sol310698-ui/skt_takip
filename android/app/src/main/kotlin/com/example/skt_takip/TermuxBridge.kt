@@ -128,7 +128,34 @@ object TermuxBridge {
             i.putExtra(EXTRA_BACKGROUND, true)
             i.putExtra(EXTRA_SESSION_ACTION, "0")
             i.putExtra(EXTRA_PENDING_INTENT, pi)
-            ctx.startService(i)
+            // ONEMLI: Termux RunCommandService kendini foreground servis
+            // yapar; Android 8+ (Oreo) uzerinde ARKA PLANDAN startService ile
+            // baslatmak "Not allowed to start service ... app is in background"
+            // hatasi verir ve komut HIC calismaz ("RunCommand bulunamadi"
+            // gorunumu). Bu yuzden 8+ icin startForegroundService kullanilir.
+            val cn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(i)
+            } else {
+                ctx.startService(i)
+            }
+            if (cn == null) {
+                if (!finished) {
+                    finished = true
+                    try {
+                        ctx.unregisterReceiver(receiver)
+                    } catch (_: Exception) {
+                    }
+                    onResult(
+                        fail(
+                            "Termux RunCommandService bulunamadı. Termux'u " +
+                                "F-Droid sürümüyle güncelleyip en az bir kez " +
+                                "açın (Play Store sürümü çok eski, RUN_COMMAND " +
+                                "servisi yok)."
+                        )
+                    )
+                }
+                return
+            }
         } catch (e: Exception) {
             if (!finished) {
                 finished = true

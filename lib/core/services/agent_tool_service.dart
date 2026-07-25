@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'agent_memory_service.dart';
+import 'assistant_auto_prefs.dart';
 import 'database_service.dart';
 import 'price_check_channel.dart';
 import 'termux_service.dart';
@@ -28,25 +29,45 @@ class AgentToolService {
   static const int _maxRows = 40;
   static const int _maxChars = 4000;
 
-  /// Cevaptaki ```tool ... ``` bloklarini ayikla. Bloklar metinden SILINIR.
+  /// Cevaptaki araç çağrılarını ayıkla. Doğru biçim ```tool bloğudur, ama
+  /// modeller sık sık araç çağrısını YANLIŞLIKLA ```action bloğuna koyar
+  /// ({"tool":"shell_run",...}). Bu durumda eskiden "Bilinmeyen işlem"
+  /// hatası çıkıyordu. Artık HER iki blok da taranır: içinde "tool" alanı
+  /// olan (ve "type" alanı olmayan) JSON bir ARAÇ çağrısıdır; nereye
+  /// konursa konsun araç olarak çalıştırılır ve metinden silinir. Gerçek
+  /// eylem blokları (```action + "type") dokunulmadan bırakılır.
   ({String cleanText, List<AgentToolCall> calls}) parse(String reply) {
     final calls = <AgentToolCall>[];
-    final re = RegExp(r'```tool\s*([\s\S]*?)```', multiLine: true);
+    final re = RegExp(r'```(tool|action)\s*([\s\S]*?)```', multiLine: true);
     final clean = reply.replaceAllMapped(re, (m) {
-      final raw = (m.group(1) ?? '').trim();
+      final fence = m.group(1);
+      final raw = (m.group(2) ?? '').trim();
+      dynamic decoded;
       try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            if (e is Map<String, dynamic>) calls.add(AgentToolCall(e));
-          }
-        } else if (decoded is Map<String, dynamic>) {
-          calls.add(AgentToolCall(decoded));
-        }
+        decoded = jsonDecode(raw);
       } catch (_) {
-        // Bozuk JSON: yok say.
+        return m.group(0)!; // bozuk JSON: dokunma
       }
-      return '';
+      final entries = <Map<String, dynamic>>[];
+      if (decoded is List) {
+        for (final e in decoded) {
+          if (e is Map<String, dynamic>) entries.add(e);
+        }
+      } else if (decoded is Map<String, dynamic>) {
+        entries.add(decoded);
+      }
+      // Bu blok bir ARAÇ çağrısı mı? tool bloğu her zaman; action bloğu
+      // ancak tüm girdilerinde "tool" varsa ve hiç "type" yoksa.
+      final looksLikeTool = entries.isNotEmpty &&
+          entries.every(
+              (e) => e.containsKey('tool') && !e.containsKey('type'));
+      if (fence == 'tool' || looksLikeTool) {
+        for (final e in entries) {
+          if (e.containsKey('tool')) calls.add(AgentToolCall(e));
+        }
+        return ''; // araç: metinden sil
+      }
+      return m.group(0)!; // gerçek eylem bloğu: dokunma
     }).trim();
     return (cleanText: clean, calls: calls);
   }
@@ -86,10 +107,12 @@ class AgentToolService {
           return _readScreen();
         case 'memory_list':
           return _memoryList();
+        case 'list_apps':
+          return _listApps(c.args['filter']?.toString());
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
               'Kullanılabilir: db_schema, db_query, prefs_list, '
-              'shell_run, read_screen, memory_list.';
+              'shell_run, read_screen, memory_list, list_apps.';
       }
     } catch (e) {
       return '❌ Araç hatası: $e';
@@ -98,22 +121,48 @@ class AgentToolService {
 
   // ── KABUK / EKRAN / HAFIZA ARACLARI (v160) ─────────────────────────
 
-  /// Termux'ta YALNIZCA zararsiz komut calistirir. Sistemi degistiren
-  /// komutlar burada calismaz; onlar icin onay kartli shell_exec eylemi
-  /// uretilmelidir.
+  /// Termux'ta komut calistirir. UCU ACIK kullanim: OTOMATIK MOD acikken
+  /// sistemi degistiren komutlar da (pkg install, dosya yazma, git...) onay
+  /// beklemeden calisir — boylece ajan eksik araci kurup kendi kendine
+  /// ilerleyebilir. Yalnizca cihazi bozabilecek YIKICI komutlar (rm -rf /,
+  /// mkfs, dd of=/dev/, fork bombasi, reboot...) her kosulda engellidir.
+  /// Otomatik mod KAPALIYKEN sistemi degistiren komutlar yine onay ister
+  /// (shell_exec eylemi).
   Future<String> _shell(String command, String? workdir) async {
     if (command.trim().isEmpty) return '❌ command alanı boş.';
     if (!await TermuxService.instance.isInstalled()) {
       return '❌ Termux kurulu değil. Kabuk komutları kullanılamıyor.';
     }
-    final risk = TermuxService.classify(command);
-    if (risk != ShellRisk.safe) {
-      return '⚠️ Bu komut "${TermuxService.riskLabel(risk)}" sınıfında; '
-          'araçla çalıştırılamaz. Gerçekten gerekliyse onay kartı için '
-          '```action bloğunda shell_exec kullan.';
-    }
-    final res = await TermuxService.instance.run(command);
+    final auto = AssistantAutoPrefs.instance.auto;
+    final res = await TermuxService.instance
+        .run(command, workdir: workdir, allowSystemChange: auto);
     return res.summary;
+  }
+
+  /// Yuklu uygulamalari listeler — TERMUX GEREKTIRMEZ (native).
+  /// [filter] verilirse ada/pakete gore suzer ("whats" -> WhatsApp).
+  Future<String> _listApps(String? filter) async {
+    final apps = await PriceCheckChannel.listInstalledApps();
+    if (apps.isEmpty) {
+      return 'Yüklü uygulama listesi okunamadı.';
+    }
+    var list = apps;
+    final f = filter?.trim().toLowerCase() ?? '';
+    if (f.isNotEmpty) {
+      list = apps
+          .where((a) =>
+              (a['label'] ?? '').toLowerCase().contains(f) ||
+              (a['package'] ?? '').toLowerCase().contains(f))
+          .toList();
+    }
+    if (list.isEmpty) return 'Eşleşen uygulama yok ("$filter").';
+    final shown = list.take(200).toList();
+    final buf = StringBuffer('YÜKLÜ UYGULAMALAR (${list.length}'
+        '${list.length > 200 ? ', ilk 200' : ''}):\n');
+    for (final a in shown) {
+      buf.writeln('- ${a['label']} [${a['package']}]');
+    }
+    return buf.toString().trim();
   }
 
   /// Ekranda ne yazdigini okur (ajan ne gordugunu bilsin).

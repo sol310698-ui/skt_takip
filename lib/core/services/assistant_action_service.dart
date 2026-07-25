@@ -65,6 +65,7 @@ enum AssistantActionType {
   openScreen,
   // ── TELEFONU KULLANMA (ajan) ──
   tapText,
+  typeText,
   globalAction,
   openApp,
   shellExec,
@@ -132,6 +133,8 @@ class AssistantAction {
         return 'Tüm bildirimleri iptal et';
       case AssistantActionType.tapText:
         return 'Ekranda "${args['text'] ?? ''}" ögesine dokun';
+      case AssistantActionType.typeText:
+        return 'Yazı kutusuna yaz: "${args['text'] ?? ''}"';
       case AssistantActionType.globalAction:
         return 'Telefon eylemi: ${args['action'] ?? ''}';
       case AssistantActionType.openApp:
@@ -278,6 +281,8 @@ class AssistantAction {
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
       case AssistantActionType.tapText:
         return [(label: 'Öge', value: s('text'))];
+      case AssistantActionType.typeText:
+        return [(label: 'Metin', value: s('text'))];
       case AssistantActionType.globalAction:
         return [(label: 'Eylem', value: s('action'))];
       case AssistantActionType.openApp:
@@ -370,10 +375,14 @@ class AssistantActionService {
         final decoded = jsonDecode(raw);
         if (decoded is List) {
           for (final e in decoded) {
-            if (e is Map<String, dynamic>) actions.add(_fromMap(e));
+            if (e is Map<String, dynamic> && !_isToolCall(e)) {
+              actions.add(_fromMap(e));
+            }
           }
         } else if (decoded is Map<String, dynamic>) {
-          actions.add(_fromMap(decoded));
+          // Yanlislikla ```action icine konmus ARAC cagrisini (tool alani
+          // var, type yok) eylem sayma; AgentToolService onu zaten calistirir.
+          if (!_isToolCall(decoded)) actions.add(_fromMap(decoded));
         }
       } catch (_) {
         // Bozuk JSON -> yok say (metinden yine de silinir).
@@ -382,6 +391,11 @@ class AssistantActionService {
     }).trim();
     return (cleanText: clean, actions: actions);
   }
+
+  /// Bir JSON haritası aslında bir ARAÇ çağrısı mı (yanlışlıkla ```action
+  /// bloğuna konmuş)? "tool" alanı var ve "type" alanı yoksa evet.
+  static bool _isToolCall(Map<String, dynamic> m) =>
+      m.containsKey('tool') && !m.containsKey('type');
 
   AssistantAction _fromMap(Map<String, dynamic> m) {
     final t = (m['type'] ?? '').toString().trim();
@@ -407,6 +421,7 @@ class AssistantActionService {
       'clear_notifications' => AssistantActionType.clearNotifications,
       'open_screen' => AssistantActionType.openScreen,
       'tap_text' => AssistantActionType.tapText,
+      'type_text' => AssistantActionType.typeText,
       'global_action' => AssistantActionType.globalAction,
       'open_app' => AssistantActionType.openApp,
       'shell_exec' => AssistantActionType.shellExec,
@@ -777,6 +792,19 @@ class AssistantActionService {
             }
             final ok = await PriceCheckChannel.agentGlobal(act);
             return ok ? '✅ Yapıldı: $act' : '❌ "$act" uygulanamadı.';
+          }
+
+        case AssistantActionType.typeText:
+          {
+            final t = (a.args['text'] ?? '').toString();
+            if (t.trim().isEmpty) return '❌ Yazılacak metin belirtilmedi.';
+            if (!await PriceCheckChannel.isServiceRunning()) {
+              return '❌ Erişilebilirlik servisi kapalı; yazı yazamam.';
+            }
+            final ok = await PriceCheckChannel.agentSetText(t);
+            return ok
+                ? '✅ "$t" yazıldı.'
+                : '❌ Yazı kutusu bulunamadı (önce arama kutusuna dokun).';
           }
 
         case AssistantActionType.openApp:

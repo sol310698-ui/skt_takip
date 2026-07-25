@@ -294,6 +294,11 @@ class PriceAccessibilityService : AccessibilityService() {
         /** Ekrandaki gorunur metinleri okur (ajan ne gordugunu bilsin). */
         fun agentReadScreen(): String = instance?.readVisibleTexts() ?: ""
 
+        /** Odakli (ya da ilk) yazi kutusuna metin yazar. Arama kutularini
+         *  doldurmak icin — ajanin baska uygulamalarda arama yapabilmesi. */
+        fun agentSetText(text: String): Boolean =
+            instance?.setTextGeneric(text) ?: false
+
         // ════════════════════════════════════════════════════════════════
         //  OTOMATIK GEZINME AKISI (auto-flow)
         // ────────────────────────────────────────────────────────────────
@@ -720,6 +725,29 @@ class PriceAccessibilityService : AccessibilityService() {
     }
 
     /** Agacta DUZENLENEBILIR (EditText benzeri) ilk dugumu bulur. */
+    /** Odakli (varsa) yoksa ilk yazi kutusuna metin yazar (ACTION_SET_TEXT). */
+    private fun setTextGeneric(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?.takeIf { it.isEditable }
+            ?: findEditableNode(root)
+            ?: return false
+        return try {
+            target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                text
+            )
+            val ok =
+                target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            target.recycle()
+            ok
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun findEditableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
         if (node.isEditable) return AccessibilityNodeInfo.obtain(node)
