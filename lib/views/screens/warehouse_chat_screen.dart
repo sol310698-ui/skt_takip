@@ -6,7 +6,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/services/agent_mode_prefs.dart';
+import '../../core/services/ai_provider_prefs.dart';
 import '../../core/services/assistant_action_service.dart';
+import '../../core/services/claude_service.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
 import '../../core/services/warehouse_assistant_service.dart';
@@ -156,7 +158,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
   }
 
   Future<void> _checkKey() async {
-    final has = await GeminiOcrService.instance.hasApiKey();
+    final has = AiProviderPrefs.instance.isClaude
+        ? await ClaudeService.instance.hasApiKey()
+        : await GeminiOcrService.instance.hasApiKey();
     if (mounted) setState(() => _hasKey = has);
   }
 
@@ -285,7 +289,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       setState(() => _messages.add(_ChatMsg(
           false,
           'Yanıt alınamadı: ${e.message}\n\n'
-          'Ayarlar\'dan Gemini API anahtarınızı kontrol edin.')));
+          'Ayarlar → Yapay Zeka\'dan '
+          '${AiProviderPrefs.instance.isClaude ? 'Claude' : 'Gemini'} '
+          'API anahtarınızı kontrol edin.')));
     } catch (e) {
       if (!mounted) return;
       setState(() => _messages.add(_ChatMsg(false, 'Bir hata oluştu: $e')));
@@ -483,7 +489,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Gemini API anahtarı ayarlı değil. Ayarlar\'dan girin.',
+                AiProviderPrefs.instance.isClaude
+                    ? 'Claude API anahtarı ayarlı değil. Ayarlar → Yapay Zeka\'dan girin.'
+                    : 'Gemini API anahtarı ayarlı değil. Ayarlar → Yapay Zeka\'dan girin.',
                 style: TextStyle(
                     color: AppTheme.statusWarning,
                     fontSize: 12,

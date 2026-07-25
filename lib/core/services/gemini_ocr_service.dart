@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 
 import 'agent_nav_service.dart';
 import 'ai_model_prefs.dart';
+import 'ai_provider_prefs.dart';
+import 'claude_service.dart';
 import 'price_change_service.dart';
 
 /// Gemini Flash ile A4 fiyat degisim tablosunu yapilandirilmis JSON'a cevirir.
@@ -528,17 +530,9 @@ Kurallar:
   ///  [history]  : onceki mesajlar — her biri {'role':'user'|'model','text':..}
   ///  [question] : kullanicinin son sorusu.
   /// ════════════════════════════════════════════════════════════════════
-  Future<String> assistantAnswer({
-    required String context,
-    required List<Map<String, String>> history,
-    required String question,
-  }) async {
-    final key = await getApiKey();
-    if (key == null || key.isEmpty) {
-      throw const GeminiOcrException('API anahtarı yok');
-    }
-
-    final preamble =
+  /// Ortak asistan sistem yönergesi — Gemini VE Claude aynı yönergeyi kullanır.
+  /// (Tüm araç/eylem protokolü metin tabanlı olduğu için sağlayıcıdan bağımsız.)
+  static String assistantPreamble(String context) =>
         'Sen SKT Takip uygulamasının içinde çalışan, uygulamaya TAM '
         'HAKİM bir Türkçe asistansın (agent).\n'
         'UYGULAMANIN ÖZELLİKLERİ (hepsini sen de yapabilirsin): SKT/son '
@@ -748,6 +742,27 @@ Kurallar:
         '- Silme gibi geri alınamaz işlemlerde kullanıcıyı kısaca uyar.\n'
         '- Kullanıcı sadece bilgi soruyorsa EYLEM BLOĞU ÜRETME.\n\n'
         '$context';
+
+  /// Depo Asistanı sohbeti — SEÇİLİ SAĞLAYICIYA yönlendirir.
+  /// Claude seçiliyse Anthropic'e devreder; yoksa Gemini ile yanıtlar.
+  /// (Araç/eylem protokolü her iki sağlayıcıda da aynı metin bloklarıdır.)
+  Future<String> assistantAnswer({
+    required String context,
+    required List<Map<String, String>> history,
+    required String question,
+  }) async {
+    final preamble = assistantPreamble(context);
+    if (AiProviderPrefs.instance.isClaude) {
+      return ClaudeService.instance.assistantAnswer(
+        system: preamble,
+        history: history,
+        question: question,
+      );
+    }
+    final key = await getApiKey();
+    if (key == null || key.isEmpty) {
+      throw const GeminiOcrException('API anahtarı yok');
+    }
 
     final contents = <Map<String, dynamic>>[
       {

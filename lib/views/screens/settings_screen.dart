@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/ai_model_prefs.dart';
+import '../../core/services/ai_provider_prefs.dart';
 import '../../core/services/app_lock_service.dart';
 import '../../core/services/backup_service.dart';
+import '../../core/services/claude_service.dart';
 import '../../core/services/db_source_prefs.dart';
+import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/export_service.dart';
 import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/services/location_reveal_prefs.dart';
@@ -13,6 +17,7 @@ import '../../core/services/notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_prefs.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/ai_model_picker.dart';
 import '../widgets/ui_kit.dart';
 import 'history_screen.dart';
 import 'log_viewer_screen.dart';
@@ -448,6 +453,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        const SectionLabel('Yapay Zeka'),
+        const SizedBox(height: 8),
+        const _AiSection(),
         const SizedBox(height: 16),
         const SectionLabel('Çalışma'),
         const SizedBox(height: 8),
@@ -1436,6 +1445,325 @@ class _DbSourceSectionState extends State<_DbSourceSection> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  YAPAY ZEKA AYARLARI (Ayarlar → Yapay Zeka)
+///  Sağlayıcı seçimi (Gemini/Claude), API anahtarı ve model. Eskiden bu
+///  ayar yalnızca Fiyat Değişim ekranından yönetilebiliyordu.
+/// ════════════════════════════════════════════════════════════════════
+class _AiSection extends StatefulWidget {
+  const _AiSection();
+  @override
+  State<_AiSection> createState() => _AiSectionState();
+}
+
+class _AiSectionState extends State<_AiSection> {
+  bool _geminiHasKey = false;
+  bool _claudeHasKey = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final g = await GeminiOcrService.instance.hasApiKey();
+    final c = await ClaudeService.instance.hasApiKey();
+    if (mounted) {
+      setState(() {
+        _geminiHasKey = g;
+        _claudeHasKey = c;
+      });
+    }
+  }
+
+  /// Bir sağlayıcının API anahtarı için gir/sil dialogu.
+  Future<void> _editKey({required bool claude}) async {
+    final current = claude
+        ? await ClaudeService.instance.getApiKey()
+        : await GeminiOcrService.instance.getApiKey();
+    if (!mounted) return;
+    final ctrl = TextEditingController(text: current ?? '');
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(claude ? 'Claude API Anahtarı' : 'Gemini API Anahtarı'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              claude
+                  ? 'Anthropic Claude için API anahtarı: console.anthropic.com '
+                      '→ API Keys. Anahtar cihazda şifreli saklanır. '
+                      '(A4/OCR okuma her zaman Gemini ile yapılır.)'
+                  : 'Google Gemini için ücretsiz anahtar: aistudio.google.com '
+                      '→ "Get API key". Anahtar cihazda şifreli saklanır.',
+              style: TextStyle(fontSize: 12.5, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'API Anahtarı',
+                hintText: claude ? 'sk-ant-...' : 'AIza...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (current != null && current.isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'clear'),
+              child: const Text('Anahtarı Sil',
+                  style: TextStyle(color: AppTheme.statusExpired)),
+            ),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('İptal')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, 'save'),
+              child: const Text('Kaydet')),
+        ],
+      ),
+    );
+
+    if (action == 'save' && ctrl.text.trim().isNotEmpty) {
+      if (claude) {
+        await ClaudeService.instance.setApiKey(ctrl.text);
+      } else {
+        await GeminiOcrService.instance.setApiKey(ctrl.text);
+      }
+    } else if (action == 'clear') {
+      if (claude) {
+        await ClaudeService.instance.clearApiKey();
+      } else {
+        await GeminiOcrService.instance.clearApiKey();
+      }
+    }
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AiProviderPrefs.instance,
+      builder: (_, __) {
+        final claude = AiProviderPrefs.instance.isClaude;
+        return Column(
+          children: [
+            // ── SAĞLAYICI SEÇİMİ ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(12),
+              decoration: AppTheme.card(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.auto_awesome_rounded,
+                          size: 18, color: AppTheme.accent),
+                      const SizedBox(width: 8),
+                      const Text('Asistan Sağlayıcısı',
+                          style: TextStyle(fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Depo Asistanı sohbetini hangi yapay zeka yanıtlasın? '
+                    '(A4/OCR okuma her zaman Gemini kullanır.)',
+                    style: TextStyle(
+                        fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _providerChip(
+                          label: 'Gemini',
+                          selected: !claude,
+                          onTap: () => AiProviderPrefs.instance
+                              .setProvider(AiProvider.gemini),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _providerChip(
+                          label: 'Claude',
+                          selected: claude,
+                          onTap: () => AiProviderPrefs.instance
+                              .setProvider(AiProvider.claude),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // ── GEMINI ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: AppTheme.card(),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.vpn_key_rounded,
+                        color: AppTheme.primary),
+                    title: const Text('Gemini API Anahtarı',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      _geminiHasKey ? 'Ayarlı ✓' : 'Ayarlı değil',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _geminiHasKey
+                              ? AppTheme.statusSafe
+                              : AppTheme.textSecondary),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _editKey(claude: false),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.psychology_rounded,
+                        color: AppTheme.primary),
+                    title: const Text('Gemini Modeli',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      AiModelPrefs.instance.selected ?? 'Otomatik (akıllı yedek)',
+                      style: TextStyle(
+                          fontSize: 12, color: AppTheme.textSecondary),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () async {
+                      await showAiModelPicker(context);
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            // ── CLAUDE ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: AppTheme.card(),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.vpn_key_rounded,
+                        color: AppTheme.accent),
+                    title: const Text('Claude API Anahtarı',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      _claudeHasKey ? 'Ayarlı ✓' : 'Ayarlı değil',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _claudeHasKey
+                              ? AppTheme.statusSafe
+                              : AppTheme.textSecondary),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => _editKey(claude: true),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.psychology_alt_rounded,
+                            color: AppTheme.accent),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text('Claude Modeli',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
+                        ),
+                        DropdownButton<String>(
+                          value: AiProviderPrefs.instance.claudeModel,
+                          underline: const SizedBox.shrink(),
+                          items: [
+                            for (final m in kClaudeModels)
+                              DropdownMenuItem(
+                                value: m.id,
+                                child: Text(m.label),
+                              ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              AiProviderPrefs.instance.setClaudeModel(v);
+                              setState(() {});
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Aktif sağlayıcı özeti.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 16, color: AppTheme.textTertiary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      claude
+                          ? 'Aktif: Claude (${AiProviderPrefs.instance.claudeModel}). '
+                              'Anahtar gerekli.'
+                          : 'Aktif: Gemini. Anahtar gerekli.',
+                      style: TextStyle(
+                          fontSize: 11, color: AppTheme.textTertiary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _providerChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppTheme.rMd),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.accent.withOpacity(0.15)
+              : AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(
+              color: selected ? AppTheme.accent : AppTheme.hairline,
+              width: selected ? 1.5 : 1),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: selected ? AppTheme.accent : AppTheme.textSecondary,
+          ),
+        ),
+      ),
     );
   }
 }

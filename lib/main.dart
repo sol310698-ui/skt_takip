@@ -10,6 +10,7 @@ import 'core/services/alarm_flow.dart';
 import 'core/services/agent_mode_prefs.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/ai_model_prefs.dart';
+import 'core/services/ai_provider_prefs.dart';
 import 'core/services/db_source_prefs.dart';
 import 'core/services/flow_prefs.dart';
 import 'core/services/label_inspect_button_prefs.dart';
@@ -127,6 +128,8 @@ Future<void> main() async {
   // 9) Reyon konum canlandirmasi (kamera inisi) tercihini yukle.
   await LocationRevealPrefs.instance.load();
   await AiModelPrefs.instance.load();
+  // Yapay zeka sağlayıcı (Gemini/Claude) tercihi.
+  await AiProviderPrefs.instance.load();
   // Asistan serbest mod (otonom calisma) tercihi.
   await AgentModePrefs.instance.load();
 
