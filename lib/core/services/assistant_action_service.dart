@@ -370,10 +370,14 @@ class AssistantActionService {
         final decoded = jsonDecode(raw);
         if (decoded is List) {
           for (final e in decoded) {
-            if (e is Map<String, dynamic>) actions.add(_fromMap(e));
+            if (e is Map<String, dynamic> && !_isToolCall(e)) {
+              actions.add(_fromMap(e));
+            }
           }
         } else if (decoded is Map<String, dynamic>) {
-          actions.add(_fromMap(decoded));
+          // Yanlislikla ```action icine konmus ARAC cagrisini (tool alani
+          // var, type yok) eylem sayma; AgentToolService onu zaten calistirir.
+          if (!_isToolCall(decoded)) actions.add(_fromMap(decoded));
         }
       } catch (_) {
         // Bozuk JSON -> yok say (metinden yine de silinir).
@@ -382,6 +386,11 @@ class AssistantActionService {
     }).trim();
     return (cleanText: clean, actions: actions);
   }
+
+  /// Bir JSON haritası aslında bir ARAÇ çağrısı mı (yanlışlıkla ```action
+  /// bloğuna konmuş)? "tool" alanı var ve "type" alanı yoksa evet.
+  static bool _isToolCall(Map<String, dynamic> m) =>
+      m.containsKey('tool') && !m.containsKey('type');
 
   AssistantAction _fromMap(Map<String, dynamic> m) {
     final t = (m['type'] ?? '').toString().trim();

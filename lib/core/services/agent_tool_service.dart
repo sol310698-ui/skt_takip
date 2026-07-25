@@ -28,25 +28,45 @@ class AgentToolService {
   static const int _maxRows = 40;
   static const int _maxChars = 4000;
 
-  /// Cevaptaki ```tool ... ``` bloklarini ayikla. Bloklar metinden SILINIR.
+  /// Cevaptaki araç çağrılarını ayıkla. Doğru biçim ```tool bloğudur, ama
+  /// modeller sık sık araç çağrısını YANLIŞLIKLA ```action bloğuna koyar
+  /// ({"tool":"shell_run",...}). Bu durumda eskiden "Bilinmeyen işlem"
+  /// hatası çıkıyordu. Artık HER iki blok da taranır: içinde "tool" alanı
+  /// olan (ve "type" alanı olmayan) JSON bir ARAÇ çağrısıdır; nereye
+  /// konursa konsun araç olarak çalıştırılır ve metinden silinir. Gerçek
+  /// eylem blokları (```action + "type") dokunulmadan bırakılır.
   ({String cleanText, List<AgentToolCall> calls}) parse(String reply) {
     final calls = <AgentToolCall>[];
-    final re = RegExp(r'```tool\s*([\s\S]*?)```', multiLine: true);
+    final re = RegExp(r'```(tool|action)\s*([\s\S]*?)```', multiLine: true);
     final clean = reply.replaceAllMapped(re, (m) {
-      final raw = (m.group(1) ?? '').trim();
+      final fence = m.group(1);
+      final raw = (m.group(2) ?? '').trim();
+      dynamic decoded;
       try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            if (e is Map<String, dynamic>) calls.add(AgentToolCall(e));
-          }
-        } else if (decoded is Map<String, dynamic>) {
-          calls.add(AgentToolCall(decoded));
-        }
+        decoded = jsonDecode(raw);
       } catch (_) {
-        // Bozuk JSON: yok say.
+        return m.group(0)!; // bozuk JSON: dokunma
       }
-      return '';
+      final entries = <Map<String, dynamic>>[];
+      if (decoded is List) {
+        for (final e in decoded) {
+          if (e is Map<String, dynamic>) entries.add(e);
+        }
+      } else if (decoded is Map<String, dynamic>) {
+        entries.add(decoded);
+      }
+      // Bu blok bir ARAÇ çağrısı mı? tool bloğu her zaman; action bloğu
+      // ancak tüm girdilerinde "tool" varsa ve hiç "type" yoksa.
+      final looksLikeTool = entries.isNotEmpty &&
+          entries.every(
+              (e) => e.containsKey('tool') && !e.containsKey('type'));
+      if (fence == 'tool' || looksLikeTool) {
+        for (final e in entries) {
+          if (e.containsKey('tool')) calls.add(AgentToolCall(e));
+        }
+        return ''; // araç: metinden sil
+      }
+      return m.group(0)!; // gerçek eylem bloğu: dokunma
     }).trim();
     return (cleanText: clean, calls: calls);
   }
