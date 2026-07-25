@@ -3,6 +3,7 @@ package com.example.skt_takip
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -26,6 +27,14 @@ import io.flutter.plugin.common.MethodChannel
 // gecerliligini koruyor, sadece temel Activity sinifi degisti).
 class MainActivity : FlutterFragmentActivity() {
     private val channel = "skt_takip/fullscreen"
+
+    // TERMUX: harici uygulamalarin Termux'a komut gonderebilmesi icin
+    // gereken "dangerous" izin. Manifest'te tanimli olsa da Android 6+'da
+    // RUNTIME'da istenmezse verilmez -> Termux sessizce reddeder ve kullaniciya
+    // hic sorulmaz. Ilk kabuk komutunda bu izni isteyip sistem penceresini
+    // gosteriyoruz.
+    private val termuxPermission = "com.termux.permission.RUN_COMMAND"
+    private val termuxPermissionRequestCode = 4711
 
     // FIYAT KONTROL ASISTANI icin ayri kanal. Mevcut "fullscreen" kanaliyla
     // hicbir ilgisi yoktur; bagimsiz calisir.
@@ -304,12 +313,48 @@ class MainActivity : FlutterFragmentActivity() {
                     // ── AJAN: TERMUX KABUGU ───────────────────────────
                     "termuxInstalled" ->
                         result.success(TermuxBridge.isInstalled(this))
+                    // RUN_COMMAND izni verilmis mi?
+                    "termuxHasPermission" ->
+                        result.success(hasTermuxPermission())
+                    // Izni RUNTIME'da iste -> sistem izin penceresi acilir.
+                    "requestTermuxPermission" -> {
+                        val granted = hasTermuxPermission()
+                        if (!granted) {
+                            requestPermissions(
+                                arrayOf(termuxPermission),
+                                termuxPermissionRequestCode
+                            )
+                        }
+                        result.success(granted)
+                    }
                     "termuxRun" -> {
-                        val cmd = call.argument<String>("command") ?: ""
-                        val wd = call.argument<String>("workdir")
-                        val to = (call.argument<Int>("timeoutMs") ?: 30000).toLong()
-                        TermuxBridge.run(this, cmd, wd, to) { res ->
-                            runOnUiThread { result.success(res) }
+                        // Izin yoksa ONCE iste (sistem penceresi cikar) ve
+                        // kullanicidan onayladiktan sonra tekrar denemesini iste.
+                        if (!hasTermuxPermission()) {
+                            requestPermissions(
+                                arrayOf(termuxPermission),
+                                termuxPermissionRequestCode
+                            )
+                            result.success(
+                                mapOf(
+                                    "ok" to false,
+                                    "stdout" to "",
+                                    "stderr" to "",
+                                    "exitCode" to -1,
+                                    "error" to "Termux izni (RUN_COMMAND) henüz " +
+                                        "verilmedi. Ekranda çıkan izin " +
+                                        "penceresinde İZİN VER deyin, sonra " +
+                                        "komutu tekrar isteyin."
+                                )
+                            )
+                        } else {
+                            val cmd = call.argument<String>("command") ?: ""
+                            val wd = call.argument<String>("workdir")
+                            val to =
+                                (call.argument<Int>("timeoutMs") ?: 30000).toLong()
+                            TermuxBridge.run(this, cmd, wd, to) { res ->
+                                runOnUiThread { result.success(res) }
+                            }
                         }
                     }
                     // Baloncuktan gelen soruyu Flutter'a devret (bir kez).
@@ -460,6 +505,12 @@ class MainActivity : FlutterFragmentActivity() {
             return nm.canUseFullScreenIntent()
         }
         return true // API 33 ve altinda otomatik var
+    }
+
+    // Termux'a komut gonderme izni (RUN_COMMAND) verilmis mi?
+    private fun hasTermuxPermission(): Boolean {
+        return checkSelfPermission(termuxPermission) ==
+            PackageManager.PERMISSION_GRANTED
     }
 
     // Tam ekran intent izni ayar sayfasini ac (Android 14+).

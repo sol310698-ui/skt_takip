@@ -9,6 +9,7 @@ import '../../core/services/assistant_action_service.dart';
 import '../../core/services/assistant_auto_prefs.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
+import '../../core/services/termux_service.dart';
 import '../../core/services/warehouse_assistant_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
@@ -83,6 +84,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
     });
     _checkKey();
     _initSpeech();
+    // Termux kuruluysa ama RUN_COMMAND izni yoksa sistem penceresini
+    // erkenden goster — boylece asistan ilk kabuk komutunda takilmaz.
+    TermuxService.instance.ensurePermissionPrompt();
   }
 
   Future<void> _initSpeech() async {
