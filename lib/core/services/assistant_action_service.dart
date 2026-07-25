@@ -153,7 +153,8 @@ class AssistantAction {
       case AssistantActionType.globalAction:
         return 'Telefon eylemi: ${args['action'] ?? ''}';
       case AssistantActionType.openApp:
-        return 'Uygulamayı aç: ${args['package'] ?? ''}';
+        return 'Uygulamayı aç: '
+            '${(args['name']?.toString().trim().isNotEmpty ?? false) ? args['name'] : (args['package'] ?? '')}';
       case AssistantActionType.shellExec:
         return 'Terminal komutu çalıştır';
       case AssistantActionType.remember:
@@ -343,7 +344,10 @@ class AssistantAction {
       case AssistantActionType.globalAction:
         return [(label: 'Eylem', value: s('action'))];
       case AssistantActionType.openApp:
-        return [(label: 'Paket', value: s('package'))];
+        return [
+          if (args['name'] != null) (label: 'Uygulama', value: s('name')),
+          if (args['package'] != null) (label: 'Paket', value: s('package')),
+        ];
       case AssistantActionType.shellExec:
         return [
           if (args['description'] != null)
@@ -1006,9 +1010,19 @@ class AssistantActionService {
         case AssistantActionType.openApp:
           {
             final pkg = (a.args['package'] ?? '').toString().trim();
-            if (pkg.isEmpty) return '❌ Paket adı gerekli.';
-            final ok = await PriceCheckChannel.openApp(pkg);
-            return ok ? '✅ Uygulama açıldı.' : '❌ Uygulama bulunamadı: $pkg';
+            final name = (a.args['name'] ?? '').toString().trim();
+            if (pkg.isEmpty && name.isEmpty) {
+              return '❌ Paket adı veya uygulama adı gerekli.';
+            }
+            final ok = await PriceCheckChannel.openApp(
+              pkg.isEmpty ? name : pkg,
+              name: name.isEmpty ? null : name,
+            );
+            final shown = name.isNotEmpty ? name : pkg;
+            return ok
+                ? '✅ Uygulama açıldı: $shown'
+                : '❌ Uygulama bulunamadı: $shown. '
+                    'list_apps aracıyla doğru paketi bulabilirim.';
           }
 
         // ── TERMUX: onayli komut calistirma ──

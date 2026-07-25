@@ -86,10 +86,12 @@ class AgentToolService {
           return _readScreen();
         case 'memory_list':
           return _memoryList();
+        case 'list_apps':
+          return _listApps(c.args['query']?.toString());
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
               'Kullanılabilir: db_schema, db_query, prefs_list, '
-              'shell_run, read_screen, memory_list.';
+              'shell_run, read_screen, memory_list, list_apps.';
       }
     } catch (e) {
       return '❌ Araç hatası: $e';
@@ -126,6 +128,26 @@ class AgentToolService {
       return 'EKRANDAKİ METİNLER:\n$txt';
     } catch (e) {
       return '❌ Ekran okunamadı: $e';
+    }
+  }
+
+  /// Kurulu uygulamalari listeler (open_app icin dogru paketi bulmak icin).
+  Future<String> _listApps(String? query) async {
+    try {
+      final apps = await PriceCheckChannel.listApps(query: query);
+      if (apps.isEmpty) {
+        return (query == null || query.trim().isEmpty)
+            ? 'Kurulu uygulama listelenemedi.'
+            : '"$query" ile eşleşen kurulu uygulama yok.';
+      }
+      final buf = StringBuffer('KURULU UYGULAMALAR (${apps.length}):\n');
+      for (final a in apps.take(60)) {
+        buf.writeln('- ${a.label} → ${a.package}');
+      }
+      if (apps.length > 60) buf.writeln('… (kısaltıldı)');
+      return buf.toString().trim();
+    } catch (e) {
+      return '❌ Uygulama listesi alınamadı: $e';
     }
   }
 

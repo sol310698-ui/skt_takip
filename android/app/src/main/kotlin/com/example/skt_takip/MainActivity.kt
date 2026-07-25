@@ -287,18 +287,62 @@ class MainActivity : FlutterFragmentActivity() {
                     "agentReadScreen" ->
                         result.success(PriceAccessibilityService.agentReadScreen())
                     "openApp" -> {
-                        val pkg = call.argument<String>("package") ?: ""
+                        val pkgArg = (call.argument<String>("package") ?: "").trim()
+                        val nameArg = (call.argument<String>("name") ?: "").trim()
                         try {
-                            val i = packageManager.getLaunchIntentForPackage(pkg)
-                            if (i == null) {
+                            // 1) Once paket adiyla dogrudan dene.
+                            var launch =
+                                if (pkgArg.isNotEmpty())
+                                    packageManager.getLaunchIntentForPackage(pkgArg)
+                                else null
+                            // 2) Bulunamadiysa ADA gore coz (etiket/paket eslesmesi).
+                            if (launch == null) {
+                                val q = (if (nameArg.isNotEmpty()) nameArg else pkgArg)
+                                    .lowercase()
+                                if (q.isNotEmpty()) {
+                                    val pkg = resolvePackageByName(q)
+                                    if (pkg != null) {
+                                        launch = packageManager.getLaunchIntentForPackage(pkg)
+                                    }
+                                }
+                            }
+                            if (launch == null) {
                                 result.success(false)
                             } else {
-                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                startActivity(i)
+                                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                startActivity(launch)
                                 result.success(true)
                             }
                         } catch (e: Exception) {
                             result.success(false)
+                        }
+                    }
+                    // ── AJAN: KURULU UYGULAMALARI LISTELE ─────────────
+                    // Model "hangi uygulama var / paketi ne" diye kesif
+                    // yapabilsin; open_app icin dogru paketi bulur.
+                    "listApps" -> {
+                        val q = (call.argument<String>("query") ?: "").trim().lowercase()
+                        try {
+                            val main = Intent(Intent.ACTION_MAIN, null)
+                                .addCategory(Intent.CATEGORY_LAUNCHER)
+                            val acts = packageManager.queryIntentActivities(main, 0)
+                            val seen = HashSet<String>()
+                            val out = ArrayList<Map<String, String>>()
+                            for (ri in acts) {
+                                val pkg = ri.activityInfo.packageName
+                                if (!seen.add(pkg)) continue
+                                val label = ri.loadLabel(packageManager).toString()
+                                if (q.isEmpty() ||
+                                    label.lowercase().contains(q) ||
+                                    pkg.lowercase().contains(q)
+                                ) {
+                                    out.add(mapOf("label" to label, "package" to pkg))
+                                }
+                            }
+                            out.sortBy { it["label"]?.lowercase() ?: "" }
+                            result.success(out)
+                        } catch (e: Exception) {
+                            result.success(ArrayList<Map<String, String>>())
                         }
                     }
                     // ── AJAN: TERMUX KABUGU ───────────────────────────
@@ -389,6 +433,31 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     // ── TTS (sesli okuma) ───────────────────────────────────────────────
+    /// Bir uygulama ADINDAN (etiket) ya da paket parcasindan paket adini
+    /// cozer. Once TAM etiket eslesmesi, sonra ICEREN etiket, en son paket
+    /// adinda gecen parca aranir. Bulamazsa null.
+    private fun resolvePackageByName(query: String): String? {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return null
+        return try {
+            val main = Intent(Intent.ACTION_MAIN, null)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+            val acts = packageManager.queryIntentActivities(main, 0)
+            var contains: String? = null
+            var pkgHit: String? = null
+            for (ri in acts) {
+                val pkg = ri.activityInfo.packageName
+                val label = ri.loadLabel(packageManager).toString().lowercase()
+                if (label == q) return pkg // tam eslesme -> hemen don
+                if (contains == null && label.contains(q)) contains = pkg
+                if (pkgHit == null && pkg.lowercase().contains(q)) pkgHit = pkg
+            }
+            contains ?: pkgHit
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun ensureTts() {
         if (tts != null) return
         tts = TextToSpeech(applicationContext) { status ->

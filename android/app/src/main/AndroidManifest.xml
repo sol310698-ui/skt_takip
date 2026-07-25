@@ -160,5 +160,11 @@
         <intent>
             <action android:name="android.intent.action.SET_ALARM" />
         </intent>
+        <!-- Asistanin baska uygulamalari listeleyip acabilmesi icin
+             baslatilabilir (launcher) tum uygulamalar gorunur olsun. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 </manifest>

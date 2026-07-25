@@ -251,14 +251,41 @@ class PriceCheckChannel {
     }
   }
 
-  /// Baska bir uygulamayi paket adiyla acar.
-  static Future<bool> openApp(String package) async {
+  /// Baska bir uygulamayi acar. [package] paket adi (ör. com.termux) ya da
+  /// [name] uygulama adi (ör. "Termux") verilebilir; paket bulunamazsa ADA
+  /// gore cozulur. En az biri dolu olmali.
+  static Future<bool> openApp(String package, {String? name}) async {
     try {
-      return await _ch
-              .invokeMethod<bool>('openApp', {'package': package}) ??
+      return await _ch.invokeMethod<bool>('openApp', {
+            'package': package,
+            if (name != null) 'name': name,
+          }) ??
           false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Kurulu (baslatilabilir) uygulamalari listeler: {label, package}.
+  /// [query] verilirse ada/paket adina gore suzer. Asistan open_app icin
+  /// dogru paketi bu araçla bulur.
+  static Future<List<({String label, String package})>> listApps(
+      {String? query}) async {
+    try {
+      final raw = await _ch.invokeMethod<List<dynamic>>('listApps', {
+        if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
+      });
+      if (raw == null) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => (
+                label: (m['label'] ?? '').toString(),
+                package: (m['package'] ?? '').toString(),
+              ))
+          .where((e) => e.package.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
     }
   }
 
