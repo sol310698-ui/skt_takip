@@ -128,7 +128,16 @@ object TermuxBridge {
             i.putExtra(EXTRA_BACKGROUND, true)
             i.putExtra(EXTRA_SESSION_ACTION, "0")
             i.putExtra(EXTRA_PENDING_INTENT, pi)
-            ctx.startService(i)
+            // ÖNEMLİ: Termux'un RunCommandService'i bir FOREGROUND servistir
+            // ve kendi icinde startForeground() cagirir. Android 8+ (O) uzeri
+            // bunu 'startForegroundService' ile baslatmak ZORUNLU; 'startService'
+            // arka planda IllegalStateException verir ya da sessizce duser —
+            // komut hic calismaz ve zaman asimina gireriz. Dogru cagriyi yap.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(i)
+            } else {
+                ctx.startService(i)
+            }
         } catch (e: Exception) {
             if (!finished) {
                 finished = true
@@ -155,7 +164,16 @@ object TermuxBridge {
                 } catch (_: Exception) {
                 }
                 onResult(
-                    fail("Termux yanıt vermedi (zaman aşımı). İzin verilmemiş olabilir.")
+                    fail(
+                        "Termux yanıt vermedi (zaman aşımı). Büyük olasılıkla " +
+                            "tek seferlik izin eksik. Termux'u açıp şunu " +
+                            "çalıştır:\n" +
+                            "mkdir -p ~/.termux && echo 'allow-external-apps = " +
+                            "true' >> ~/.termux/termux.properties && " +
+                            "termux-reload-settings\n" +
+                            "Ayrıca Termux F-Droid sürümü olmalı (Play Store " +
+                            "sürümünde RUN_COMMAND çalışmaz)."
+                    )
                 )
             }
         }, if (timeoutMs <= 0) 30000 else timeoutMs)

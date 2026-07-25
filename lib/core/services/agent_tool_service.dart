@@ -28,27 +28,56 @@ class AgentToolService {
   static const int _maxRows = 40;
   static const int _maxChars = 4000;
 
-  /// Cevaptaki ```tool ... ``` bloklarini ayikla. Bloklar metinden SILINIR.
+  /// Cevaptaki arac cagrilarini ayikla. Bloklar metinden SILINIR.
+  ///
+  /// TOLERANSLI: model tutarsiz olabiliyor — arac cagrisini bazen ```tool,
+  /// bazen ```json, bazen dilsiz ``` blogu icinde yaziyor. Bu yuzden HERHANGI
+  /// bir kod blogunu deneriz; icinde "tool" anahtari olan JSON'i arac cagrisi
+  /// sayariz (```action blogu "type" icerir, "tool" icermez — dokunmayiz).
   ({String cleanText, List<AgentToolCall> calls}) parse(String reply) {
     final calls = <AgentToolCall>[];
-    final re = RegExp(r'```tool\s*([\s\S]*?)```', multiLine: true);
-    final clean = reply.replaceAllMapped(re, (m) {
-      final raw = (m.group(1) ?? '').trim();
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            if (e is Map<String, dynamic>) calls.add(AgentToolCall(e));
-          }
-        } else if (decoded is Map<String, dynamic>) {
-          calls.add(AgentToolCall(decoded));
-        }
-      } catch (_) {
-        // Bozuk JSON: yok say.
-      }
+
+    // 1) Herhangi bir kod blogu: ```<dil>? ... ``` — icinde "tool" varsa al.
+    final fence = RegExp(r'```[a-zA-Z0-9_]*\s*([\s\S]*?)```', multiLine: true);
+    var clean = reply.replaceAllMapped(fence, (m) {
+      final found = _extractToolCalls((m.group(1) ?? '').trim());
+      if (found.isEmpty) return m.group(0)!; // arac degil -> blogu KORU
+      calls.addAll(found);
       return '';
     }).trim();
+
+    // 2) Kod blogu icinde bulunamadiysa: ciplak JSON nesnesi ({...}) icinde
+    //    "tool" ara (model bazen fence koymadan yaziyor).
+    if (calls.isEmpty) {
+      final bare = RegExp(r'\{[^{}]*"tool"[^{}]*\}');
+      clean = clean.replaceAllMapped(bare, (m) {
+        final found = _extractToolCalls(m.group(0)!);
+        if (found.isEmpty) return m.group(0)!;
+        calls.addAll(found);
+        return '';
+      }).trim();
+    }
     return (cleanText: clean, calls: calls);
+  }
+
+  /// Ham metni JSON olarak cozup icinden "tool" anahtarli cagrilari toplar.
+  List<AgentToolCall> _extractToolCalls(String raw) {
+    final out = <AgentToolCall>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        for (final e in decoded) {
+          if (e is Map<String, dynamic> && e['tool'] != null) {
+            out.add(AgentToolCall(e));
+          }
+        }
+      } else if (decoded is Map<String, dynamic> && decoded['tool'] != null) {
+        out.add(AgentToolCall(decoded));
+      }
+    } catch (_) {
+      // Bozuk/JSON degil: arac cagrisi yok say.
+    }
+    return out;
   }
 
   /// Tum arac cagrilarini sirayla calistir; modele geri beslenecek
@@ -70,24 +99,58 @@ class AgentToolService {
     return buf.toString().trim();
   }
 
+  /// Model arac adini tutarsiz yazabiliyor (listApps, shell, apps, uygulamalar).
+  /// Adi normalize edip (kucuk harf, harf disi karakterleri at) bilinen bir
+  /// takma addan KANONIK araca esler. Eslesme yoksa ham adi dondurur.
+  static String _canonicalTool(String raw) {
+    final n = raw.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+    const map = {
+      'dbschema': 'db_schema', 'schema': 'db_schema', 'tables': 'db_schema',
+      'tablolar': 'db_schema', 'sema': 'db_schema',
+      'dbquery': 'db_query', 'query': 'db_query', 'sql': 'db_query',
+      'select': 'db_query', 'sorgu': 'db_query',
+      'prefslist': 'prefs_list', 'prefs': 'prefs_list', 'settings': 'prefs_list',
+      'ayarlar': 'prefs_list', 'preferences': 'prefs_list',
+      'shellrun': 'shell_run', 'shell': 'shell_run', 'run': 'shell_run',
+      'bash': 'shell_run', 'sh': 'shell_run', 'terminal': 'shell_run',
+      'cmd': 'shell_run', 'command': 'shell_run', 'komut': 'shell_run',
+      'exec': 'shell_run', 'runcommand': 'shell_run', 'termux': 'shell_run',
+      'readscreen': 'read_screen', 'screen': 'read_screen', 'ekran': 'read_screen',
+      'memorylist': 'memory_list', 'memory': 'memory_list', 'notes': 'memory_list',
+      'hafiza': 'memory_list', 'notlar': 'memory_list',
+      'listapps': 'list_apps', 'apps': 'list_apps', 'app': 'list_apps',
+      'applications': 'list_apps', 'uygulamalar': 'list_apps',
+      'uygulama': 'list_apps', 'packages': 'list_apps', 'paketler': 'list_apps',
+      'paketadlari': 'list_apps', 'getapps': 'list_apps', 'listapp': 'list_apps',
+    };
+    return map[n] ?? raw.trim();
+  }
+
   Future<String> run(AgentToolCall c) async {
     try {
-      switch (c.name) {
+      // Model arac adini tutarsiz yazabiliyor (listApps, shell, apps...).
+      // Kanonik ada esle; boylece "bilinmeyen araç -> tanımlı değil" cikmazi
+      // olusmaz.
+      switch (_canonicalTool(c.name)) {
         case 'db_schema':
           return _schema(c.args['table']?.toString());
         case 'db_query':
-          return _query(c.args['sql']?.toString() ?? '');
+          return _query(
+              (c.args['sql'] ?? c.args['query'] ?? '').toString());
         case 'prefs_list':
           return _prefsList(c.args['prefix']?.toString());
         case 'shell_run':
-          return _shell(c.args['command']?.toString() ?? '',
+          return _shell(
+              (c.args['command'] ?? c.args['cmd'] ?? '').toString(),
               c.args['workdir']?.toString());
         case 'read_screen':
           return _readScreen();
         case 'memory_list':
           return _memoryList();
         case 'list_apps':
-          return _listApps(c.args['query']?.toString());
+          return _listApps(
+              (c.args['query'] ?? c.args['filter'] ?? c.args['name'])
+                  ?.toString());
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
               'Kullanılabilir: db_schema, db_query, prefs_list, '
