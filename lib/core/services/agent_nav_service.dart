@@ -2,13 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../app_navigator.dart';
 import '../../views/screens/barcode_list_screen.dart';
+import '../../views/screens/checklist_screen.dart';
+import '../../views/screens/control_list_screen.dart';
+import '../../views/screens/count_screen.dart';
+import '../../views/screens/history_screen.dart';
+import '../../views/screens/import_screen.dart';
 import '../../views/screens/label_print_screen.dart';
+import '../../views/screens/log_viewer_screen.dart';
+import '../../views/screens/pending_products_screen.dart';
 import '../../views/screens/price_change_screen.dart';
 import '../../views/screens/price_check_screen.dart';
 import '../../views/screens/settings_screen.dart';
 import '../../views/screens/shelf_layout_list_screen.dart';
 import '../../views/screens/shelf_restock_screen.dart';
 import '../../views/screens/teshir_screen.dart';
+import '../../views/screens/warehouse_chat_screen.dart';
 import '../../views/screens/warehouse_list_screen.dart';
 import '../../views/screens/waybill_archive_screen.dart';
 import '../../views/screens/work_schedule_screen.dart';
@@ -68,6 +76,42 @@ class AgentNavService {
     'alarmlar': (
       title: 'Çalışma Programı (Alarmlar)',
       build: () => const WorkScheduleScreen(),
+    ),
+    'sayim': (
+      title: 'Sayım',
+      build: () => const CountScreen(),
+    ),
+    'vardiya': (
+      title: 'Vardiya',
+      build: () => const ShiftScreen(),
+    ),
+    'kontrol_listesi': (
+      title: 'Kontrol Listesi',
+      build: () => const ControlListScreen(),
+    ),
+    'gorevler': (
+      title: 'Kontrol Görevleri',
+      build: () => const ChecklistScreen(),
+    ),
+    'bekleyen_urunler': (
+      title: 'Bekleyen Ürünler',
+      build: () => const PendingProductsScreen(),
+    ),
+    'gecmis': (
+      title: 'Geçmiş / İmha Kayıtları',
+      build: () => const HistoryScreen(),
+    ),
+    'ice_aktar': (
+      title: 'İçe Aktar',
+      build: () => const ImportScreen(),
+    ),
+    'gunluk': (
+      title: 'Uygulama Günlüğü',
+      build: () => const LogViewerScreen(),
+    ),
+    'asistan': (
+      title: 'Depo Asistanı',
+      build: () => const WarehouseChatScreen(),
     ),
     'ayarlar': (
       title: 'Ayarlar',

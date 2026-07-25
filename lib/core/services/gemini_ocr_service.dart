@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'agent_nav_service.dart';
 import 'ai_model_prefs.dart';
 import 'price_change_service.dart';
 
@@ -541,8 +542,9 @@ Kurallar:
         'Sen SKT Takip uygulamasının içinde çalışan, uygulamaya TAM '
         'HAKİM bir Türkçe asistansın (agent).\n'
         'UYGULAMANIN ÖZELLİKLERİ (hepsini sen de yapabilirsin): SKT/son '
-        'kullanma takibi, barkod dizini, depo-palet-raf yönetimi, reyon '
-        'dizilimi, teşhir listesi, reyona açılacaklar, fiyat değişim ve '
+        'kullanma takibi (ürün ekle/güncelle/imha-iade/sil), barkod dizini, '
+        'depo-palet-raf yönetimi, reyon dizilimi (ürünü rafa yerleştirme), '
+        'teşhir listesi, reyona açılacaklar, veri yedekleme, fiyat değişim ve '
         'fiyat kontrol akışları, etiket basım kuyruğu, sayım, vardiya, '
         'kontrol listeleri, ÇALIŞMA PROGRAMI/ALARMLAR (haftalık saat '
         'alarmları) ve uygulama ayarları (tema, kilit/şifre, ses...).\n'
@@ -631,6 +633,23 @@ Kurallar:
         '- create_shelf_unit: name, sections (sütun sayısı)\n'
         '- delete_shelf_unit: name\n'
         '- add_skt_product: name, barcode, expiry (gg.aa.yyyy), quantity\n'
+        '- update_product: barcode, quantity (opsiyonel), expiry (opsiyonel, '
+        'gg.aa.yyyy), all (true=tüm partiler; boşsa en yakın SKT partisi). '
+        'Mevcut bir SKT kaydının adedini/tarihini düzeltir.\n'
+        '- dispose_product: barcode, status ("disposed"=imha [varsayılan] | '
+        '"returned"=iade), all (opsiyonel). Ürünü imhaya/iadeye taşır '
+        '(geçmişe düşer). "bu ürünü imha et / attım / iade et" için BUNU '
+        'kullan; kaydı SİLME.\n'
+        '- delete_product: barcode, all (opsiyonel). SKT kaydını tamamen '
+        'siler (imha DEĞİL — kayıt tümden yok olur, geçmişe düşmez). '
+        'Sadece yanlış girilmiş kayıt için.\n'
+        '- place_shelf_slot: barcode, unit (reyon adı; boşsa ilk reyon), '
+        'column (sütun no), row (raf no), name (opsiyonel). Bir ürünü '
+        'reyon konumuna yerleştirir; "X ürününü şu reyona/rafa koy / '
+        'yerini kaydet" için kullan.\n'
+        '- create_backup: (alan yok) veritabanı + tüm fotoğrafları ZIP '
+        'olarak yedekler ve paylaşım menüsünü açar. "yedek al / dışa '
+        'aktar / verilerimi kaydet" için.\n'
         '--- TELEFONU KULLANMA (kullanıcının yerine dokun) ---\n'
         '- tap_text: text — ekranda o yazıyı bulup DOKUNUR. Önce '
         'read_screen ile ekranı gör, sonra doğru yazıyı seç.\n'
@@ -648,9 +667,7 @@ Kurallar:
         '--- UYGULAMAYI KULLANMA (kullanıcının yerine) ---\n'
         '- open_screen: screen (ekran anahtarı). Kullanıcı "şuraya git", '
         '"aç", "göster" derse ya da bir işi orada yapması gerekiyorsa '
-        'EKRANI SEN AÇ. Anahtarlar: etiket_basim, fiyat_degisim, '
-        'fiyat_kontrol, depo, reyon, teshir, reyona_acilacaklar, '
-        'barkod_listesi, irsaliye_arsivi, alarmlar, ayarlar.\n'
+        'EKRANI SEN AÇ. Kullanılabilir anahtarlar: ${AgentNavService.keyList}.\n'
         '--- BARKOD DİZİNİ ---\n'
         '- add_barcode_entry: barcode, name, stockCode (opsiyonel). '
         'Ürün adı ↔ barkod eşleştirmesini dizine kaydeder. '

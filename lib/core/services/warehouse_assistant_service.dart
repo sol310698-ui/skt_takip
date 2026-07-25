@@ -206,6 +206,13 @@ class WarehouseAssistantService {
       final parsed = AgentToolService.instance.parse(answer);
       if (parsed.calls.isEmpty) return answer; // arac yok -> nihai cevap
 
+      // Model AYNI turda hem arac hem EYLEM (```action) urettiyse: eylem,
+      // modelin "artik yapmaya hazirim" demesidir. Arac dongusunde
+      // devam edersek bu eylem bloklari sessizce KAYBOLUR (asla onay
+      // kartina donusmez). Bu yuzden eylem varsa donguyu kesip cevabi
+      // oldugu gibi don — UI arac bloklarini temizleyip eylemi gosterir.
+      if (answer.contains('```action')) return answer;
+
       // Kullaniciya "ne yapiyor" bilgisi (yazi baloncugu degil, ipucu).
       onStep?.call(parsed.calls.map((c) => c.name).join(', '));
 

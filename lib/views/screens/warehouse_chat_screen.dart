@@ -490,7 +490,9 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       (Icons.place_rounded, 'Pilavlık bulgur nerede?'),
       (Icons.add_box_rounded, 'P123 paletine 6 adet ketçap ekle'),
       (Icons.event_busy_rounded, 'Bu hafta SKT\'si dolan var mı?'),
-      (Icons.insights_rounded, 'En dolu 5 paleti listele'),
+      (Icons.grid_view_rounded, 'Ketçabı Bakliyat reyonu 2. sütun 1. rafa koy'),
+      (Icons.delete_sweep_rounded, 'Süresi geçen sütü imha et'),
+      (Icons.backup_rounded, 'Tüm verilerimin yedeğini al'),
       (Icons.tune_rounded, 'Temayı koyu yap'),
     ];
     return ListView(

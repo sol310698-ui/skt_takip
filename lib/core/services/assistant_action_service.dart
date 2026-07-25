@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
+import 'backup_service.dart';
 import 'database_service.dart';
 import 'shelf_layout_service.dart';
 import 'agent_memory_service.dart';
@@ -50,6 +51,11 @@ enum AssistantActionType {
   createShelfUnit,
   deleteShelfUnit,
   addSktProduct,
+  updateProduct,
+  disposeProduct,
+  deleteProduct,
+  placeShelfSlot,
+  createBackup,
   // ── UYGULAMA KONTROLU (v145) ──
   setTheme,
   setAppLock,
@@ -106,6 +112,18 @@ class AssistantAction {
         return 'Reyonu sil';
       case AssistantActionType.addSktProduct:
         return 'SKT takibine ürün ekle';
+      case AssistantActionType.updateProduct:
+        return 'SKT ürününü güncelle';
+      case AssistantActionType.disposeProduct:
+        return (args['status']?.toString() == 'returned')
+            ? 'Ürünü iadeye taşı'
+            : 'Ürünü imhaya taşı';
+      case AssistantActionType.deleteProduct:
+        return 'SKT kaydını sil';
+      case AssistantActionType.placeShelfSlot:
+        return 'Ürünü reyona yerleştir';
+      case AssistantActionType.createBackup:
+        return 'Tam yedek al ve paylaş';
       case AssistantActionType.setTheme:
         return 'Tema ayarını değiştir';
       case AssistantActionType.setAppLock:
@@ -217,6 +235,50 @@ class AssistantAction {
           (label: 'Barkod', value: s('barcode')),
           (label: 'SKT', value: s('expiry')),
           (label: 'Adet', value: s('quantity')),
+        ];
+      case AssistantActionType.updateProduct:
+        return [
+          (label: 'Ürün/Barkod', value: s('barcode')),
+          if (args['quantity'] != null)
+            (label: 'Yeni adet', value: s('quantity')),
+          if (args['expiry'] != null)
+            (label: 'Yeni SKT', value: s('expiry')),
+          (
+            label: 'Kapsam',
+            value: args['all'] == true ? 'Tüm partiler' : 'En yakın SKT partisi'
+          ),
+        ];
+      case AssistantActionType.disposeProduct:
+        return [
+          (label: 'Ürün/Barkod', value: s('barcode')),
+          (
+            label: 'Durum',
+            value: s('status') == 'returned' ? 'İade' : 'İmha'
+          ),
+          (
+            label: 'Kapsam',
+            value: args['all'] == true ? 'Tüm partiler' : 'En yakın SKT partisi'
+          ),
+        ];
+      case AssistantActionType.deleteProduct:
+        return [
+          (label: 'Ürün/Barkod', value: s('barcode')),
+          (
+            label: 'Kapsam',
+            value: args['all'] == true ? 'Tüm partiler' : 'En yakın SKT partisi'
+          ),
+        ];
+      case AssistantActionType.placeShelfSlot:
+        return [
+          (label: 'Reyon', value: s('unit')),
+          (label: 'Konum', value: 'Sütun ${s('column')} · Raf ${s('row')}'),
+          (label: 'Ürün', value: s('name')),
+          (label: 'Barkod', value: s('barcode')),
+        ];
+      case AssistantActionType.createBackup:
+        return [
+          (label: 'Kapsam', value: 'Veritabanı + tüm fotoğraflar'),
+          (label: 'Çıktı', value: 'ZIP olarak paylaşım menüsü açılır'),
         ];
       case AssistantActionType.setTheme:
         return [
@@ -343,6 +405,8 @@ class AssistantAction {
       type == AssistantActionType.deletePallet ||
       type == AssistantActionType.deleteShelfUnit ||
       type == AssistantActionType.removePalletItem ||
+      type == AssistantActionType.disposeProduct ||
+      type == AssistantActionType.deleteProduct ||
       // Guvenlik ayarlari: geri alinamaz/riskli sayilir, kirmizi onay ister.
       type == AssistantActionType.changePin ||
       type == AssistantActionType.clearNotifications ||
@@ -395,6 +459,11 @@ class AssistantActionService {
       'create_shelf_unit' => AssistantActionType.createShelfUnit,
       'delete_shelf_unit' => AssistantActionType.deleteShelfUnit,
       'add_skt_product' => AssistantActionType.addSktProduct,
+      'update_product' => AssistantActionType.updateProduct,
+      'dispose_product' => AssistantActionType.disposeProduct,
+      'delete_product' => AssistantActionType.deleteProduct,
+      'place_shelf_slot' => AssistantActionType.placeShelfSlot,
+      'create_backup' => AssistantActionType.createBackup,
       'set_theme' => AssistantActionType.setTheme,
       'set_app_lock' => AssistantActionType.setAppLock,
       'change_pin' => AssistantActionType.changePin,
@@ -449,6 +518,21 @@ class AssistantActionService {
       }
     }
     return null;
+  }
+
+  /// Bir barkodun AKTIF (imha/iade edilmemis) SKT kayitlarini, en yakin
+  /// SKT once (FEFO) sirali dondurur. update/dispose/delete eylemleri
+  /// varsayilan olarak listenin ILK (en yakin SKT) kaydini hedefler;
+  /// "all":true verilirse hepsini.
+  Future<List<Map<String, Object?>>> _activeProductsByBarcode(
+      String barcode) async {
+    final db = await DatabaseService.instance.database;
+    return db.query(
+      'products',
+      where: "disposal_status = 'active' AND barcode = ?",
+      whereArgs: [barcode.trim()],
+      orderBy: 'expiry_date ASC',
+    );
   }
 
   DateTime? _parseDate(String? s) {
@@ -631,6 +715,146 @@ class AssistantActionService {
               'disposal_status': 'active',
             });
             return '✅ SKT takibine eklendi.';
+          }
+
+        // ── SKT KAYDI GUNCELLE (adet / tarih) ─────────────────────
+        case AssistantActionType.updateProduct:
+          {
+            final barcode = (a.args['barcode'] ?? '').toString().trim();
+            if (barcode.isEmpty) return '❌ Barkod gerekli.';
+            final rows = await _activeProductsByBarcode(barcode);
+            if (rows.isEmpty) {
+              return '❌ "$barcode" için aktif SKT kaydı bulunamadı.';
+            }
+            final values = <String, Object?>{};
+            final qty = _intN(a.args['quantity']);
+            if (qty != null && qty > 0) values['quantity'] = qty;
+            final exp = _parseDate(a.args['expiry']?.toString());
+            if (exp != null) {
+              values['expiry_date'] = exp.millisecondsSinceEpoch;
+            }
+            if (values.isEmpty) {
+              return '❌ Güncellenecek bir şey yok (adet ve/veya SKT ver).';
+            }
+            final targets = a.args['all'] == true ? rows : [rows.first];
+            final db = await DatabaseService.instance.database;
+            var n = 0;
+            for (final r in targets) {
+              n += await db.update('products', values,
+                  where: 'id = ?', whereArgs: [r['id']]);
+            }
+            return '✅ $n SKT kaydı güncellendi.';
+          }
+
+        // ── URUNU IMHAYA / IADEYE TASI ────────────────────────────
+        case AssistantActionType.disposeProduct:
+          {
+            final barcode = (a.args['barcode'] ?? '').toString().trim();
+            if (barcode.isEmpty) return '❌ Barkod gerekli.';
+            final status =
+                a.args['status']?.toString() == 'returned' ? 'returned' : 'disposed';
+            final rows = await _activeProductsByBarcode(barcode);
+            if (rows.isEmpty) {
+              return '❌ "$barcode" için aktif SKT kaydı bulunamadı.';
+            }
+            final targets = a.args['all'] == true ? rows : [rows.first];
+            final db = await DatabaseService.instance.database;
+            var n = 0;
+            for (final r in targets) {
+              n += await db.update(
+                'products',
+                {
+                  'disposal_status': status,
+                  'disposal_date': DateTime.now().millisecondsSinceEpoch,
+                },
+                where: 'id = ?',
+                whereArgs: [r['id']],
+              );
+            }
+            return status == 'returned'
+                ? '✅ $n kayıt iadeye taşındı.'
+                : '✅ $n kayıt imhaya taşındı.';
+          }
+
+        // ── SKT KAYDINI TAMAMEN SIL ───────────────────────────────
+        case AssistantActionType.deleteProduct:
+          {
+            final barcode = (a.args['barcode'] ?? '').toString().trim();
+            if (barcode.isEmpty) return '❌ Barkod gerekli.';
+            final rows = await _activeProductsByBarcode(barcode);
+            if (rows.isEmpty) {
+              return '❌ "$barcode" için aktif SKT kaydı bulunamadı.';
+            }
+            final targets = a.args['all'] == true ? rows : [rows.first];
+            final db = await DatabaseService.instance.database;
+            var n = 0;
+            for (final r in targets) {
+              n += await db
+                  .delete('products', where: 'id = ?', whereArgs: [r['id']]);
+            }
+            return '✅ $n SKT kaydı silindi.';
+          }
+
+        // ── URUNU REYONA YERLESTIR (reyon konumu) ─────────────────
+        case AssistantActionType.placeShelfSlot:
+          {
+            final barcode = (a.args['barcode'] ?? '').toString().trim();
+            if (barcode.isEmpty) return '❌ Barkod gerekli.';
+            final col = _intN(a.args['column']);
+            final row = _intN(a.args['row']);
+            if (col == null || row == null || col < 1 || row < 1) {
+              return '❌ Geçerli sütun ve raf numarası gerekli.';
+            }
+            final units =
+                await ShelfLayoutService.instance.getUnitSummaries();
+            if (units.isEmpty) {
+              return '❌ Önce bir reyon oluşturmalısın '
+                  '(create_shelf_unit).';
+            }
+            final unitName =
+                (a.args['unit'] ?? '').toString().trim().toLowerCase();
+            ShelfUnitSummary? match;
+            if (unitName.isEmpty) {
+              match = units.first;
+            } else {
+              for (final u in units) {
+                if (u.unit.name.toLowerCase() == unitName) {
+                  match = u;
+                  break;
+                }
+              }
+              if (match == null) {
+                for (final u in units) {
+                  if (u.unit.name.toLowerCase().contains(unitName)) {
+                    match = u;
+                    break;
+                  }
+                }
+              }
+            }
+            if (match == null) {
+              return '❌ "${a.args['unit']}" adlı reyon bulunamadı.';
+            }
+            if (col > match.unit.sections) {
+              return '❌ "${match.unit.name}" reyonunda ${match.unit.sections} '
+                  'sütun var; Sütun $col yok.';
+            }
+            await ShelfLayoutService.instance.addSlot(
+              unitId: match.unit.id!,
+              sectionNo: col,
+              rowNo: row,
+              barcode: barcode,
+              productName: a.args['name']?.toString(),
+            );
+            return '✅ ${match.unit.name} · Sütun $col · Raf $row '
+                'konumuna yerleştirildi.';
+          }
+
+        // ── TAM YEDEK AL (DB + fotograflar) VE PAYLAS ─────────────
+        case AssistantActionType.createBackup:
+          {
+            await BackupService.instance.exportAll();
+            return '✅ Yedek hazırlandı; paylaşım menüsü açıldı.';
           }
 
         // ── UYGULAMA KONTROLU (v145) ──────────────────────────────
