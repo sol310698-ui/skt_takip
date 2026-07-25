@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'agent_memory_service.dart';
+import 'assistant_auto_prefs.dart';
 import 'database_service.dart';
 import 'price_check_channel.dart';
 import 'termux_service.dart';
@@ -120,21 +121,21 @@ class AgentToolService {
 
   // ── KABUK / EKRAN / HAFIZA ARACLARI (v160) ─────────────────────────
 
-  /// Termux'ta YALNIZCA zararsiz komut calistirir. Sistemi degistiren
-  /// komutlar burada calismaz; onlar icin onay kartli shell_exec eylemi
-  /// uretilmelidir.
+  /// Termux'ta komut calistirir. UCU ACIK kullanim: OTOMATIK MOD acikken
+  /// sistemi degistiren komutlar da (pkg install, dosya yazma, git...) onay
+  /// beklemeden calisir — boylece ajan eksik araci kurup kendi kendine
+  /// ilerleyebilir. Yalnizca cihazi bozabilecek YIKICI komutlar (rm -rf /,
+  /// mkfs, dd of=/dev/, fork bombasi, reboot...) her kosulda engellidir.
+  /// Otomatik mod KAPALIYKEN sistemi degistiren komutlar yine onay ister
+  /// (shell_exec eylemi).
   Future<String> _shell(String command, String? workdir) async {
     if (command.trim().isEmpty) return '❌ command alanı boş.';
     if (!await TermuxService.instance.isInstalled()) {
       return '❌ Termux kurulu değil. Kabuk komutları kullanılamıyor.';
     }
-    final risk = TermuxService.classify(command);
-    if (risk != ShellRisk.safe) {
-      return '⚠️ Bu komut "${TermuxService.riskLabel(risk)}" sınıfında; '
-          'araçla çalıştırılamaz. Gerçekten gerekliyse onay kartı için '
-          '```action bloğunda shell_exec kullan.';
-    }
-    final res = await TermuxService.instance.run(command);
+    final auto = AssistantAutoPrefs.instance.auto;
+    final res = await TermuxService.instance
+        .run(command, workdir: workdir, allowSystemChange: auto);
     return res.summary;
   }
 
