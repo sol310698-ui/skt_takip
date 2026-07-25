@@ -295,6 +295,10 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "agentReadScreen" ->
                         result.success(PriceAccessibilityService.agentReadScreen())
+                    "agentSetText" -> {
+                        val t = call.argument<String>("text") ?: ""
+                        result.success(PriceAccessibilityService.agentSetText(t))
+                    }
                     "openApp" -> {
                         val pkg = call.argument<String>("package") ?: ""
                         try {

@@ -243,6 +243,17 @@ class PriceCheckChannel {
     }
   }
 
+  /// Odakli (ya da ilk) yazi kutusuna metin yazar — arama kutularini
+  /// doldurmak icin (ajanin baska uygulamalarda arama yapabilmesi).
+  static Future<bool> agentSetText(String text) async {
+    try {
+      return await _ch.invokeMethod<bool>('agentSetText', {'text': text}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String> agentReadScreen() async {
     try {
       return await _ch.invokeMethod<String>('agentReadScreen') ?? '';

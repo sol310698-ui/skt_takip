@@ -65,6 +65,7 @@ enum AssistantActionType {
   openScreen,
   // ── TELEFONU KULLANMA (ajan) ──
   tapText,
+  typeText,
   globalAction,
   openApp,
   shellExec,
@@ -132,6 +133,8 @@ class AssistantAction {
         return 'Tüm bildirimleri iptal et';
       case AssistantActionType.tapText:
         return 'Ekranda "${args['text'] ?? ''}" ögesine dokun';
+      case AssistantActionType.typeText:
+        return 'Yazı kutusuna yaz: "${args['text'] ?? ''}"';
       case AssistantActionType.globalAction:
         return 'Telefon eylemi: ${args['action'] ?? ''}';
       case AssistantActionType.openApp:
@@ -278,6 +281,8 @@ class AssistantAction {
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
       case AssistantActionType.tapText:
         return [(label: 'Öge', value: s('text'))];
+      case AssistantActionType.typeText:
+        return [(label: 'Metin', value: s('text'))];
       case AssistantActionType.globalAction:
         return [(label: 'Eylem', value: s('action'))];
       case AssistantActionType.openApp:
@@ -416,6 +421,7 @@ class AssistantActionService {
       'clear_notifications' => AssistantActionType.clearNotifications,
       'open_screen' => AssistantActionType.openScreen,
       'tap_text' => AssistantActionType.tapText,
+      'type_text' => AssistantActionType.typeText,
       'global_action' => AssistantActionType.globalAction,
       'open_app' => AssistantActionType.openApp,
       'shell_exec' => AssistantActionType.shellExec,
@@ -786,6 +792,19 @@ class AssistantActionService {
             }
             final ok = await PriceCheckChannel.agentGlobal(act);
             return ok ? '✅ Yapıldı: $act' : '❌ "$act" uygulanamadı.';
+          }
+
+        case AssistantActionType.typeText:
+          {
+            final t = (a.args['text'] ?? '').toString();
+            if (t.trim().isEmpty) return '❌ Yazılacak metin belirtilmedi.';
+            if (!await PriceCheckChannel.isServiceRunning()) {
+              return '❌ Erişilebilirlik servisi kapalı; yazı yazamam.';
+            }
+            final ok = await PriceCheckChannel.agentSetText(t);
+            return ok
+                ? '✅ "$t" yazıldı.'
+                : '❌ Yazı kutusu bulunamadı (önce arama kutusuna dokun).';
           }
 
         case AssistantActionType.openApp:
