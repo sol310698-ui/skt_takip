@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Internet (webview arama + ML Kit model indirme) -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -159,6 +160,14 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <!-- Asistanin BASKA UYGULAMALARI acabilmesi/listeleyebilmesi icin:
+             Android 11+ paket gorunurlugu. Bu intent, ana ekranda simgesi
+             olan (baslatilabilir) TUM uygulamalari gorunur kilar; boylece
+             getLaunchIntentForPackage(com.whatsapp) null donmez. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
     </queries>
 </manifest>
