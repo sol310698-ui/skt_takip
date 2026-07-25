@@ -262,6 +262,24 @@ class PriceCheckChannel {
     }
   }
 
+  /// Yuklu (baslatilabilir) uygulamalari listeler — Termux GEREKTIRMEZ.
+  /// Her oge: {'package': ..., 'label': ...}
+  static Future<List<Map<String, String>>> listInstalledApps() async {
+    try {
+      final r = await _ch.invokeMethod<List<dynamic>>('listInstalledApps');
+      if (r == null) return const [];
+      return r.map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return {
+          'package': (m['package'] ?? '').toString(),
+          'label': (m['label'] ?? '').toString(),
+        };
+      }).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Baloncuktan gelen bekleyen soruyu BIR KEZ okur (yoksa null).
   static Future<String?> consumePendingQuestion() async {
     try {

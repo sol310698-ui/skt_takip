@@ -310,6 +310,30 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(false)
                         }
                     }
+                    // Yuklu (baslatilabilir) uygulamalari listele — Termux
+                    // GEREKTIRMEZ. Android 11+ gorunurlugu icin manifest
+                    // <queries> MAIN/LAUNCHER intent'i gerekir (eklendi).
+                    "listInstalledApps" -> {
+                        try {
+                            val pm = packageManager
+                            val intent = Intent(Intent.ACTION_MAIN)
+                                .addCategory(Intent.CATEGORY_LAUNCHER)
+                            val ris = pm.queryIntentActivities(intent, 0)
+                            val seen = HashSet<String>()
+                            val list = ArrayList<Map<String, String>>()
+                            for (ri in ris) {
+                                val pkg = ri.activityInfo.packageName
+                                if (pkg == packageName) continue
+                                if (!seen.add(pkg)) continue
+                                val label = ri.loadLabel(pm).toString()
+                                list.add(mapOf("package" to pkg, "label" to label))
+                            }
+                            list.sortBy { it["label"]?.lowercase() ?: "" }
+                            result.success(list)
+                        } catch (e: Exception) {
+                            result.success(ArrayList<Map<String, String>>())
+                        }
+                    }
                     // ── AJAN: TERMUX KABUGU ───────────────────────────
                     "termuxInstalled" ->
                         result.success(TermuxBridge.isInstalled(this))

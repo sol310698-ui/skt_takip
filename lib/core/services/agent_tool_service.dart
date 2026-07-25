@@ -106,10 +106,12 @@ class AgentToolService {
           return _readScreen();
         case 'memory_list':
           return _memoryList();
+        case 'list_apps':
+          return _listApps(c.args['filter']?.toString());
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
               'Kullanılabilir: db_schema, db_query, prefs_list, '
-              'shell_run, read_screen, memory_list.';
+              'shell_run, read_screen, memory_list, list_apps.';
       }
     } catch (e) {
       return '❌ Araç hatası: $e';
@@ -134,6 +136,32 @@ class AgentToolService {
     }
     final res = await TermuxService.instance.run(command);
     return res.summary;
+  }
+
+  /// Yuklu uygulamalari listeler — TERMUX GEREKTIRMEZ (native).
+  /// [filter] verilirse ada/pakete gore suzer ("whats" -> WhatsApp).
+  Future<String> _listApps(String? filter) async {
+    final apps = await PriceCheckChannel.listInstalledApps();
+    if (apps.isEmpty) {
+      return 'Yüklü uygulama listesi okunamadı.';
+    }
+    var list = apps;
+    final f = filter?.trim().toLowerCase() ?? '';
+    if (f.isNotEmpty) {
+      list = apps
+          .where((a) =>
+              (a['label'] ?? '').toLowerCase().contains(f) ||
+              (a['package'] ?? '').toLowerCase().contains(f))
+          .toList();
+    }
+    if (list.isEmpty) return 'Eşleşen uygulama yok ("$filter").';
+    final shown = list.take(200).toList();
+    final buf = StringBuffer('YÜKLÜ UYGULAMALAR (${list.length}'
+        '${list.length > 200 ? ', ilk 200' : ''}):\n');
+    for (final a in shown) {
+      buf.writeln('- ${a['label']} [${a['package']}]');
+    }
+    return buf.toString().trim();
   }
 
   /// Ekranda ne yazdigini okur (ajan ne gordugunu bilsin).
