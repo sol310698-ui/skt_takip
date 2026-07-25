@@ -13,6 +13,7 @@ import '../../views/screens/pending_products_screen.dart';
 import '../../views/screens/price_change_screen.dart';
 import '../../views/screens/price_check_screen.dart';
 import '../../views/screens/settings_screen.dart';
+import '../../views/screens/shift_screen.dart';
 import '../../views/screens/shelf_layout_list_screen.dart';
 import '../../views/screens/shelf_restock_screen.dart';
 import '../../views/screens/teshir_screen.dart';
