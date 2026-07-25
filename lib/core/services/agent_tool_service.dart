@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'agent_memory_service.dart';
+import 'agent_mode_prefs.dart';
 import 'database_service.dart';
 import 'price_check_channel.dart';
 import 'termux_service.dart';
@@ -172,12 +173,20 @@ class AgentToolService {
       return '❌ Termux kurulu değil. Kabuk komutları kullanılamıyor.';
     }
     final risk = TermuxService.classify(command);
-    if (risk != ShellRisk.safe) {
+    // SERBEST MOD: sistemi degistiren komutlar da onay BEKLEMEDEN calisir.
+    // (Yikici 'blocked' komutlar TermuxService.run icinde yine engellenir.)
+    final free = AgentModePrefs.instance.freeMode;
+    if (risk == ShellRisk.needsConfirm && !free) {
       return '⚠️ Bu komut "${TermuxService.riskLabel(risk)}" sınıfında; '
           'araçla çalıştırılamaz. Gerçekten gerekliyse onay kartı için '
           '```action bloğunda shell_exec kullan.';
     }
-    final res = await TermuxService.instance.run(command);
+    if (risk == ShellRisk.blocked) {
+      return '⛔ Bu komut cihaza kalıcı zarar verebilir; güvenlik '
+          'süzgecinde engellendi.';
+    }
+    final res = await TermuxService.instance
+        .run(command, allowSystemChange: free, workdir: workdir);
     return res.summary;
   }
 

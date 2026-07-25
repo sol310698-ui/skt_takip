@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
+import 'agent_mode_prefs.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
 import 'shelf_layout_service.dart';
@@ -67,6 +68,7 @@ enum AssistantActionType {
   removeTeshir,
   addRestock,
   clearNotifications,
+  setFreeMode,
   // ── UYGULAMAYI KULLANMA (senin yerine) ──
   openScreen,
   // ── TELEFONU KULLANMA (ajan) ──
@@ -148,6 +150,10 @@ class AssistantAction {
         return 'Reyona açılacaklara ekle';
       case AssistantActionType.clearNotifications:
         return 'Tüm bildirimleri iptal et';
+      case AssistantActionType.setFreeMode:
+        return args['enabled'] == false
+            ? 'Serbest modu KAPAT'
+            : 'Serbest modu AÇ';
       case AssistantActionType.tapText:
         return 'Ekranda "${args['text'] ?? ''}" ögesine dokun';
       case AssistantActionType.globalAction:
@@ -339,6 +345,19 @@ class AssistantAction {
         ];
       case AssistantActionType.clearNotifications:
         return [(label: 'Kapsam', value: 'Bekleyen tüm SKT bildirimleri')];
+      case AssistantActionType.setFreeMode:
+        return [
+          (
+            label: 'Serbest mod',
+            value: args['enabled'] == false ? 'Kapalı' : 'Açık'
+          ),
+          (
+            label: 'Etki',
+            value: args['enabled'] == false
+                ? 'İşlemler yeniden onay ister'
+                : 'İşlemler otomatik çalışır (onaysız)'
+          ),
+        ];
       case AssistantActionType.tapText:
         return [(label: 'Öge', value: s('text'))];
       case AssistantActionType.globalAction:
@@ -478,6 +497,7 @@ class AssistantActionService {
       'remove_teshir' => AssistantActionType.removeTeshir,
       'add_restock' => AssistantActionType.addRestock,
       'clear_notifications' => AssistantActionType.clearNotifications,
+      'set_free_mode' => AssistantActionType.setFreeMode,
       'open_screen' => AssistantActionType.openScreen,
       'tap_text' => AssistantActionType.tapText,
       'global_action' => AssistantActionType.globalAction,
@@ -981,6 +1001,17 @@ class AssistantActionService {
           {
             await NotificationService.instance.cancelAll();
             return '✅ Bekleyen tüm bildirimler iptal edildi.';
+          }
+
+        case AssistantActionType.setFreeMode:
+          {
+            final enable = a.args['enabled'] != false;
+            await AgentModePrefs.instance.setFreeMode(enable);
+            return enable
+                ? '✅ Serbest mod açık — işlemleri onay beklemeden yapacağım. '
+                    '(Cihazı bozacak yıkıcı komutlar yine engellidir.)'
+                : '✅ Serbest mod kapalı — değişiklikler için yine onayını '
+                    'isteyeceğim.';
           }
 
         // ── TELEFONU SENIN YERINE KULLAN (erisilebilirlik) ──

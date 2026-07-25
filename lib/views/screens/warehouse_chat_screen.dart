@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../core/services/agent_mode_prefs.dart';
 import '../../core/services/assistant_action_service.dart';
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_check_channel.dart';
@@ -260,8 +261,16 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       final display = parsed.cleanText.isEmpty
           ? (parsed.actions.isEmpty ? answer.trim() : 'Onayınızı bekliyorum:')
           : parsed.cleanText;
-      setState(() => _messages
-          .add(_ChatMsg(false, display, actions: parsed.actions)));
+      final assistantMsg = _ChatMsg(false, display, actions: parsed.actions);
+      setState(() => _messages.add(assistantMsg));
+      // SERBEST MOD: onay kartı beklemeden eylemleri OTOMATİK çalıştır.
+      // Kart yine görünür (ne yapıldığı şeffaf kalsın) ama kendiliğinden
+      // onaylanıp sonuç yazılır.
+      if (AgentModePrefs.instance.freeMode && parsed.actions.isNotEmpty) {
+        for (int i = 0; i < parsed.actions.length; i++) {
+          await _approveAction(assistantMsg, i);
+        }
+      }
       // Sesli moddaysa cevabi oku (mevcut native TTS ile).
       if (_voiceMode) {
         final speakText = display.length > 300
