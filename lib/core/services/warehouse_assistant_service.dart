@@ -176,10 +176,29 @@ class WarehouseAssistantService {
   ///  cozumunu uretir. En fazla [maxSteps] tur; yazma islemleri yine
   ///  ```action onay kartlariyla yapilir.
   /// ══════════════════════════════════════════════════════════════════
+  /// Modelin "bir sey yapacagim" deyip arac/eylem uretmeden durdugu YARIM
+  /// (oyalama) cevabini yakalar. Kisa + birinci sahis erteleme kaliplari.
+  static final RegExp _stallRe = RegExp(
+    r'(bak[ıi]yorum|bakay[ıi]m|kontrol\s+ed|ara[şs]t[ıi]r|birazdan|'
+    r'biraz\s+sonra|az\s+sonra|cevap\s+ver(ece|ir)|yan[ıi]t\s+ver(ece|ir)|'
+    r'haz[ıi]rl[ıi]yorum|[şs]imdi\s+\w*(yorum|[ıi]yorum)|hemen\s+\w*(yorum|[ıi]yorum)|'
+    r'bir\s+saniye|bir\s+dakika|l[üu]tfen\s+bekle|deneyece[ğg]im|deniyorum|'
+    r'yap[ıi]yorum|[çc]al[ıi][şs][ıi]yorum|inceliyorum|getiriyorum)',
+    caseSensitive: false,
+  );
+
+  /// Cevap, icerik vermeden erteleme yapan yarim bir cumle mi?
+  static bool _looksLikeStall(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return true; // bos cevap da yarim kalmadir -> durt
+    if (t.length > 400) return false; // uzun/dolu cevap: gercek yanit say
+    return _stallRe.hasMatch(t);
+  }
+
   Future<String> askAgent({
     required List<Map<String, String>> history,
     required String question,
-    int maxSteps = 4,
+    int maxSteps = 5,
     void Function(String note)? onStep,
   }) async {
     final context = await buildLocalContext();
@@ -204,7 +223,29 @@ class WarehouseAssistantService {
             '(Yanıtı derlerken bağlantı sorunu oldu: $e)';
       }
       final parsed = AgentToolService.instance.parse(answer);
-      if (parsed.calls.isEmpty) return answer; // arac yok -> nihai cevap
+      final hasAction = answer.contains('```action');
+      if (parsed.calls.isEmpty) {
+        // YARIM MESAJ KORUMASI: model bir sey yapacagini SOYLEYIP
+        // (ör. "bakıyorum", "cevap vereceğim") arac/eylem uretmeden
+        // durduysa, o yarim cumleyi kullaniciya nihai cevap gibi GONDERME.
+        // Istemci (sohbet ekrani) zaten bu donguyu bekliyor; modeli bir kez
+        // "simdi yap" diye durtup DEVAM et. Boylece sohbet yarida kalmaz.
+        if (!hasAction &&
+            _looksLikeStall(answer) &&
+            step < maxSteps - 1) {
+          hist = [
+            ...hist,
+            {'role': 'user', 'text': q},
+            {'role': 'model', 'text': answer},
+          ];
+          q = 'Kullanıcı yanıtını ŞU AN bekliyor. "Bakıyorum / birazdan / '
+              'cevap vereceğim / kontrol ediyorum" DEME ve durma. Bu mesajda '
+              'ya gereken ```tool çağrısını yap, ya da nihai Türkçe cevabı '
+              '(gerekiyorsa ```action bloğuyla) ver.';
+          continue;
+        }
+        return answer; // gercek nihai cevap
+      }
 
       // Model AYNI turda hem arac hem EYLEM (```action) urettiyse: eylem,
       // modelin "artik yapmaya hazirim" demesidir. Arac dongusunde
