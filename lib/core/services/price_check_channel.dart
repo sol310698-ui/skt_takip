@@ -284,6 +284,9 @@ class PriceCheckChannel {
               ))
           .where((e) => e.package.isNotEmpty)
           .toList();
+    } on PlatformException catch (e) {
+      // Native gercek sebebi bildirdi (izin/gorunurluk): yut ma, yukari tasi.
+      throw Exception(e.message ?? e.code);
     } catch (_) {
       return const [];
     }

@@ -323,15 +323,10 @@ class MainActivity : FlutterFragmentActivity() {
                     "listApps" -> {
                         val q = (call.argument<String>("query") ?: "").trim().lowercase()
                         try {
-                            val main = Intent(Intent.ACTION_MAIN, null)
-                                .addCategory(Intent.CATEGORY_LAUNCHER)
-                            val acts = packageManager.queryIntentActivities(main, 0)
                             val seen = HashSet<String>()
                             val out = ArrayList<Map<String, String>>()
-                            for (ri in acts) {
-                                val pkg = ri.activityInfo.packageName
-                                if (!seen.add(pkg)) continue
-                                val label = ri.loadLabel(packageManager).toString()
+                            fun consider(pkg: String, label: String) {
+                                if (!seen.add(pkg)) return
                                 if (q.isEmpty() ||
                                     label.lowercase().contains(q) ||
                                     pkg.lowercase().contains(q)
@@ -339,10 +334,34 @@ class MainActivity : FlutterFragmentActivity() {
                                     out.add(mapOf("label" to label, "package" to pkg))
                                 }
                             }
+                            // 1) Baslatilabilir (launcher) uygulamalar — kullanicinin
+                            //    gordugu, acilabilir uygulamalar.
+                            val main = Intent(Intent.ACTION_MAIN, null)
+                                .addCategory(Intent.CATEGORY_LAUNCHER)
+                            for (ri in packageManager.queryIntentActivities(main, 0)) {
+                                consider(
+                                    ri.activityInfo.packageName,
+                                    ri.loadLabel(packageManager).toString()
+                                )
+                            }
+                            // 2) YEDEK: launcher aktivitesi olmayan (Termux gibi bazi)
+                            //    veya gorunurluk suzgecinden gecen paketler.
+                            //    QUERY_ALL_PACKAGES izniyle tum kurulu paketleri getirir.
+                            try {
+                                val pkgs = packageManager.getInstalledPackages(0)
+                                for (pi in pkgs) {
+                                    val ai = pi.applicationInfo ?: continue
+                                    val label =
+                                        packageManager.getApplicationLabel(ai).toString()
+                                    consider(pi.packageName, label)
+                                }
+                            } catch (_: Exception) { /* launcher listesi yeterli */ }
                             out.sortBy { it["label"]?.lowercase() ?: "" }
                             result.success(out)
                         } catch (e: Exception) {
-                            result.success(ArrayList<Map<String, String>>())
+                            // Hatayi YUTMA: model gercek sebebi gorsun.
+                            result.error("LIST_APPS_FAILED",
+                                e.message ?: e.toString(), null)
                         }
                     }
                     // ── AJAN: TERMUX KABUGU ───────────────────────────
