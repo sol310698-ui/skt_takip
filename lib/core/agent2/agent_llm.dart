@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../services/ai_model_prefs.dart';
-import '../services/gemini_ocr_service.dart' show GeminiOcrService;
+import '../services/gemini_ocr_service.dart'
+    show GeminiOcrService, GeminiOcrException;
 import 'agent_core.dart';
 
 /// Gemini function-calling istemcisi (otomatik yeniden deneme ile).
