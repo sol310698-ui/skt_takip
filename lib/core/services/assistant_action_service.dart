@@ -514,6 +514,10 @@ class AssistantActionService {
     return AssistantAction(type, m);
   }
 
+  /// Function-calling ajanı için tek kapı: {'type': ..., ...alanlar} haritasını
+  /// çalıştırır ve modele geri beslenecek özet metni döndürür.
+  Future<String> runAction(Map<String, dynamic> map) => execute(_fromMap(map));
+
   // ── LOOKUP YARDIMCILARI ───────────────────────────────────────────
   Future<int?> _warehouseIdByName(String? name) async {
     final all = await WarehouseService.instance.getWarehouses();

@@ -1,6 +1,8 @@
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/datasources/product_local_datasource.dart';
 import '../../data/datasources/shift_local_datasource.dart';
+import '../agent2/warehouse_agent.dart';
+import 'ai_provider_prefs.dart';
 import 'database_service.dart';
 import 'agent_memory_service.dart';
 import 'agent_tool_service.dart';
@@ -201,6 +203,17 @@ class WarehouseAssistantService {
     int maxSteps = 5,
     void Function(String note)? onStep,
   }) async {
+    // AJAN MİMARİSİ (v172): Gemini için YAPISAL function-calling döngüsü.
+    // Metin ```tool/```action ayrıştırma yerine gerçek araç çağrıları →
+    // "araç tanımlı değil / blok bozuk / yarım cevap" sorunları kökten biter.
+    // Claude için mevcut metin tabanlı yol korunur (aşağıda).
+    if (!AiProviderPrefs.instance.isClaude) {
+      return WarehouseAgent.instance.ask(
+        history: history,
+        question: question,
+        onStep: onStep,
+      );
+    }
     final context = await buildLocalContext();
     var hist = List<Map<String, String>>.from(history);
     var q = question;
