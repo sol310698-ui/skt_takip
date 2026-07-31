@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'agent_memory_service.dart';
 import 'database_service.dart';
+import 'fifo_analyzer_service.dart';
 import 'price_check_channel.dart';
 import 'termux_service.dart';
 
@@ -86,10 +87,12 @@ class AgentToolService {
           return _readScreen();
         case 'memory_list':
           return _memoryList();
+        case 'fifo_check':
+          return _fifoCheck();
         default:
           return '❌ Bilinmeyen araç: "${c.name}". '
               'Kullanılabilir: db_schema, db_query, prefs_list, '
-              'shell_run, read_screen, memory_list.';
+              'shell_run, read_screen, memory_list, fifo_check.';
       }
     } catch (e) {
       return '❌ Araç hatası: $e';
@@ -127,6 +130,18 @@ class AgentToolService {
     } catch (e) {
       return '❌ Ekran okunamadı: $e';
     }
+  }
+
+  /// FIFO/FEFO ihlallerini (palet<->reyon tarih karsilastirmasi) hesaplar.
+  /// Ayni urunun arkasindaki (palet) stok reyondakinden erken tarihliyse
+  /// "yeri degismeli" bulgusu doner. Bulgu yoksa temiz oldugunu bildirir.
+  Future<String> _fifoCheck() async {
+    final block = await FifoAnalyzerService.instance.promptBlock();
+    if (block.isEmpty) {
+      return 'FIFO/FEFO taraması temiz: palet (arka) stoğu reyondaki '
+          'stoktan daha erken tarihli olan ürün yok. Yer değişimi gerekmiyor.';
+    }
+    return block;
   }
 
   /// Daha once ogrenilen kurallar/hatalar.

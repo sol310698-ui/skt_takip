@@ -4,6 +4,7 @@ import '../../data/datasources/shift_local_datasource.dart';
 import 'database_service.dart';
 import 'agent_memory_service.dart';
 import 'agent_tool_service.dart';
+import 'fifo_analyzer_service.dart';
 import 'gemini_ocr_service.dart';
 import 'label_pending_queue_service.dart';
 import 'shelf_layout_service.dart';
@@ -129,6 +130,17 @@ class WarehouseAssistantService {
               '${p.location != null ? ', konum: ${p.location}' : ''})');
           c++;
         }
+      }
+    } catch (_) {}
+
+    // ── 3b) FIFO/FEFO IHLALLERI (proaktif oneri) ──
+    // Ayni urunun palet(arka) ve reyon(on) tarihleri karsilastirilir;
+    // arkada erken tarihli stok bekliyorsa "yeri degismeli" uyarisi cikar.
+    try {
+      final fifo = await FifoAnalyzerService.instance.promptBlock();
+      if (fifo.isNotEmpty) {
+        buf.writeln();
+        buf.writeln(fifo);
       }
     } catch (_) {}
 
