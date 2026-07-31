@@ -29,17 +29,19 @@ class AppTheme {
   // Turkuaz ACIK bir renktir: ustunde SIYAH metin dogru kontrasti verir
   // (uygulamadaki accent-ustu-siyah kullanimlarla uyumludur).
   // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
-  static const Color primary = Color(0xFF2563EB);      // canli mavi (butonlar)
-  static const Color primaryLight = Color(0xFF60A5FA); // acik mavi
-  static const Color primaryDark = Color(0xFF1D4ED8);  // koyu mavi
-  static const Color accent = Color(0xFF2DD4BF);        // turkuaz (vurgu, ustu SIYAH)
+  // DOA yesil kimlik: ana renk YESIL (butonlar/basliklar), vurgu daha acik
+  // yesil. Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
+  static const Color primary = Color(0xFF1E9E52);      // DOA yesili (butonlar)
+  static const Color primaryLight = Color(0xFF52C07E); // acik yesil
+  static const Color primaryDark = Color(0xFF157A3E);  // koyu yesil
+  static const Color accent = Color(0xFF34C77B);        // acik yesil vurgu
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
   // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
-  static const Color orchid = Color(0xFF3B82F6);  // mavi
-  static const Color blush = Color(0xFF14B8A6);   // koyu turkuaz
-  static const Color sky = Color(0xFF60A5FA);     // acik mavi
+  static const Color orchid = Color(0xFF23A055);  // yesil
+  static const Color blush = Color(0xFF178A46);   // koyu yesil
+  static const Color sky = Color(0xFF52C07E);     // acik yesil
 
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
   static const Color statusSafe = Color(0xFF34D399);
@@ -55,28 +57,28 @@ class AppTheme {
   //  otomatik guncellenir.
   // ════════════════════════════════════════════════════════════════════
 
-  // Koyu palet — derin lavanta-gece (duz siyah degil, sicakligini korur).
-  static const Color _dkBackground = Color(0xFF14121F);
-  static const Color _dkSurface = Color(0xFF1E1B2E);
-  static const Color _dkSurfaceAlt = Color(0xFF272338);
-  static const Color _dkSurfaceHigh = Color(0xFF332D47);
-  static const Color _dkHairline = Color(0xFF3A3450);
-  static const Color _dkTextPrimary = Color(0xFFF5F3FA);
-  static const Color _dkTextSecondary = Color(0xFFAFA8C4);
-  static const Color _dkTextTertiary = Color(0xFF6F6889);
+  // Koyu palet — DOA'nin koyu yesil-gece varyanti (duz siyah degil).
+  static const Color _dkBackground = Color(0xFF0F1A14);
+  static const Color _dkSurface = Color(0xFF17231B);
+  static const Color _dkSurfaceAlt = Color(0xFF1F2E25);
+  static const Color _dkSurfaceHigh = Color(0xFF29392F);
+  static const Color _dkHairline = Color(0xFF31473A);
+  static const Color _dkTextPrimary = Color(0xFFF1F6F2);
+  static const Color _dkTextSecondary = Color(0xFFAAC0B2);
+  static const Color _dkTextTertiary = Color(0xFF6E8378);
   // Koyu temada "cam" beyaz degil, hafif aydinlatilmis lavanta katmanidir.
   static const Color _dkGlassTint = Color(0xFFFFFFFF);
   static const double _dkGlassOpacity = 0.06;
 
-  // Acik palet — "Soft Glass" varsayilani: lavanta-beyaz zemin.
-  static const Color _ltBackground = Color(0xFFF6F7FD); // hafif lavanta-gri
+  // Acik palet — DOA: mint-beyaz zemin, beyaz kartlar.
+  static const Color _ltBackground = Color(0xFFE8F5EC); // mint zemin
   static const Color _ltSurface = Color(0xFFFFFFFF);
-  static const Color _ltSurfaceAlt = Color(0xFFF0F1FA);
-  static const Color _ltSurfaceHigh = Color(0xFFE6E8F7);
-  static const Color _ltHairline = Color(0xFFE2E4F3);
-  static const Color _ltTextPrimary = Color(0xFF211E33);
-  static const Color _ltTextSecondary = Color(0xFF6B6585);
-  static const Color _ltTextTertiary = Color(0xFFA29DB8);
+  static const Color _ltSurfaceAlt = Color(0xFFEAF5EE);
+  static const Color _ltSurfaceHigh = Color(0xFFDCEEE3);
+  static const Color _ltHairline = Color(0xFFDBEBE1);
+  static const Color _ltTextPrimary = Color(0xFF1E2A22);
+  static const Color _ltTextSecondary = Color(0xFF61706A);
+  static const Color _ltTextTertiary = Color(0xFF9DA9A1);
   // Acik temada cam: beyazin yari-seffaf hali (frosted).
   static const Color _ltGlassTint = Color(0xFFFFFFFF);
   static const double _ltGlassOpacity = 0.62;
@@ -129,13 +131,13 @@ class AppTheme {
 
   // ─── Imza gradyanlar — kirmizi-mavi ────────────────────────────────
   static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6), Color(0xFF14B8A6)],
+    colors: [Color(0xFF157A3E), Color(0xFF23A055), Color(0xFF3BB873)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFF14B8A6), Color(0xFF60A5FA)],
+    colors: [Color(0xFF23A055), Color(0xFF52C07E)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -149,10 +151,10 @@ class AppTheme {
   /// Aurora gradyani — header arka planlarinda yavasca kayan, daha cok
   /// renk katmani iceren versiyon (animasyonlu kullanim icin tasarlandi).
   static const List<Color> auroraColors = [
-    Color(0xFF1D4ED8), // canli mavi
-    Color(0xFF3B82F6), // parlak mavi
-    Color(0xFF14B8A6), // turkuaz
-    Color(0xFF3B82F6), // parlak mavi (donguyu kapatir)
+    Color(0xFF157A3E), // koyu yesil
+    Color(0xFF23A055), // canli yesil
+    Color(0xFF3BB873), // acik yesil
+    Color(0xFF23A055), // canli yesil (donguyu kapatir)
   ];
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
@@ -172,7 +174,7 @@ class AppTheme {
   // ─── Golge tokenleri — Soft Glass: daha yumusak, daha dagilmis ─────
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
+          color: (isLight ? const Color(0xFF0E7A3D) : Colors.black)
               .withOpacity(isLight ? 0.10 : 0.24),
           blurRadius: 16,
           offset: const Offset(0, 4),
@@ -181,7 +183,7 @@ class AppTheme {
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
+          color: (isLight ? const Color(0xFF0E7A3D) : Colors.black)
               .withOpacity(isLight ? 0.14 : 0.32),
           blurRadius: 28,
           offset: const Offset(0, 10),
@@ -551,8 +553,8 @@ class _AuroraBackgroundState extends State<AuroraBackground>
         // kirmizi kalir, renkler birbirine karismaz).
         final t = _AuroraSync.instance.value * 2 * math.pi;
         final mid = 0.5 + 0.12 * math.sin(t); // 0.38 ↔ 0.62 arasi salinim
-        const blue = Color(0xFF1D4ED8);
-        const red = Color(0xFF14B8A6); // artik turkuaz (isim eski API)
+        const blue = Color(0xFF178A46); // koyu yesil (isim eski API)
+        const red = Color(0xFF34C77B);  // acik yesil (isim eski API)
         return Container(
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
