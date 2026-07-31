@@ -21,8 +21,10 @@ import 'database_service.dart';
 ///  Tespit tamamen VERIDEN hesaplanir (products tablosu; her satir bir
 ///  parti: barcode + expiry_date + location_type 'pallet'/'shelf'). Sonuc
 ///  asistan baglamina eklenir; boylece yapay zeka bu onerileri kendisi
-///  profesyonelce dile getirebilir (bkz. WarehouseAssistantService +
-///  fifo_check araci).
+///  profesyonelce dile getirebilir (bkz. WarehouseAssistantService —
+///  buildLocalContext icine proaktif olarak eklenir). Ayri bir "arac"
+///  degildir: deterministik hesap yalnizca dogruluk icindir; model isterse
+///  ayni karsilastirmayi db_query ile de yapabilir.
 /// ════════════════════════════════════════════════════════════════════
 class FifoAnalyzerService {
   FifoAnalyzerService._();
