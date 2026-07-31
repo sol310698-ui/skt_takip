@@ -864,101 +864,151 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   // ── HERO KART (DOA "bakiye" kartinin SKT karsiligi) ───────────────
+  //  Urun gorseli varsa TUM karti orantili (BoxFit.cover) kaplar; ustune
+  //  alttan koyu yesil okunabilirlik perdesi + SKT bilgisi biner. Gorsel
+  //  yoksa yesil gradyan + imza halkalari gosterilir.
   Widget _doaHeroCard() {
     final st = _liveStatus();
     final hasDate = _expiryDate != null;
     final bigDate = hasDate
         ? DateFormat('dd MMMM yyyy', 'tr').format(_expiryDate!)
         : 'Tarih seçilmedi';
-    return Container(
-      decoration: BoxDecoration(
-        gradient: _doaHeroGrad,
-        borderRadius: BorderRadius.circular(26),
-        boxShadow: [
-          BoxShadow(
-            color: _doaGreenDark.withOpacity(0.35),
-            blurRadius: 22,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(26),
-        child: Stack(
-          children: [
-            // DOA imza suyu: yari-seffaf beyaz halkalar.
-            Positioned(right: -46, top: -54, child: _wmCircle(180)),
-            Positioned(right: 34, bottom: -66, child: _wmCircle(150)),
-            Positioned(left: -34, bottom: -44, child: _wmCircle(120)),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text('Son Kullanma Tarihi',
-                            style: TextStyle(
-                                color: Colors.white.withOpacity(0.88),
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                      _productThumb(54),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(bigDate,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 27,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.6)),
-                  const SizedBox(height: 14),
-                  if (st != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                                color: st.color, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 7),
-                          Text('${st.label} · ${st.daysText}',
-                              style: TextStyle(
-                                  color: _doaInk,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w800)),
-                        ],
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.22),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: const Text('Henüz seçilmedi',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700)),
-                    ),
-                ],
-              ),
+    final hasImage = _localImagePath != null || _previewImageUrl != null;
+    return GestureDetector(
+      onTap: hasImage ? _openHeroFullscreen : null,
+      child: Container(
+        height: 210,
+        decoration: BoxDecoration(
+          // Gorsel varsa zemin gorsel olur (gradient yok); yoksa yesil gradyan.
+          gradient: hasImage ? null : _doaHeroGrad,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: _doaGreenDark.withOpacity(0.35),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
             ),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // ARKA PLAN: urun gorseli TUM karti orantili (cover) kaplar.
+              if (hasImage)
+                Hero(
+                  tag: 'product_img',
+                  child: _localImagePath != null
+                      ? Image.file(File(_localImagePath!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _heroGreenFallback())
+                      : CachedImage(
+                          url: _previewImageUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: _heroGreenFallback),
+                ),
+              // Gorsel yoksa: DOA imza suyu (yari-seffaf beyaz halkalar).
+              if (!hasImage) ...[
+                Positioned(right: -46, top: -54, child: _wmCircle(180)),
+                Positioned(right: 34, bottom: -66, child: _wmCircle(150)),
+                Positioned(left: -34, bottom: -44, child: _wmCircle(120)),
+              ],
+              // OKUNABILIRLIK PERDESI: alttan koyu yesil (yazi net kalsin).
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.transparent,
+                      Color(0xE6105A2E),
+                    ],
+                    stops: [0.0, 0.42, 1.0],
+                  ),
+                ),
+              ),
+              // TAM EKRAN IPUCU (gorsel varsa, sag ust).
+              if (hasImage)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.32),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.fullscreen_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+              // ICERIK: SKT bilgisi (altta).
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Son Kullanma Tarihi',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Text(bigDate,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.6)),
+                    const SizedBox(height: 12),
+                    if (st != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                  color: st.color, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 7),
+                            Text('${st.label} · ${st.daysText}',
+                                style: const TextStyle(
+                                    color: _doaInk,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.22),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text('Henüz seçilmedi',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -973,49 +1023,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         ),
       );
 
-  /// Dairesel urun kucuk gorseli (dokununca tam ekran acilir).
-  Widget _productThumb(double size) {
-    final hasImage = _localImagePath != null || _previewImageUrl != null;
-    return GestureDetector(
-      onTap: hasImage ? _openHeroFullscreen : null,
-      child: Hero(
-        tag: 'product_img',
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.16),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: _localImagePath != null
-              ? Image.file(File(_localImagePath!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _thumbPlaceholder())
-              : (_previewImageUrl != null
-                  ? CachedImage(
-                      url: _previewImageUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: _thumbPlaceholder)
-                  : _thumbPlaceholder()),
-        ),
-      ),
-    );
-  }
-
-  Widget _thumbPlaceholder() => Container(
-        color: Colors.white.withOpacity(0.92),
-        child: const Center(
-          child: Icon(Icons.inventory_2_rounded, color: _doaGreen, size: 24),
-        ),
-      );
+  /// Gorsel yuklenemezse hero'da yesil gradyan zemin.
+  Widget _heroGreenFallback() =>
+      const DecoratedBox(decoration: BoxDecoration(gradient: _doaHeroGrad));
 
   void _openHeroFullscreen() {
     if (_localImagePath != null) {
