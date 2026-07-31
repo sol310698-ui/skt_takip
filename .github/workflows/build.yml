@@ -6,9 +6,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# Eski artifact'leri silebilmek icin 'actions: write' gerekir.
+# Eski artifact'leri silebilmek icin 'actions: write';
+# APK/AAB'yi Release'e yayinlayabilmek icin 'contents: write' gerekir.
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -108,8 +109,41 @@ jobs:
       - name: AAB derle (Google Play)
         run: flutter build appbundle --release --build-number=${{ github.run_number }}
 
-      # ── CIKTILARI YUKLE (Actions > ilgili run > Artifacts'tan indirilir) ──
-      - name: APK'yi yukle
+      # ── CIKTILARI RELEASE'E YAYINLA (birincil dagitim) ────────────────
+      # NEDEN: GitHub Actions "artifact" deposu kota dolunca yukleme
+      # basarisiz oluyordu ("Artifact storage quota has been hit"). Release
+      # varliklari (assets) BU KOTAYA DAHIL DEGILDIR ve ucretsizdir; bu
+      # yuzden APK/AAB'yi tek, guncel bir on-surume ('ci-latest') koyariz.
+      # Boylece kota dolu olsa bile her derlemede indirilebilir SABIT bir
+      # link olur (telefona kurmak icin dogrudan APK).
+      - name: APK/AAB'yi Release'e yayinla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ci-latest"
+          TITLE="SKT Takip — son derleme (#${{ github.run_number }})"
+          NOTES="Otomatik derleme.
+          Dal: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Derleme no: ${{ github.run_number }}
+
+          Kurulum: asagidaki app-release.apk dosyasini telefona indirip acin."
+          # Onceki 'ci-latest' surumunu ve etiketini temizle (tag guncel
+          # commit'e tasinsin); ilk calismada yoksa hatayi yok say.
+          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            --target "${{ github.sha }}" \
+            --title "$TITLE" \
+            --notes "$NOTES" \
+            --prerelease \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/bundle/release/app-release.aab
+
+      # ── ARTIFACT YUKLEME (ikincil / opsiyonel) ────────────────────────
+      # Release birincil dagitimdir. Artifact yuklemesi de denenir ama kota
+      # dolu olursa build'i KIRMIZI YAPMASIN diye continue-on-error.
+      - name: APK'yi yukle (opsiyonel)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skt-takip-apk
@@ -119,7 +153,8 @@ jobs:
           retention-days: 5
           compression-level: 0  # APK zaten sikistirilmis; CPU harcamayalim
 
-      - name: AAB'yi yukle (Play icin)
+      - name: AAB'yi yukle (Play icin, opsiyonel)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skt-takip-aab-play
