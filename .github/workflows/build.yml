@@ -106,9 +106,6 @@ jobs:
       - name: APK derle
         run: flutter build apk --release --build-number=${{ github.run_number }}
 
-      - name: AAB derle (Google Play)
-        run: flutter build appbundle --release --build-number=${{ github.run_number }}
-
       # ── CIKTILARI RELEASE'E YAYINLA (birincil dagitim) ────────────────
       # NEDEN: GitHub Actions "artifact" deposu kota dolunca yukleme
       # basarisiz oluyordu ("Artifact storage quota has been hit"). Release
@@ -116,7 +113,7 @@ jobs:
       # yuzden APK/AAB'yi tek, guncel bir on-surume ('ci-latest') koyariz.
       # Boylece kota dolu olsa bile her derlemede indirilebilir SABIT bir
       # link olur (telefona kurmak icin dogrudan APK).
-      - name: APK/AAB'yi Release'e yayinla
+      - name: APK'yi Release'e yayinla
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -136,8 +133,7 @@ jobs:
             --title "$TITLE" \
             --notes "$NOTES" \
             --prerelease \
-            build/app/outputs/flutter-apk/app-release.apk \
-            build/app/outputs/bundle/release/app-release.aab
+            build/app/outputs/flutter-apk/app-release.apk
 
       # ── ARTIFACT YUKLEME (ikincil / opsiyonel) ────────────────────────
       # Release birincil dagitimdir. Artifact yuklemesi de denenir ama kota
@@ -152,13 +148,3 @@ jobs:
           # Kota bir daha dolmasin: cikti 5 gun sonra kendiliginden silinir.
           retention-days: 5
           compression-level: 0  # APK zaten sikistirilmis; CPU harcamayalim
-
-      - name: AAB'yi yukle (Play icin, opsiyonel)
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: skt-takip-aab-play
-          path: build/app/outputs/bundle/release/app-release.aab
-          if-no-files-found: warn
-          retention-days: 5
-          compression-level: 0
