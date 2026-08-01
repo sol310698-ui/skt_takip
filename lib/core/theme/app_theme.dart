@@ -253,7 +253,7 @@ class AppTheme {
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         brightness: brightness,
-        surf: surf,
+        surface: surf,
         primary: primary,
         secondary: accent,
         error: statusExpired,
