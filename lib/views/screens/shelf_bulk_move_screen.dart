@@ -461,8 +461,11 @@ class _ShelfBulkMoveScreenState extends State<ShelfBulkMoveScreen> {
   }
 
   Widget _targetSectionPicker() {
-    final tgt = _units.firstWhere((u) => u.unit.id == _targetUnitId);
-    final n = tgt.unit.sections;
+    // build icinde: hedef reyon liste yenilenirken kaybolduysa firlatmak
+    // ekrani kirmizi yapardi; bunun yerine bolumu cizme.
+    final ti = _units.indexWhere((u) => u.unit.id == _targetUnitId);
+    if (ti < 0) return const SizedBox.shrink();
+    final n = _units[ti].unit.sections;
     return Container(
       margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.all(12),

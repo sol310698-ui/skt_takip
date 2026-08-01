@@ -28,12 +28,27 @@ class DatabaseService {
 
   /// Her acilista calisir. Kritik sutunlarin varligini garanti eder
   /// (migration herhangi bir nedenle calismadiysa guvence katmani).
+  ///
+  /// KURAL: bir kolonu ALTER ile ekliyorsan (a) _onCreate'teki CREATE
+  /// TABLE'a da ekle, (b) burada _ensureColumn ile guvenceye al. Ikisi
+  /// birden yapilmazsa SIFIRDAN KURULUMDA kolon hic olusmaz ve o kolonu
+  /// yazan her insert "no such column" ile patlar.
   Future<void> _onOpen(Database db) async {
     await _ensureColumn(db, AppConstants.barcodeTable, 'stock_code', 'TEXT');
     await _ensureColumn(db, AppConstants.barcodeTable, 'source', 'TEXT');
     // Urunun YEREL fotografi (internet fotografi yoksa gosterilir).
     await _ensureColumn(
         db, AppConstants.barcodeTable, 'local_image_path', 'TEXT');
+    // SKT <-> konum kalici bagi (v27). Product.toMap() bu iki kolonu HER
+    // kayitta yaziyor; eksik olmalari urun eklemeyi tamamen bozar.
+    await _ensureColumn(
+        db, AppConstants.productTable, 'location_type', 'TEXT');
+    await _ensureColumn(
+        db, AppConstants.productTable, 'location_ref', 'INTEGER');
+    // Teshir gruplari (v31).
+    await _ensureColumn(db, AppConstants.teshirTable, 'group_id', 'TEXT');
+    await _ensureColumn(db, AppConstants.teshirTable, 'group_size',
+        'INTEGER NOT NULL DEFAULT 1');
     // Migration bir sebeple atlandiysa reyon tablolari yine de olussun.
     await _createShelfLayoutTables(db);
   }
@@ -100,7 +115,13 @@ class DatabaseService {
     await _createShelfLayoutTables(db);
   }
 
-  /// v1 -> v2 migration: mevcut veriler korunur.
+  /// Mevcut veriler korunarak surum yukseltme.
+  ///
+  /// DIKKAT: bloklar ARTAN sirada olmali. v31 blogu (teshir tablosuna
+  /// ALTER) bir ara v29 blogunun (teshir tablosunu CREATE eden) USTUNDE
+  /// duruyordu; v26-v28'den yukselen cihazda ALTER once calisip sessizce
+  /// dusuyor, sonra tablo group_id/group_size OLMADAN yaratiliyordu.
+  /// Yeni blok eklerken sona ekle.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Disposal sutunlari ekle (varsayilan: active).
@@ -220,42 +241,14 @@ class DatabaseService {
           'ALTER TABLE ${AppConstants.barcodeTable} ADD COLUMN local_image_path TEXT');
       await _createShelfLayoutTables(db);
     }
-    if (oldVersion < 31) {
-      // TESHIR GRUPLARI: ayni A4 kagidina basilacak urunler. Biri
-      // degisince kagit yeniden basilacagi icin GRUBUN TAMAMI gerekir.
-      for (final sql in [
-        "ALTER TABLE ${AppConstants.teshirTable} ADD COLUMN group_id TEXT",
-        "ALTER TABLE ${AppConstants.teshirTable} "
-            "ADD COLUMN group_size INTEGER NOT NULL DEFAULT 1",
-      ]) {
-        try {
-          await db.execute(sql);
-        } catch (_) {
-          // Kolon zaten varsa yok say.
-        }
-      }
-    }
-    if (oldVersion < 30) {
-      // AJAN HAFIZASI: asistanin ogrendigi kurallar/hatalar.
-      await db.execute('CREATE TABLE IF NOT EXISTS '
-        '${AppConstants.agentMemoryTable} ('
-        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
-        'note TEXT NOT NULL, '
-        'kind TEXT NOT NULL DEFAULT \'kural\', '
-        'hits INTEGER NOT NULL DEFAULT 1, '
-        'created_at INTEGER NOT NULL, '
-        'updated_at INTEGER NOT NULL)');
-    }
-    if (oldVersion < 29) {
-      // TESHIR: reyon disinda teshirde (stand/ada) duran urunler. Fiyat
-      // degisiminde teshir etiketi de gerekir mi diye kontrol edilir.
-      await db.execute('CREATE TABLE IF NOT EXISTS '
-          '${AppConstants.teshirTable} ('
-          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
-          'barcode TEXT NOT NULL UNIQUE, '
-          'product_name TEXT, '
-          'note TEXT, '
-          'added_at INTEGER NOT NULL)');
+    if (oldVersion < 27) {
+      // SKT <-> KONUM KALICI BAGI: SKT kaydi hangi palet kalemine
+      // (location_type='pallet', ref=wh_pallet_items.id) ya da reyon
+      // slotuna (location_type='shelf', ref=shelf_slots.id) bagli.
+      await db.execute(
+          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_type TEXT');
+      await db.execute(
+          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_ref INTEGER');
     }
     if (oldVersion < 28) {
       // REYONA ACILACAKLAR: depodan cikarilip reyona tasinacak urunlerin
@@ -270,14 +263,42 @@ class DatabaseService {
           'done INTEGER NOT NULL DEFAULT 0, '
           'done_at INTEGER)');
     }
-    if (oldVersion < 27) {
-      // SKT <-> KONUM KALICI BAGI: SKT kaydi hangi palet kalemine
-      // (location_type='pallet', ref=wh_pallet_items.id) ya da reyon
-      // slotuna (location_type='shelf', ref=shelf_slots.id) bagli.
-      await db.execute(
-          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_type TEXT');
-      await db.execute(
-          'ALTER TABLE ${AppConstants.productTable} ADD COLUMN location_ref INTEGER');
+    if (oldVersion < 29) {
+      // TESHIR: reyon disinda teshirde (stand/ada) duran urunler. Fiyat
+      // degisiminde teshir etiketi de gerekir mi diye kontrol edilir.
+      await db.execute('CREATE TABLE IF NOT EXISTS '
+          '${AppConstants.teshirTable} ('
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+          'barcode TEXT NOT NULL UNIQUE, '
+          'product_name TEXT, '
+          'note TEXT, '
+          'added_at INTEGER NOT NULL)');
+    }
+    if (oldVersion < 30) {
+      // AJAN HAFIZASI: asistanin ogrendigi kurallar/hatalar.
+      await db.execute('CREATE TABLE IF NOT EXISTS '
+        '${AppConstants.agentMemoryTable} ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'note TEXT NOT NULL, '
+        'kind TEXT NOT NULL DEFAULT \'kural\', '
+        'hits INTEGER NOT NULL DEFAULT 1, '
+        'created_at INTEGER NOT NULL, '
+        'updated_at INTEGER NOT NULL)');
+    }
+    if (oldVersion < 31) {
+      // TESHIR GRUPLARI: ayni A4 kagidina basilacak urunler. Biri
+      // degisince kagit yeniden basilacagi icin GRUBUN TAMAMI gerekir.
+      for (final sql in [
+        "ALTER TABLE ${AppConstants.teshirTable} ADD COLUMN group_id TEXT",
+        "ALTER TABLE ${AppConstants.teshirTable} "
+            "ADD COLUMN group_size INTEGER NOT NULL DEFAULT 1",
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {
+          // Kolon zaten varsa yok say.
+        }
+      }
     }
   }
 
@@ -471,7 +492,9 @@ class DatabaseService {
         disposal_status TEXT NOT NULL DEFAULT 'active',
         disposal_date INTEGER,
         disposal_note TEXT,
-        location TEXT
+        location TEXT,
+        location_type TEXT,
+        location_ref INTEGER
       )
     ''');
     await db.execute(
@@ -490,6 +513,7 @@ class DatabaseService {
         product_name TEXT NOT NULL,
         stock_code TEXT,
         source TEXT,
+        local_image_path TEXT,
         imported_at INTEGER NOT NULL
       )
     ''');

@@ -1,14 +1,12 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/constants/app_constants.dart';
-import '../../core/services/backup_service.dart';
-import '../../core/services/export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/nav_bar_visibility.dart';
 import '../../core/utils/scan_parser.dart';
@@ -26,6 +24,65 @@ import 'scanner_screen.dart';
 import 'settings_screen.dart';
 import 'web_search_screen.dart';
 
+/// Liste siralamasi. Varsayilan SKT tarihi (en yakin once) — depodaki is
+/// zaten bu sirayla yurur.
+enum _SortMode { expiry, name, added }
+
+extension _SortModeX on _SortMode {
+  String get label {
+    switch (this) {
+      case _SortMode.expiry:
+        return 'SKT tarihi';
+      case _SortMode.name:
+        return 'Ürün adı';
+      case _SortMode.added:
+        return 'Son eklenen';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _SortMode.expiry:
+        return Icons.event_rounded;
+      case _SortMode.name:
+        return Icons.sort_by_alpha_rounded;
+      case _SortMode.added:
+        return Icons.history_rounded;
+    }
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  SKT LISTESI — ana ekran
+/// ────────────────────────────────────────────────────────────────────
+///  Ekranin tek isi su soruyu cevaplamak: "simdi neye dokunmam lazim?"
+///
+///  Yapi (tamami TEK CustomScrollView — eskiden Column + ic ListView'di):
+///
+///   ┌────────────────────────────────────────────┐ ← SliverAppBar (pinned)
+///   │  SKT Takip                     [⚙] [+]     │   kaydirinca kuculur,
+///   │  4 ürünün süresi doldu           128 ürün  │   baslik hep kalir
+///   │  ▓▓▓▓▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │   ← RISK SERIDI
+///   │  [🔍 Ürün veya barkod ara]            [▣]  │
+///   └────────────────────────────────────────────┘
+///   ┌────────────────────────────────────────────┐ ← SABIT filtre rayi
+///   │ Tümü 128 │ Doldu 4 │ Kritik 9 │ …    │ ⇅   │   (hep erisilebilir)
+///   └────────────────────────────────────────────┘
+///     [ Akıllı Gün şeridi ]  (filtre/arama yokken)
+///   ── SÜRESİ DOLDU · 4 ─────────────────────────  ← YAPISKAN baslik
+///     [kart] [kart] …
+///
+///  RISK SERIDI ekranin imza ogesi: uc buyuk sayac karti (110 px) yerine
+///  tek bir oransal serit (14 px). Hangi durumun listede ne kadar yer
+///  kapladigi tek bakista gorunur; dokununca o duruma filtreler. Asil
+///  dokunma hedefi ise asagidaki ray — eldivenle basilacak boyutta.
+///
+///  KOK COZUM: eski ekranda arama cubugu, scroll yonune bakan elle
+///  yazilmis bir _searchVisible bayragiyla gizleniyordu; klavye acilip
+///  kapaninca sahte scroll sinyali uretiliyor, cubuk kendiliginden
+///  gizlenip geri geliyordu (uzerine bir de focus yamasi yazilmisti).
+///  Artik bunu SliverAppBar yapiyor — bayrak da yama da kalkti.
+/// ════════════════════════════════════════════════════════════════════
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -34,8 +91,42 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  // SKT <-> konum kalici bag etiketleri (urun id -> 'Palet X'/reyon adi).
+  /// SKT <-> konum kalici bag etiketleri (urun id -> 'Palet X'/reyon adi).
   Map<int, String> _locLabels = {};
+
+  final TextEditingController _searchCtrl = TextEditingController();
+  final ScrollController _scrollCtrl = ScrollController();
+  final FocusNode _searchFocus = FocusNode();
+
+  _SortMode _sort = _SortMode.expiry;
+
+  /// Liste giris animasyonu: sadece ekran ACILIRKEN kartlar sirayla
+  /// belirir. Sonrasinda tekrar oynatilmaz — yoksa her scroll'da kartlar
+  /// yanip soner.
+  bool _listEntryAnimDone = false;
+
+  static const double _heroContentHeight = 152;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocLabels();
+    _scrollCtrl.addListener(_onScroll);
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _listEntryAnimDone = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() => handleNavBarScroll(_scrollCtrl);
 
   Future<void> _loadLocLabels() async {
     try {
@@ -45,169 +136,60 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {}
   }
 
-  final TextEditingController _searchCtrl = TextEditingController();
-  final ScrollController _scrollCtrl = ScrollController();
-  final FocusNode _searchFocus = FocusNode();
-  bool _exporting = false;
-  bool _searchVisible = true; // asagi kaydirinca gizlenir
-  // Liste giris animasyonu: sadece ekran ACILIRKEN kartlar sirayla
-  // (staggered) belirir. Sonrasinda (scroll, filtre degisimi vb.) tekrar
-  // oynatilmaz — yoksa her scroll'da kartlar yanip soner (kotu UX).
-  bool _listEntryAnimDone = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadLocLabels();
-    _scrollCtrl.addListener(_onScroll);
-    // Klavye odakta oldugu surece arama kutusunu HER ZAMAN gorunur tut.
-    // BUG FIX: klavye acilip kapanirken ListView'in boyutu degisir, bu da
-    // bazen sahte bir scroll-yonu sinyali uretip arama cubugunu
-    // gizleyip/tekrar gosterebiliyordu (klavye kapaninca cubuk "geri
-    // geliyor" gibi gorunen hata). Focus'ta iken bu mantigi devre disi
-    // birakarak bunu onluyoruz.
-    _searchFocus.addListener(() {
-      if (_searchFocus.hasFocus && !_searchVisible) {
-        setState(() => _searchVisible = true);
-      }
-    });
-    // Liste giris animasyonunun oynayacagi pencere (ekran acilisinda
-    // gorunen kartlar icin yeterli sure); sonra bayrak kapanir ve
-    // itemBuilder bir daha animasyon eklemez.
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) setState(() => _listEntryAnimDone = true);
-    });
+  Future<void> _refresh() async {
+    await Future.wait([
+      ref.read(productListProvider.notifier).refresh(),
+      _loadLocLabels(),
+    ]);
   }
 
-  void _onScroll() {
-    // Klavye aciksa (arama kutusu odakta) scroll'a bagli gizle/goster
-    // mantigini calistirma — klavye acilip kapanirken olusan sahte scroll
-    // sinyalleri arama cubugunu istemsizce gizleyip geri getirebiliyordu.
-    if (_searchFocus.hasFocus) return;
-
-    final dir = _scrollCtrl.position.userScrollDirection;
-    // Asagi kaydiriliyor -> arama cubugunu gizle; yukari -> goster.
-    if (dir == ScrollDirection.reverse && _searchVisible) {
-      setState(() => _searchVisible = false);
-    } else if (dir == ScrollDirection.forward && !_searchVisible) {
-      setState(() => _searchVisible = true);
-    }
-    // Nav bar'i da ayni yonde gizle/goster.
-    handleNavBarScroll(_scrollCtrl);
-  }
-
-  @override
-  void dispose() {
-    _scrollCtrl.removeListener(_onScroll);
-    _scrollCtrl.dispose();
-    _searchCtrl.dispose();
-    _searchFocus.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
-
+  // ══════════════════════════════════════════════════════════════════
+  //  BUILD
+  // ══════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
     final productsAsync = ref.watch(productListProvider);
     final filtered = ref.watch(filteredProductsProvider);
+    final activeFilter = ref.watch(statusFilterProvider);
+    final query = ref.watch(searchQueryProvider).trim();
+    final all = productsAsync.valueOrNull ?? const <Product>[];
+    final counts = _countByStatus(all);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: AppTheme.systemBarForColor(AppTheme.primary),
       child: Scaffold(
         body: Stack(
           children: [
-            Column(
-            children: [
-              _buildBanner(),
-              // AKILLI GUN: bugunku isler tek bakista (SKT/etiket/vardiya).
-              const SmartDayStrip(),
-              Expanded(
-                child: productsAsync.when(
-                  loading: () => const LoadingState(),
-                  error: (e, _) => ErrorStateView(
-                    message: 'Ürünler yüklenemedi',
-                    onRetry: () =>
-                        Future.wait([
-                          ref.read(productListProvider.notifier).refresh(),
-                          _loadLocLabels(),
-                        ]),
+            RefreshIndicator(
+              onRefresh: _refresh,
+              edgeOffset: MediaQuery.of(context).padding.top + kToolbarHeight,
+              child: CustomScrollView(
+                controller: _scrollCtrl,
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  _heroBar(counts, all.length, activeFilter),
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _FilterRailDelegate(
+                      counts: counts,
+                      total: all.length,
+                      active: activeFilter,
+                      sort: _sort,
+                      onFilter: _applyFilter,
+                      onSort: _pickSort,
+                    ),
                   ),
-                  data: (products) {
-                    final activeFilter = ref.watch(statusFilterProvider);
-                    if (filtered.isEmpty &&
-                        _searchCtrl.text.isEmpty &&
-                        activeFilter == null) {
-                      return Column(children: [
-                        _buildStats(products),
-                        Expanded(child: _buildEmpty())
-                      ]);
-                    }
-                    // PERFORMANS: sectioned liste BIR KERE hesaplanir,
-                    // itemBuilder icinde DEGIL (orada her satir icin
-                    // yeniden cagrilirsa O(N^2) olur ve listede kasmaya
-                    // yol acar). 'data' closure'i zaten her build'de bir
-                    // kez calistigi icin ekstra Builder widget'ina gerek
-                    // yok.
-                    final sectioned = _buildSectionedItems(filtered);
-                    return RefreshIndicator(
-                      onRefresh: () =>
-                          ref.read(productListProvider.notifier).refresh(),
-                      child: ListView.builder(
-                        controller: _scrollCtrl,
-                        padding: const EdgeInsets.only(top: 4, bottom: 100),
-                        itemCount: sectioned.length + 2,
-                        itemBuilder: (context, i) {
-                          if (i == 0) return _buildStats(products);
-                          if (i == 1) {
-                            return _buildFilterBanner(activeFilter);
-                          }
-                          final item = sectioned[i - 2];
-                          if (item is _SectionHeader) {
-                            return _buildGroupHeader(
-                                item.label, item.color);
-                          }
-                          final product = item as Product;
-                          final card = ProductCard(
-                            key: ValueKey(product.id),
-                            product: product,
-                            locationLabel: product.id == null
-                                ? null
-                                : _locLabels[product.id],
-                            onDelete: () => _confirmDelete(product),
-                            onTap: () => _openEditSheet(product),
-                            onDispose: () => _openDisposalSheet(product),
-                            onSearch: product.barcode == null
-                                ? null
-                                : () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => WebSearchScreen(
-                                            query: product.barcode!),
-                                      ),
-                                    ),
-                          );
-                          // SOV ANIMASYONU: ekran acilirken kartlar
-                          // sirayla (staggered) hafifce asagidan yukari
-                          // belirir. Sadece ilk acilis penceresinde
-                          // (_listEntryAnimDone false) uygulanir; sonra
-                          // duz kart donulur (scroll'da tekrar oynamasin).
-                          if (_listEntryAnimDone) return card;
-                          return card
-                              .animate(delay: (i * 35).ms)
-                              .fadeIn(duration: 320.ms, curve: Curves.easeOut)
-                              .slideY(
-                                  begin: 0.08,
-                                  end: 0,
-                                  duration: 320.ms,
-                                  curve: Curves.easeOutCubic);
-                        },
-                      ),
-                    );
-                  },
-                ),
+                  ..._contentSlivers(
+                    productsAsync: productsAsync,
+                    all: all,
+                    filtered: filtered,
+                    activeFilter: activeFilter,
+                    query: query,
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 110)),
+                ],
               ),
-            ],
-          ),
-            // Speed-dial FAB (Stack icinde - tum ekrani kaplayabilir).
+            ),
             SpeedDialFab(
               actions: [
                 SpeedDialAction(
@@ -224,11 +206,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ],
             ),
-            // NOT: "Etiket İncele" butonu artik TUM sayfalarda gorunen
-            // GLOBAL bir buton (bkz. main.dart -> MaterialApp.builder).
-            // Burada ayrica eklenmiyor (cift gorunmesin diye).
-            // Sol altta: yukari cik FAB. Cok kaydirinca belirir, nav bar
-            // gizlenince (asagi kaydirinca) o da senkron asagi iner.
+            // NOT: "Etiket İncele" butonu TUM sayfalarda gorunen GLOBAL bir
+            // buton (main.dart -> MaterialApp.builder); burada eklenmiyor.
             ScrollToTopFab(
               controller: _scrollCtrl,
               baseBottomPadding: 108,
@@ -239,512 +218,512 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildBanner() {
+  // ══════════════════════════════════════════════════════════════════
+  //  HERO (AppBar)
+  // ══════════════════════════════════════════════════════════════════
+  Widget _heroBar(
+      Map<ExpiryStatus, int> counts, int total, ExpiryStatus? active) {
     final topInset = MediaQuery.of(context).padding.top;
-    return AuroraBackground(
-      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-      child: Container(
-        padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 20),
-        child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                AppConstants.appName,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Row(
+    final maxH = topInset + _heroContentHeight;
+    final minH = topInset + kToolbarHeight;
+
+    return SliverAppBar(
+      pinned: true,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      automaticallyImplyLeading: false,
+      toolbarHeight: kToolbarHeight,
+      expandedHeight: _heroContentHeight,
+      systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
+      flexibleSpace: LayoutBuilder(
+        builder: (context, c) {
+          // t = 0 tam acik, 1 tam kapali.
+          final t = (maxH - minH) <= 0
+              ? 0.0
+              : ((maxH - c.maxHeight) / (maxH - minH)).clamp(0.0, 1.0);
+          // Acik icerik hizli soner ki basligin altina girip karismasin.
+          final openFade = (1 - t * 1.7).clamp(0.0, 1.0);
+          final radius = lerpDouble(28, 0, t)!;
+          final rounded =
+              BorderRadius.vertical(bottom: Radius.circular(radius));
+
+          return ClipRRect(
+            borderRadius: rounded,
+            child: AuroraBackground(
+              borderRadius: rounded,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  // Ayarlar (eski 5 ikon buraya toplandı)
-                  _BannerIconBtn(
-                    icon: Icons.settings_rounded,
-                    tooltip: 'Ayarlar',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const SettingsScreen()),
+                  // ── Acik durum: ozet + risk seridi + arama ──
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 14,
+                    child: Opacity(
+                      opacity: openFade,
+                      child: IgnorePointer(
+                        ignoring: openFade < 0.1,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _headline(counts, total),
+                            const SizedBox(height: 8),
+                            _RiskRibbon(
+                              counts: counts,
+                              active: active,
+                              onTap: _applyFilter,
+                            ),
+                            const SizedBox(height: 12),
+                            _searchRow(),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  // Yeni urun
-                  _BannerIconBtn(
-                    icon: Icons.add,
-                    tooltip: 'Yeni Ürün',
-                    onTap: () => _openAddSheet(),
+                  // ── Her zaman gorunen ust satir ──
+                  Positioned(
+                    top: topInset,
+                    left: 12,
+                    right: 4,
+                    height: kToolbarHeight,
+                    child: Row(
+                      children: [
+                        const Text(
+                          AppConstants.appName,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Hero kapaninca sayaclar baslik yaninda ozetlenir.
+                        Expanded(
+                          child: Opacity(
+                            opacity: t,
+                            child: IgnorePointer(
+                              ignoring: t < 0.5,
+                              child: _CompactCounts(counts: counts),
+                            ),
+                          ),
+                        ),
+                        _HeroIconBtn(
+                          icon: Icons.settings_rounded,
+                          tooltip: 'Ayarlar',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const SettingsScreen()),
+                          ),
+                        ),
+                        _HeroIconBtn(
+                          icon: Icons.add_rounded,
+                          tooltip: 'Yeni Ürün',
+                          onTap: _openAddSheet,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ],
-          ),
-          // Arama cubugu: asagi kaydirinca gizlenir (AnimatedSize ile).
-          AnimatedSize(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            child: _searchVisible
-                ? Column(
-                    children: [
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _searchCtrl,
-                              focusNode: _searchFocus,
-                              textInputAction: TextInputAction.search,
-                              // Disari dokununca klavye kapanir VE imlec
-                              // kaybolur (focus birakilir). Boylece baska
-                              // ekrandan geri donunce klavye kendiliginden
-                              // acilmaz.
-                              onTapOutside: (_) => _searchFocus.unfocus(),
-                              onSubmitted: (_) => _searchFocus.unfocus(),
-                              onChanged: (v) => ref
-                                  .read(searchQueryProvider.notifier)
-                                  .state = v,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: 'Ürün veya barkod ara...',
-                                hintStyle:
-                                    TextStyle(color: Colors.white.withOpacity(0.7)),
-                                prefixIcon: const Icon(Icons.search,
-                                    color: Colors.white),
-                                filled: true,
-                                fillColor: Colors.white.withOpacity(0.16),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide(
-                                      color:
-                                          Colors.white.withOpacity(0.35)),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: BorderSide(
-                                      color:
-                                          Colors.white.withOpacity(0.35)),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                  borderSide: const BorderSide(
-                                      color: Colors.white, width: 1.6),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Material(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(14),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: _scanBarcodeForSearch,
-                              child: const Padding(
-                                padding: EdgeInsets.all(14),
-                                child: Icon(Icons.qr_code_scanner,
-                                    color: Colors.white, size: 24),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  )
-                : const SizedBox(width: double.infinity),
-          ),
-        ],
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildStats(List<Product> products) {
-    // PERFORMANS: tek geciste say (3 ayri .where() taramasi yerine).
-    int expired = 0, critical = 0, warning = 0;
-    for (final p in products) {
-      final days = p.daysUntilExpiry;
-      if (days < 0) {
-        expired++;
-      } else if (days <= AppConstants.criticalDays) {
-        critical++;
-      } else if (days <= AppConstants.warningDays) {
-        warning++;
-      }
+  /// Gunun tek cumlelik ozeti — okunmasi gereken TEK satir.
+  Widget _headline(Map<ExpiryStatus, int> counts, int total) {
+    final expired = counts[ExpiryStatus.expired] ?? 0;
+    final critical = counts[ExpiryStatus.critical] ?? 0;
+    final warning = counts[ExpiryStatus.warning] ?? 0;
+
+    String text;
+    if (total == 0) {
+      text = 'Liste boş — ilk ürünü ekle';
+    } else if (expired > 0) {
+      text = '$expired ürünün süresi doldu';
+    } else if (critical > 0) {
+      text = '$critical ürün ${AppConstants.criticalDays} gün içinde doluyor';
+    } else if (warning > 0) {
+      text = '$warning ürün bu hafta doluyor';
+    } else {
+      text = 'Yakın tarihli ürün yok';
     }
 
-    final activeFilter = ref.watch(statusFilterProvider);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: _filterTile(
-              label: 'Doldu',
-              count: expired,
-              color: AppTheme.statusExpired,
-              icon: Icons.dangerous_rounded,
-              status: ExpiryStatus.expired,
-              active: activeFilter == ExpiryStatus.expired,
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w600,
+              height: 1.1,
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _filterTile(
-              label: 'Kritik',
-              count: critical,
-              color: AppTheme.statusCritical,
-              icon: Icons.warning_rounded,
-              status: ExpiryStatus.critical,
-              active: activeFilter == ExpiryStatus.critical,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _filterTile(
-              label: 'Yaklaşan',
-              count: warning,
-              color: AppTheme.statusWarning,
-              icon: Icons.schedule_rounded,
-              status: ExpiryStatus.warning,
-              active: activeFilter == ExpiryStatus.warning,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _filterTile({
-    required String label,
-    required int count,
-    required Color color,
-    required IconData icon,
-    required ExpiryStatus status,
-    required bool active,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        // Zaten aktifse filtre kaldir; degilse uygula.
-        final notifier = ref.read(statusFilterProvider.notifier);
-        notifier.state = active ? null : status;
-        // Filtre degisince arama metnini temizle.
-        if (!active) ref.read(searchQueryProvider.notifier).state = '';
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        decoration: BoxDecoration(
-          color: active
-              ? color.withOpacity(0.20)
-              : AppTheme.glassTint.withOpacity(AppTheme.glassOpacity),
-          borderRadius: BorderRadius.circular(AppTheme.rLg),
-          border: Border.all(
-            color: active
-                ? color
-                : Colors.white.withOpacity(AppTheme.isLight ? 0.7 : 0.08),
-            width: active ? 1.5 : 1.2,
-          ),
-          boxShadow: active ? AppTheme.glow(color) : AppTheme.shadowSm,
         ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(height: 8),
-            // Sayi degisince hafif scale+fade ile gecis yapar (yeni bir
-            // urun eklenip/silinip sayac guncellendiginde fark edilir).
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 280),
-              transitionBuilder: (child, anim) => ScaleTransition(
-                scale: CurvedAnimation(
-                    parent: anim, curve: Curves.easeOutBack),
-                child: FadeTransition(opacity: anim, child: child),
-              ),
-              child: Text('$count',
-                  key: ValueKey(count),
-                  style: TextStyle(
-                      color: color,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      height: 1)),
-            ),
-            const SizedBox(height: 3),
-            Text(label,
-                style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600)),
-            if (active) ...[
-              const SizedBox(height: 4),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(AppTheme.rPill),
-                ),
-                child: Text('Filtreli',
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGroupHeader(String label, Color color) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 14,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 8),
+        if (total > 0)
           Text(
-            label.toUpperCase(),
+            '$total ürün',
             style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
-              color: color,
+              color: Colors.white.withOpacity(0.75),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
-  /// Urunleri durum gruplarina ayirir: [Header, Product, Product, Header, ...]
-  /// PERFORMANS: tek geciste (O(N)) durumlara gore gruplar. Eskiden her
-  /// durum icin ayri .where() taramasi yapiliyordu (O(4N)); buyuk
-  /// listelerde (100+ urun) bu fark scroll/kasma uzerinde hissedilir.
-  List<dynamic> _buildSectionedItems(List<Product> products) {
-    final byStatus = <ExpiryStatus, List<Product>>{};
-    for (final p in products) {
-      (byStatus[p.status] ??= <Product>[]).add(p);
-    }
-
-    const sections = <_SectionDef>[
-      _SectionDef(
-          'Süresi Doldu', ExpiryStatus.expired, AppTheme.statusExpired),
-      _SectionDef(
-          'Kritik (≤3 gün)', ExpiryStatus.critical, AppTheme.statusCritical),
-      _SectionDef(
-          'Yaklaşan (≤7 gün)', ExpiryStatus.warning, AppTheme.statusWarning),
-      _SectionDef('Güvenli', ExpiryStatus.safe, AppTheme.statusSafe),
-    ];
-
-    final result = <dynamic>[];
-    for (final section in sections) {
-      final items = byStatus[section.status];
-      if (items == null || items.isEmpty) continue;
-      result.add(_SectionHeader(section.label, section.color));
-      result.addAll(items);
-    }
-    return result;
-  }
-
-  Widget _buildFilterBanner(ExpiryStatus? filter) {
-    if (filter == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: filter.color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(AppTheme.rMd),
-          border: Border.all(color: filter.color.withOpacity(0.35)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.filter_list_rounded,
-                color: filter.color, size: 16),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '${filter.label} filtresi aktif',
-                style: TextStyle(
-                    color: filter.color,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600),
+  Widget _searchRow() {
+    final hasText = _searchCtrl.text.isNotEmpty;
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 46,
+            child: TextField(
+              controller: _searchCtrl,
+              focusNode: _searchFocus,
+              textInputAction: TextInputAction.search,
+              // Disari dokununca klavye kapanir VE imlec birakilir; boylece
+              // baska ekrandan donunce klavye kendiliginden acilmaz.
+              onTapOutside: (_) => _searchFocus.unfocus(),
+              onSubmitted: (_) => _searchFocus.unfocus(),
+              onChanged: (v) {
+                ref.read(searchQueryProvider.notifier).state = v;
+                setState(() {}); // temizle (X) ikonu icin
+              },
+              style: const TextStyle(color: Colors.white, fontSize: 14.5),
+              cursorColor: Colors.white,
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                hintText: 'Ürün veya barkod ara',
+                hintStyle: TextStyle(
+                    color: Colors.white.withOpacity(0.7), fontSize: 14),
+                prefixIcon: const Icon(Icons.search_rounded,
+                    color: Colors.white, size: 21),
+                suffixIcon: hasText
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded,
+                            color: Colors.white, size: 19),
+                        onPressed: _clearSearch,
+                        tooltip: 'Aramayı temizle',
+                      )
+                    : null,
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.16),
+                border: _searchBorder(0.35),
+                enabledBorder: _searchBorder(0.35),
+                focusedBorder: _searchBorder(1.0, width: 1.6),
               ),
             ),
-            GestureDetector(
-              onTap: () =>
-                  ref.read(statusFilterProvider.notifier).state = null,
-              child: Icon(Icons.close_rounded,
-                  color: filter.color, size: 18),
-            ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Material(
+          color: Colors.white.withOpacity(0.16),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _scanBarcodeForSearch,
+            child: const SizedBox(
+              width: 46,
+              height: 46,
+              child: Icon(Icons.qr_code_scanner_rounded,
+                  color: Colors.white, size: 23),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildEmpty() {
-    return const EmptyState(
-      icon: Icons.inventory_2_outlined,
-      title: 'Henüz ürün yok',
-      subtitle: 'SKT taramak için aşağıdaki "SKT Tara" butonunu kullanın',
+  OutlineInputBorder _searchBorder(double opacity, {double width = 1.0}) {
+    return OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide:
+          BorderSide(color: Colors.white.withOpacity(opacity), width: width),
     );
   }
 
-  void _openBackupMenu() {
-    showModalBottomSheet(
+  // ══════════════════════════════════════════════════════════════════
+  //  ICERIK
+  // ══════════════════════════════════════════════════════════════════
+  List<Widget> _contentSlivers({
+    required AsyncValue<List<Product>> productsAsync,
+    required List<Product> all,
+    required List<Product> filtered,
+    required ExpiryStatus? activeFilter,
+    required String query,
+  }) {
+    if (productsAsync.isLoading && all.isEmpty) {
+      return const [
+        SliverFillRemaining(
+            hasScrollBody: false, child: LoadingState(message: 'Yükleniyor')),
+      ];
+    }
+    if (productsAsync.hasError && all.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: ErrorStateView(
+            message: 'Ürünler yüklenemedi',
+            onRetry: _refresh,
+          ),
+        ),
+      ];
+    }
+
+    // Hic urun yok.
+    if (all.isEmpty) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState(
+            icon: Icons.inventory_2_outlined,
+            title: 'Henüz ürün yok',
+            subtitle: 'Sağ alttaki "SKT Tara" ile barkodu ve son kullanma '
+                'tarihini okut; ürün listeye düşsün.',
+          ),
+        ),
+      ];
+    }
+
+    final slivers = <Widget>[];
+
+    // Akilli Gun yalnizca "temiz" listede — filtre/arama varken kullanici
+    // dar bir sonuca odaklanmistir, serit gurultu olur.
+    if (activeFilter == null && query.isEmpty) {
+      slivers.add(const SliverToBoxAdapter(child: SmartDayStrip()));
+    }
+
+    // Filtre/arama sonuc vermedi. (Eski ekranda burasi BOMBOS kaliyordu.)
+    if (filtered.isEmpty) {
+      slivers.add(SliverFillRemaining(
+        hasScrollBody: false,
+        child: query.isNotEmpty
+            ? EmptyState(
+                icon: Icons.search_off_rounded,
+                iconColor: AppTheme.textSecondary,
+                title: '"$query" bulunamadı',
+                subtitle: 'Ürün adının bir kısmını ya da barkodu dene.',
+                action: OutlinedButton.icon(
+                  onPressed: _clearSearch,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Aramayı temizle'),
+                ),
+              )
+            : EmptyState(
+                icon: Icons.filter_alt_off_rounded,
+                iconColor: activeFilter?.color,
+                title: '${activeFilter?.label ?? 'Bu durumda'} ürün yok',
+                subtitle: 'Bu durumda bekleyen ürün bulunmuyor.',
+                action: OutlinedButton.icon(
+                  onPressed: () =>
+                      ref.read(statusFilterProvider.notifier).state = null,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Filtreyi kaldır'),
+                ),
+              ),
+      ));
+      return slivers;
+    }
+
+    final sorted = _sortProducts(filtered);
+
+    // Gruplama yalnizca SKT sirasindayken ve durum filtresi YOKKEN
+    // anlamli: filtre varken zaten tek grup kalir, ad/eklenme sirasinda
+    // ise baslik listeyi bolmekten baska is yapmaz.
+    final grouped = _sort == _SortMode.expiry && activeFilter == null;
+
+    if (!grouped) {
+      slivers.add(_productSliver(sorted, offset: 0));
+      return slivers;
+    }
+
+    var offset = 0;
+    for (final section in _sections) {
+      final items = sorted
+          .where((p) => p.status == section.status)
+          .toList(growable: false);
+      if (items.isEmpty) continue;
+      slivers.add(SliverMainAxisGroup(
+        slivers: [
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _SectionHeaderDelegate(
+              label: section.label,
+              count: items.length,
+              color: section.status.color,
+            ),
+          ),
+          _productSliver(items, offset: offset),
+        ],
+      ));
+      offset += items.length;
+    }
+    return slivers;
+  }
+
+  Widget _productSliver(List<Product> items, {required int offset}) {
+    return SliverList.builder(
+      itemCount: items.length,
+      itemBuilder: (context, i) {
+        final product = items[i];
+        final card = ProductCard(
+          key: ValueKey(product.id),
+          product: product,
+          locationLabel: product.id == null ? null : _locLabels[product.id],
+          onDelete: () => _confirmDelete(product),
+          onTap: () => _openEditSheet(product),
+          onDispose: () => _openDisposalSheet(product),
+          onSearch: product.barcode == null
+              ? null
+              : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          WebSearchScreen(query: product.barcode!),
+                    ),
+                  ),
+        );
+        if (_listEntryAnimDone) return card;
+        return card
+            .animate(delay: ((offset + i) * 35).ms)
+            .fadeIn(duration: 320.ms, curve: Curves.easeOut)
+            .slideY(
+                begin: 0.08,
+                end: 0,
+                duration: 320.ms,
+                curve: Curves.easeOutCubic);
+      },
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  //  VERI YARDIMCILARI
+  // ══════════════════════════════════════════════════════════════════
+  /// Tek gecisli sayim (durum basina ayri .where() taramasi yapmaz).
+  Map<ExpiryStatus, int> _countByStatus(List<Product> products) {
+    final m = <ExpiryStatus, int>{
+      ExpiryStatus.expired: 0,
+      ExpiryStatus.critical: 0,
+      ExpiryStatus.warning: 0,
+      ExpiryStatus.safe: 0,
+    };
+    for (final p in products) {
+      m[p.status] = (m[p.status] ?? 0) + 1;
+    }
+    return m;
+  }
+
+  List<Product> _sortProducts(List<Product> items) {
+    final list = List<Product>.of(items);
+    switch (_sort) {
+      case _SortMode.expiry:
+        list.sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+        break;
+      case _SortMode.name:
+        list.sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        break;
+      case _SortMode.added:
+        list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+    }
+    return list;
+  }
+
+  static const List<_SectionDef> _sections = [
+    _SectionDef('Süresi doldu', ExpiryStatus.expired),
+    _SectionDef(
+        'Kritik · ≤${AppConstants.criticalDays} gün', ExpiryStatus.critical),
+    _SectionDef(
+        'Yaklaşan · ≤${AppConstants.warningDays} gün', ExpiryStatus.warning),
+    _SectionDef('Güvenli', ExpiryStatus.safe),
+  ];
+
+  // ══════════════════════════════════════════════════════════════════
+  //  EYLEMLER
+  // ══════════════════════════════════════════════════════════════════
+  void _applyFilter(ExpiryStatus? status) {
+    final notifier = ref.read(statusFilterProvider.notifier);
+    // Ayni filtreye tekrar dokunmak kaldirir.
+    notifier.state = notifier.state == status ? null : status;
+    if (notifier.state != null) _clearSearch();
+    _scrollToTop();
+  }
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    ref.read(searchQueryProvider.notifier).state = '';
+    if (mounted) setState(() {});
+  }
+
+  void _scrollToTop() {
+    if (!_scrollCtrl.hasClients) return;
+    _scrollCtrl.animateTo(0,
+        duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
+  }
+
+  Future<void> _pickSort() async {
+    final picked = await showModalBottomSheet<_SortMode>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
+      builder: (ctx) => Container(
         decoration: BoxDecoration(
           color: AppTheme.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(AppTheme.rLg)),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
-                decoration: BoxDecoration(
-                  color: AppTheme.textTertiary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: AppTheme.textTertiary,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Text('Veri Yedekleme',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Text(
-              'Yedek alarak verilerinizi koruyun.',
-              style: TextStyle(
-                  color: AppTheme.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: () async {
-                Navigator.pop(context);
-                try {
-                  await BackupService.instance.exportAll();
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Yedek alınamadı: $e')),
-                    );
-                  }
-                }
-              },
-              icon: const Icon(Icons.cloud_upload_rounded),
-              label: const Text('Yedek Al'),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () async {
-                Navigator.pop(context);
-                // Dosya secimi — kullaniciya yol soruluyor.
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Geri Yükle'),
-                    content: const Text(
-                      'Mevcut tüm veriler silinip yedeğinizle değiştirilecek. '
-                      'Devam etmek istiyor musunuz?',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('İptal'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: AppTheme.statusExpired),
-                        child: const Text('Geri Yükle'),
-                      ),
-                    ],
+            for (final mode in _SortMode.values)
+              ListTile(
+                leading: Icon(mode.icon,
+                    color: mode == _sort
+                        ? AppTheme.primary
+                        : AppTheme.textSecondary),
+                title: Text(
+                  mode.label,
+                  style: TextStyle(
+                    fontWeight:
+                        mode == _sort ? FontWeight.w700 : FontWeight.w500,
+                    color:
+                        mode == _sort ? AppTheme.primary : AppTheme.textPrimary,
                   ),
-                );
-                if (confirmed != true || !mounted) return;
-                final messenger = ScaffoldMessenger.of(context);
-                try {
-                  final res =
-                      await FilePicker.platform.pickFiles(type: FileType.any);
-                  if (res != null && res.files.single.path != null) {
-                    messenger.showSnackBar(const SnackBar(
-                        duration: Duration(minutes: 5),
-                        content: Text('Geri yükleniyor…')));
-                    await BackupService.instance.restoreAll(
-                      res.files.single.path!,
-                      onProgress: (s) {
-                        messenger.clearSnackBars();
-                        messenger.showSnackBar(SnackBar(
-                            duration: const Duration(minutes: 5),
-                            content: Text(s)));
-                      },
-                    );
-                    messenger.clearSnackBars();
-                    if (mounted) {
-                      messenger.showSnackBar(const SnackBar(
-                          content: Text(
-                              'Geri yüklendi. Uygulamayı yeniden başlatın.')));
-                    }
-                  }
-                } catch (e) {
-                  messenger.clearSnackBars();
-                  if (mounted) {
-                    messenger.showSnackBar(
-                        SnackBar(content: Text('Geri yükleme hatası: $e')));
-                  }
-                }
-              },
-              icon: const Icon(Icons.cloud_download_rounded),
-              label: const Text('Yedekten Geri Yükle'),
-            ),
+                ),
+                trailing: mode == _sort
+                    ? const Icon(Icons.check_rounded, color: AppTheme.primary)
+                    : null,
+                onTap: () => Navigator.pop(ctx, mode),
+              ),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _export() async {
-    setState(() => _exporting = true);
-    try {
-      final repo = ref.read(productRepositoryProvider);
-      final active = await repo.getProducts();
-      final history = await repo.getDisposalHistory();
-      await ExportService.instance.exportToExcel(
-        activeProducts: active,
-        historyProducts: history,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export hatası: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _exporting = false);
+    if (picked != null && picked != _sort && mounted) {
+      setState(() => _sort = picked);
+      _scrollToTop();
     }
   }
 
@@ -755,25 +734,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (code != null && mounted) {
       _searchCtrl.text = code;
       ref.read(searchQueryProvider.notifier).state = code;
+      ref.read(statusFilterProvider.notifier).state = null;
+      setState(() {});
     }
   }
 
   Future<void> _openAddSheet() async {
     // Arama kutusundaki degeri tasi: barkod formatindaysa barkod alanina,
-    // degilse urun adi alanina koy (ad yazip ekle deyince barkod kirlenmez).
+    // degilse urun adi alanina (ad yazip ekle deyince barkod kirlenmez).
     final searchText = _searchCtrl.text.trim();
     String? prefillBarcode;
     String? prefillName;
-
     if (searchText.isNotEmpty) {
       if (ScanResult.looksLikeBarcode(searchText)) {
-        // Barkod: ad aramasini form ekrani (akilli) kendisi yapacak.
         prefillBarcode = searchText;
       } else {
         prefillName = searchText;
       }
     }
-
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -783,14 +761,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       ),
     );
+    await _loadLocLabels();
   }
 
   Future<void> _openEditSheet(Product product) async {
     await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProductFormScreen(existing: product),
-      ),
+      MaterialPageRoute(builder: (_) => ProductFormScreen(existing: product)),
     );
+    await _loadLocLabels();
   }
 
   Future<void> _openDisposalSheet(Product product) async {
@@ -808,41 +786,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// SKT Tara akisi: ÖNCE barkod taranir, SONRA SKT (son kullanma tarihi)
-  /// tarama ekranina gecilir, form acilir ve KAYDEDILDIKTEN SONRA otomatik
-  /// olarak tekrar barkod taramaya doner — bu sekilde art arda birden
-  /// fazla urun, ana ekrana hic donmeden zincirleme taranabilir (dongu).
-  /// Dongu, kullanici barkod ekraninda geri/kapat tusuna basip barkod
-  /// taramadan cikinca (sonuc null donunce) sona erer.
+  /// SKT Tara akisi: ONCE barkod, SONRA SKT ekrani, sonra form; kayit
+  /// bitince otomatik olarak tekrar barkod taramaya doner (zincir). Dongu,
+  /// barkod ekranindan geri cikilinca biter.
   Future<void> _openScanner() async {
     while (true) {
-      // Adim 1: Once barkod tara.
       if (!mounted) return;
       final barcode = await Navigator.of(context).push<String>(
         MaterialPageRoute(builder: (_) => const BarcodeScanPage()),
       );
       if (!mounted) return;
-      if (barcode == null) {
-        // Kullanici barkod ekranindan geri/kapat ile cikti -> dongu biter.
-        return;
-      }
+      if (barcode == null) return;
 
-      // Adim 2: Sonra SKT (son kullanma tarihi) tarama ekranina gec.
       final outcome = await Navigator.of(context).push<ScanOutcome>(
         MaterialPageRoute(
           builder: (_) => ScannerScreen(prefillBarcode: barcode),
         ),
       );
       if (!mounted) return;
-      if (outcome == null) {
-        // SKT ekranindan da geri cikildi -> dongu biter (barkoda donmez).
-        return;
-      }
+      if (outcome == null) return;
       final scanned = outcome.date.year == 1900 ? null : outcome.date;
 
-      // Adim 3: Barkod + SKT tarihi + (varsa) etiket fotografi birlikte
-      // forma gonderilir. Urun adi barkod aramasindan bulunamazsa, form
-      // bu fotografi kullanarak OCR ile adi otomatik cikarmayi deneyebilir.
       final saved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => ProductFormScreen(
@@ -853,12 +817,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
       if (!mounted) return;
-      if (saved != true) {
-        // Kullanici formu kaydetmeden kapatti (iptal) -> dongu biter.
-        return;
-      }
-      // Kayit basarili: while donerek otomatik tekrar barkod taramaya
-      // gec (form zaten kapandi, ekstra onay gosterilmiyor).
+      if (saved != true) return;
+      await _loadLocLabels();
     }
   }
 
@@ -884,22 +844,431 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// Banner ikon butonu yardimcisi.
-class _BannerIconBtn extends StatelessWidget {
+// ════════════════════════════════════════════════════════════════════
+//  RISK SERIDI — imza ogesi. Durumlarin listedeki ORANI tek bakista.
+// ════════════════════════════════════════════════════════════════════
+class _RiskRibbon extends StatelessWidget {
+  final Map<ExpiryStatus, int> counts;
+  final ExpiryStatus? active;
+  final ValueChanged<ExpiryStatus> onTap;
+
+  const _RiskRibbon({
+    required this.counts,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const order = [
+      ExpiryStatus.expired,
+      ExpiryStatus.critical,
+      ExpiryStatus.warning,
+      ExpiryStatus.safe,
+    ];
+    final present =
+        order.where((s) => (counts[s] ?? 0) > 0).toList(growable: false);
+
+    if (present.isEmpty) {
+      return Container(
+        height: 11,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.18),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 14,
+      child: Row(
+        children: [
+          for (final s in present)
+            Expanded(
+              flex: counts[s]!,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onTap(s),
+                child: Center(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOutCubic,
+                    height: (active == null || active == s) ? 11 : 6,
+                    margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                    decoration: BoxDecoration(
+                      color: s.color.withOpacity(
+                          (active == null || active == s) ? 1 : 0.35),
+                      borderRadius: BorderRadius.circular(AppTheme.rPill),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Hero kapaninca baslik yaninda beliren mini sayaclar.
+class _CompactCounts extends StatelessWidget {
+  final Map<ExpiryStatus, int> counts;
+  const _CompactCounts({required this.counts});
+
+  @override
+  Widget build(BuildContext context) {
+    const order = [
+      ExpiryStatus.expired,
+      ExpiryStatus.critical,
+      ExpiryStatus.warning,
+    ];
+    final shown =
+        order.where((s) => (counts[s] ?? 0) > 0).toList(growable: false);
+    if (shown.isEmpty) return const SizedBox.shrink();
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final s in shown)
+            Container(
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(AppTheme.rPill),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration:
+                        BoxDecoration(color: s.color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '${counts[s]}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  SABIT FILTRE RAYI — hero kapansa da filtre ve siralama hep elinin
+//  altinda. (Eskiden filtre kartlari listenin ILK satirindaydi; filtre
+//  degistirmek icin en basa kadar kaydirmak gerekiyordu.)
+// ════════════════════════════════════════════════════════════════════
+class _FilterRailDelegate extends SliverPersistentHeaderDelegate {
+  final Map<ExpiryStatus, int> counts;
+  final int total;
+  final ExpiryStatus? active;
+  final _SortMode sort;
+  final ValueChanged<ExpiryStatus?> onFilter;
+  final VoidCallback onSort;
+
+  _FilterRailDelegate({
+    required this.counts,
+    required this.total,
+    required this.active,
+    required this.sort,
+    required this.onFilter,
+    required this.onSort,
+  });
+
+  static const double _height = 58;
+
+  @override
+  double get minExtent => _height;
+
+  @override
+  double get maxExtent => _height;
+
+  @override
+  bool shouldRebuild(_FilterRailDelegate old) =>
+      old.active != active ||
+      old.total != total ||
+      old.sort != sort ||
+      !_sameCounts(old.counts, counts);
+
+  static bool _sameCounts(Map<ExpiryStatus, int> a, Map<ExpiryStatus, int> b) {
+    for (final s in ExpiryStatus.values) {
+      if ((a[s] ?? 0) != (b[s] ?? 0)) return false;
+    }
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) {
+    return Container(
+      height: _height,
+      color: AppTheme.background,
+      child: Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    children: [
+                      _chip(
+                        label: 'Tümü',
+                        count: total,
+                        color: AppTheme.primary,
+                        selected: active == null,
+                        onTap: () => onFilter(null),
+                      ),
+                      for (final s in const [
+                        ExpiryStatus.expired,
+                        ExpiryStatus.critical,
+                        ExpiryStatus.warning,
+                        ExpiryStatus.safe,
+                      ])
+                        _chip(
+                          label: _shortLabel(s),
+                          count: counts[s] ?? 0,
+                          color: s.color,
+                          selected: active == s,
+                          onTap: () => onFilter(s),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 24, color: AppTheme.hairline),
+                Tooltip(
+                  message: 'Sırala: ${sort.label}',
+                  child: InkWell(
+                    onTap: onSort,
+                    borderRadius: BorderRadius.circular(AppTheme.rPill),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(sort.icon,
+                              size: 18, color: AppTheme.textSecondary),
+                          if (sort != _SortMode.expiry) ...[
+                            const SizedBox(width: 5),
+                            Text(
+                              sort.label,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ),
+          ),
+          Container(height: 1, color: AppTheme.hairline),
+        ],
+      ),
+    );
+  }
+
+  static String _shortLabel(ExpiryStatus s) {
+    switch (s) {
+      case ExpiryStatus.expired:
+        return 'Doldu';
+      case ExpiryStatus.critical:
+        return 'Kritik';
+      case ExpiryStatus.warning:
+        return 'Yaklaşan';
+      case ExpiryStatus.safe:
+        return 'Güvenli';
+    }
+  }
+
+  Widget _chip({
+    required String label,
+    required int count,
+    required Color color,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final dim = count == 0 && !selected;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Center(
+        child: Material(
+          color: selected ? color.withOpacity(0.18) : AppTheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppTheme.rPill),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.rPill),
+                border: Border.all(
+                  color: selected ? color : AppTheme.hairline,
+                  width: selected ? 1.4 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(dim ? 0.35 : 1),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      color: selected
+                          ? color
+                          : (dim
+                              ? AppTheme.textTertiary
+                              : AppTheme.textPrimary),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: selected
+                          ? color
+                          : (dim
+                              ? AppTheme.textTertiary
+                              : AppTheme.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  YAPISKAN GRUP BASLIGI — hangi grubun icindesin, kaydirirken de belli.
+// ════════════════════════════════════════════════════════════════════
+class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final String label;
+  final int count;
+  final Color color;
+
+  _SectionHeaderDelegate({
+    required this.label,
+    required this.count,
+    required this.color,
+  });
+
+  static const double _height = 40;
+
+  @override
+  double get minExtent => _height;
+
+  @override
+  double get maxExtent => _height;
+
+  @override
+  bool shouldRebuild(_SectionHeaderDelegate old) =>
+      old.label != label || old.count != count || old.color != color;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) {
+    return Container(
+      height: _height,
+      color: AppTheme.background,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(AppTheme.rPill),
+          border: Border.all(color: color.withOpacity(0.22)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 14,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                label.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.7,
+                  color: color,
+                ),
+              ),
+            ),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hero ikon butonu.
+class _HeroIconBtn extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
 
-  const _BannerIconBtn(
-      {required this.icon, required this.tooltip, this.onTap});
+  const _HeroIconBtn({required this.icon, required this.tooltip, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
       child: IconButton(
-        icon: Icon(icon, color: Colors.white),
+        icon: Icon(icon, color: Colors.white, size: 23),
         onPressed: onTap,
+        splashRadius: 22,
       ),
     );
   }
@@ -938,7 +1307,8 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
-    final value = capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
+    final value =
+        capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
     if (value == null || value.isEmpty) return;
     _handled = true;
     Navigator.of(context).pop(value);
@@ -948,7 +1318,6 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      // Kamera onizlemesi status bar arkasina kadar uzansin.
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('Barkod ile Ara'),
@@ -966,7 +1335,8 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
         children: [
           MobileScanner(controller: _ctrl, onDetect: _onDetect),
           Container(
-            width: 260, height: 140,
+            width: 260,
+            height: 140,
             decoration: BoxDecoration(
               border: Border.all(color: AppTheme.primary, width: 3),
               borderRadius: BorderRadius.circular(16),
@@ -983,15 +1353,8 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
   }
 }
 
-class _SectionHeader {
-  final String label;
-  final Color color;
-  _SectionHeader(this.label, this.color);
-}
-
 class _SectionDef {
   final String label;
   final ExpiryStatus status;
-  final Color color;
-  const _SectionDef(this.label, this.status, this.color);
+  const _SectionDef(this.label, this.status);
 }

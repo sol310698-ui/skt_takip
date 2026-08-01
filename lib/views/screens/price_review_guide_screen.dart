@@ -566,7 +566,8 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
     final active = hasGroup || _alsoTeshirLabel;
     final groupTitle = hasGroup
         ? LabelGroup.values
-            .firstWhere((g) => g.name == _sendToLabelGroup!)
+            .firstWhere((g) => g.name == _sendToLabelGroup!,
+                orElse: () => LabelGroup.a4)
             .title
         : null;
     return InkWell(

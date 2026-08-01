@@ -559,7 +559,8 @@ class _PriceChangeSessionScreenState
       final groupTitle = labelGroup == null
           ? null
           : LabelGroup.values
-              .firstWhere((g) => g.name == labelGroup)
+              .firstWhere((g) => g.name == labelGroup,
+                  orElse: () => LabelGroup.a4)
               .title;
       final labelNote =
           groupTitle != null ? ' • $groupTitle\'a gönderildi' : '';
@@ -670,7 +671,8 @@ class _PriceChangeSessionScreenState
     final active = hasGroup || _alsoTeshirLabel;
     final groupTitle = hasGroup
         ? LabelGroup.values
-            .firstWhere((g) => g.name == _sendToLabelGroup!)
+            .firstWhere((g) => g.name == _sendToLabelGroup!,
+                orElse: () => LabelGroup.a4)
             .title
         : null;
     return InkWell(

@@ -476,9 +476,10 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       ),
     );
     if (chosen == null || !mounted) return;
-    final wid = whs
-        .firstWhere((w) => true)
-        .id!; // palet zaten depoya bagli; detay kendi cozer
+    // Palet zaten bir depoya bagli; detay ekrani gerisini kendi cozer.
+    // Depo listesi bos donerse firstWhere StateError firlatiyordu.
+    final wid = whs.isEmpty ? null : whs.first.id;
+    if (wid == null) return;
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) =>
           PalletDetailScreen(palletId: chosen, warehouseId: wid),

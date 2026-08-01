@@ -178,7 +178,11 @@ class ProductListNotifier extends AsyncNotifier<List<Product>> {
   /// Urunu imha veya iade olarak isaretle (silmez, gunceller).
   Future<void> dispose_(int id, DisposalStatus status, String? note) async {
     final products = state.valueOrNull ?? [];
-    final product = products.firstWhere((p) => p.id == id);
+    // Urun bu arada silinmis olabilir (baska ekrandan/asistandan): StateError
+    // firlatip akisi kirmak yerine sessizce cik.
+    final idx = products.indexWhere((p) => p.id == id);
+    if (idx < 0) return;
+    final product = products[idx];
     final updated = product.copyWith(
       disposalStatus: status,
       disposalDate: DateTime.now(),
