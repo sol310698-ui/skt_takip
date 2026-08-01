@@ -232,7 +232,20 @@ class AppTheme {
   static ThemeData get light => _build(Brightness.light);
 
   static ThemeData _build(Brightness brightness) {
-    applyBrightness(brightness == Brightness.light);
+    // KENDI paletini yerelden kurar; global statikleri DEGISTIRMEZ/OKUMAZ
+    // (yan etkisiz). Boylece theme/darkTheme kurulurken statikler bozulmaz;
+    // statikleri yalnizca main.dart aktif temaya gore ayarlar.
+    final light = brightness == Brightness.light;
+    final bg = light ? _ltBackground : _dkBackground;
+    final surf = light ? _ltSurface : _dkSurface;
+    final surfAlt = light ? _ltSurfaceAlt : _dkSurfaceAlt;
+    final surfHigh = light ? _ltSurfaceHigh : _dkSurfaceHigh;
+    final hair = light ? _ltHairline : _dkHairline;
+    final txP = light ? _ltTextPrimary : _dkTextPrimary;
+    final txS = light ? _ltTextSecondary : _dkTextSecondary;
+    final txT = light ? _ltTextTertiary : _dkTextTertiary;
+    final gTint = light ? _ltGlassTint : _dkGlassTint;
+    final gOp = light ? _ltGlassOpacity : _dkGlassOpacity;
 
     final base = ThemeData(
       useMaterial3: true,
@@ -240,19 +253,19 @@ class AppTheme {
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         brightness: brightness,
-        surface: surface,
+        surf: surf,
         primary: primary,
         secondary: accent,
         error: statusExpired,
       ),
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: bg,
     );
 
     final barIcons =
         brightness == Brightness.light ? Brightness.dark : Brightness.light;
 
     return base.copyWith(
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: bg,
       splashFactory: InkSparkle.splashFactory,
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -265,8 +278,8 @@ class AppTheme {
         },
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: background,
-        foregroundColor: textPrimary,
+        backgroundColor: bg,
+        foregroundColor: txP,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
@@ -276,35 +289,35 @@ class AppTheme {
           statusBarBrightness: brightness,
         ),
         titleTextStyle: TextStyle(
-          color: textPrimary,
+          color: txP,
           fontSize: 19,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.2,
         ),
       ),
       cardTheme: CardThemeData(
-        color: glassTint.withOpacity(glassOpacity),
+        color: gTint.withOpacity(gOp),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rLg),
           side: BorderSide(
-              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+              color: Colors.white.withOpacity(light ? 0.7 : 0.08)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceAlt,
-        hintStyle: TextStyle(color: textTertiary),
-        labelStyle: TextStyle(color: textSecondary),
-        prefixIconColor: textSecondary,
-        suffixIconColor: textSecondary,
+        fillColor: surfAlt,
+        hintStyle: TextStyle(color: txT),
+        labelStyle: TextStyle(color: txS),
+        prefixIconColor: txS,
+        suffixIconColor: txS,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: BorderSide(color: hairline, width: 1),
+          borderSide: BorderSide(color: hair, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
@@ -317,8 +330,8 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: surfaceHigh,
-          disabledForegroundColor: textTertiary,
+          disabledBackgroundColor: surfHigh,
+          disabledForegroundColor: txT,
           padding: const EdgeInsets.symmetric(vertical: 16),
           textStyle:
               const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
@@ -347,7 +360,7 @@ class AppTheme {
         ),
       ),
       textTheme: base.textTheme
-          .apply(bodyColor: textPrimary, displayColor: textPrimary)
+          .apply(bodyColor: txP, displayColor: txP)
           .copyWith(
             titleLarge: const TextStyle(
                 fontWeight: FontWeight.w800, letterSpacing: -0.4),
@@ -356,48 +369,48 @@ class AppTheme {
             bodyMedium: const TextStyle(height: 1.4),
           ),
       dialogTheme: DialogThemeData(
-        backgroundColor: surface,
+        backgroundColor: surf,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rLg),
           side: BorderSide(
-              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+              color: Colors.white.withOpacity(light ? 0.7 : 0.08)),
         ),
         titleTextStyle: TextStyle(
-            color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
+            color: txP, fontSize: 18, fontWeight: FontWeight.w700),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: surface,
-        modalBackgroundColor: surface,
+        backgroundColor: surf,
+        modalBackgroundColor: surf,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(rXl)),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: surfaceHigh,
-        contentTextStyle: TextStyle(color: textPrimary),
+        backgroundColor: surfHigh,
+        contentTextStyle: TextStyle(color: txP),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
         insetPadding: const EdgeInsets.all(16),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface,
+        backgroundColor: surf,
         indicatorColor: primary.withOpacity(0.18),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 11.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? primaryDark : textSecondary,
+            color: selected ? primaryDark : txS,
           );
         }),
       ),
-      dividerTheme: DividerThemeData(color: hairline, thickness: 1),
+      dividerTheme: DividerThemeData(color: hair, thickness: 1),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceAlt,
-        side: BorderSide(color: hairline),
-        labelStyle: TextStyle(color: textSecondary, fontSize: 12),
+        backgroundColor: surfAlt,
+        side: BorderSide(color: hair),
+        labelStyle: TextStyle(color: txS, fontSize: 12),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(rPill)),
       ),
