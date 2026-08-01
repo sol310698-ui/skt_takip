@@ -562,7 +562,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       const SizedBox(width: 8),
                       Text(
                         '${fmt(p.expiryDate)} — ${p.quantity} adet',
-                        style: const TextStyle(fontSize: 13),
+                        style: TextStyle(fontSize: 13),
                       ),
                     ],
                   ),
@@ -713,16 +713,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   //  (OCR, arama, tarama, hizli akis, kaydetme, adet) birebir korunmustur.
   // ════════════════════════════════════════════════════════════════════
 
-  // ── DOA yerel paleti ───────────────────────────────────────────────
-  static const Color _doaBg = Color(0xFFE8F5EC);      // mint zemin
-  static const Color _doaBgTop = Color(0xFFF2FAF4);   // ust acik mint
-  static const Color _doaGreen = Color(0xFF23A055);   // ana yesil
+  // ── DOA paleti — TEMAYA DUYARLI ────────────────────────────────────
+  //  Notr renkler (zemin/kart/metin/kenar) AppTheme'ten gelir; boylece
+  //  ekran acik temada acik, KOYU temada KOYU olur ve yazilar HER ZAMAN
+  //  okunur. Yesiller + hero gradyani iki temada da calistigi icin sabit.
+  Color get _doaBg => AppTheme.background;
+  Color get _doaBgTop => AppTheme.surface;
+  Color get _doaCard => AppTheme.surface;
+  Color get _doaInk => AppTheme.textPrimary;
+  Color get _doaInk2 => AppTheme.textSecondary;
+  Color get _doaInk3 => AppTheme.textTertiary;
+  Color get _doaHair => AppTheme.hairline;
+  static const Color _doaGreen = Color(0xFF23A055);   // ana yesil (iki temada)
   static const Color _doaGreenDark = Color(0xFF17843F);
-  static const Color _doaCard = Color(0xFFFFFFFF);
-  static const Color _doaInk = Color(0xFF1E2A22);     // koyu metin
-  static const Color _doaInk2 = Color(0xFF61706A);    // ikincil
-  static const Color _doaInk3 = Color(0xFF9DA9A1);    // ucuncul/hint
-  static const Color _doaHair = Color(0xFFE4EEE8);    // ince kenar
   static const LinearGradient _doaHeroGrad = LinearGradient(
     colors: [Color(0xFF2BAA63), Color(0xFF178A46)],
     begin: Alignment.topLeft,
@@ -755,15 +758,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-      ),
+      value: AppTheme.systemBarForColor(AppTheme.background),
       child: Scaffold(
         backgroundColor: _doaBg,
         body: DecoratedBox(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -852,7 +851,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           const SizedBox(width: 12),
           Text(
             isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
-            style: const TextStyle(
+            style: TextStyle(
                 color: _doaInk,
                 fontSize: 20,
                 fontWeight: FontWeight.w800,
@@ -958,7 +957,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             fontWeight: FontWeight.w600)),
                     const SizedBox(height: 6),
                     Text(bigDate,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: Colors.white,
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
@@ -983,7 +982,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             ),
                             const SizedBox(width: 7),
                             Text('${st.label} · ${st.daysText}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: _doaInk,
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w800)),
@@ -1064,7 +1063,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   }
 
   Widget _miniLabel(String t) => Text(t,
-      style: const TextStyle(
+      style: TextStyle(
           fontSize: 11.5, fontWeight: FontWeight.w700, color: _doaInk2));
 
   InputDecoration _bareDeco(String hint) => InputDecoration(
@@ -1075,7 +1074,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         focusedBorder: InputBorder.none,
         contentPadding: const EdgeInsets.symmetric(vertical: 2),
         hintText: hint,
-        hintStyle: const TextStyle(color: _doaInk3, fontWeight: FontWeight.w500),
+        hintStyle: TextStyle(color: _doaInk3, fontWeight: FontWeight.w500),
       );
 
   // ── URUN ADI KARTI (gorsel hero'da; burada ad + arama + OCR) ───────
@@ -1099,7 +1098,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       controller: _nameCtrl,
                       cursorColor: _doaGreen,
                       textInputAction: TextInputAction.next,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 16.5,
                           fontWeight: FontWeight.w700,
                           color: _doaInk,
@@ -1150,7 +1149,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           strokeWidth: 2, color: _doaGreen),
                     ),
                     const SizedBox(width: 8),
-                    const Text('Ürün bilgisi aranıyor...',
+                    Text('Ürün bilgisi aranıyor...',
                         style: TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
@@ -1244,7 +1243,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                   controller: _barcodeCtrl,
                   cursorColor: _doaGreen,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: _doaInk),
@@ -1292,7 +1291,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           TextFormField(
             controller: controller,
             cursorColor: _doaGreen,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 15, fontWeight: FontWeight.w700, color: _doaInk),
             decoration: _bareDeco(hint),
           ),
@@ -1325,13 +1324,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       cursorColor: _doaGreen,
                       keyboardType: TextInputType.number,
                       inputFormatters: [_DateTextInputFormatter()],
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
                           color: _doaInk,
                           letterSpacing: 1.5),
                       decoration: _bareDeco('gg.aa.yyyy').copyWith(
-                        hintStyle: const TextStyle(
+                        hintStyle: TextStyle(
                             color: _doaInk3, letterSpacing: 1.5),
                       ),
                     ),
@@ -1399,7 +1398,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         children: [
           _iconBubble(Icons.inventory_2_outlined),
           const SizedBox(width: 12),
-          const Text('Adet',
+          Text('Adet',
               style: TextStyle(
                   fontSize: 15, fontWeight: FontWeight.w700, color: _doaInk)),
           const Spacer(),
@@ -1422,7 +1421,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               cursorColor: _doaGreen,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 18, fontWeight: FontWeight.w800, color: _doaInk),
               decoration: const InputDecoration(
                 isDense: true,
@@ -1558,7 +1557,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                                 color: Colors.white, size: 22),
                           const SizedBox(width: 8),
                           Text(isEdit ? 'Güncelle' : 'Kaydet',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w700)),
@@ -1683,7 +1682,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
           Row(
             children: [
               Text(_ean13 ? 'EAN-13' : 'Code 128',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.w600)),
@@ -1716,7 +1715,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
               _ean13
                   ? 'Barkodu çerçeveye getirin (EAN-13)'
                   : 'Barkodu çerçeveye getirin (Code 128)',
-              style: const TextStyle(color: Colors.white, fontSize: 15),
+              style: TextStyle(color: Colors.white, fontSize: 15),
             ),
           ),
         ],
