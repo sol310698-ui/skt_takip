@@ -7,8 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
+import '../../core/services/fifo_analyzer_service.dart';
+import '../../core/services/label_pending_queue_service.dart';
 import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/shelf_layout_service.dart';
+import '../../core/services/shelf_restock_service.dart';
+import '../../core/services/teshir_service.dart';
 import '../../core/services/warehouse_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/barcode_entry.dart';
@@ -17,6 +21,7 @@ import '../../viewmodels/providers.dart';
 import '../widgets/location_reveal.dart';
 import '../widgets/ui_kit.dart';
 import '../widgets/warehouse_reveal.dart';
+import 'add_product_screen.dart';
 import 'image_zoom_screen.dart';
 import 'web_search_screen.dart';
 
@@ -50,6 +55,8 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
   ShelfLocationHit? _shelfHit;
   // Depodaki palet konumlari — dokununca depo canlandirmasi oynar.
   List<_BcPalletLoc> _palletLocs = const [];
+  // FIFO/FEFO ihlali (bu barkod icin) — varsa uyari karti gosterilir.
+  FifoFinding? _fifo;
 
   @override
   void initState() {
@@ -115,7 +122,110 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       }
       if (mounted) setState(() => _palletLocs = out);
     } catch (_) {}
+    // 4) FIFO/FEFO ihlali (bu barkod palet<->reyon tarih karsilastirmasi)
+    try {
+      final findings = await FifoAnalyzerService.instance.analyze();
+      FifoFinding? mine;
+      for (final f in findings) {
+        if (f.barcode == _entry.barcode) {
+          mine = f;
+          break;
+        }
+      }
+      if (mounted) setState(() => _fifo = mine);
+    } catch (_) {}
   }
+
+  // ── HIZLI ISLEMLER (yeni ozellikler) ───────────────────────────────
+  void _toast(String msg, {Color? color}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      duration: const Duration(milliseconds: 1400),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: color,
+    ));
+  }
+
+  /// Etiket basim kuyruguna ekle.
+  Future<void> _addToLabelQueue() async {
+    try {
+      await LabelPendingQueueService.instance.push(
+        barcode: _entry.barcode,
+        productName: _entry.productName,
+        stockCode: _entry.stockCode,
+        groupKey: 'barkod_detay',
+        source: 'manual',
+      );
+      _toast('Etiket basım kuyruğuna eklendi', color: AppTheme.statusSuccess);
+    } catch (e) {
+      _toast('Eklenemedi: $e');
+    }
+  }
+
+  /// Teshir listesine ekle.
+  Future<void> _addToTeshir() async {
+    try {
+      await TeshirService.instance
+          .add(_entry.barcode, productName: _entry.productName);
+      _toast('Teşhir listesine eklendi', color: AppTheme.statusSuccess);
+    } catch (e) {
+      _toast('Eklenemedi: $e');
+    }
+  }
+
+  /// Reyona acilacaklar listesine ekle.
+  Future<void> _addToRestock() async {
+    try {
+      await ShelfRestockService.instance
+          .add(_entry.barcode, productName: _entry.productName);
+      _toast('Reyona açılacaklara eklendi', color: AppTheme.statusSuccess);
+    } catch (e) {
+      _toast('Eklenemedi: $e');
+    }
+  }
+
+  /// SKT takibine urun ekle (form ekranini barkod+ad ile ac).
+  Future<void> _addSkt() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ProductFormScreen(
+        prefillBarcode: _entry.barcode,
+        prefillName: _entry.productName,
+      ),
+    ));
+    // Donunce SKT/konum bilgisini tazele.
+    _loadContext();
+  }
+
+  /// value'ye uygun bir 1D barkod tipi sec (yoksa null -> cizilemez).
+  Barcode? _pick1DBarcode(String v0) {
+    final v = v0.trim();
+    if (!RegExp(r'^\d+$').hasMatch(v)) return null;
+    switch (v.length) {
+      case 13:
+        return Barcode.ean13();
+      case 12:
+        return Barcode.upcA();
+      case 8:
+        return Barcode.ean8();
+      default:
+        return Barcode.code128();
+    }
+  }
+
+  Color _sevColor(FifoSeverity s) {
+    switch (s) {
+      case FifoSeverity.high:
+        return AppTheme.statusExpired;
+      case FifoSeverity.medium:
+        return AppTheme.statusCritical;
+      case FifoSeverity.low:
+        return AppTheme.statusWarning;
+    }
+  }
+
+  String _fmtDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
   /// Reyon canlandirmasini oynat (kullanici dokununca).
   void _playShelfReveal() {
@@ -452,58 +562,23 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       color: Colors.white, size: 52);
 
   Widget _buildBody() {
+    final hasAnyLoc = _shelfHit != null || _palletLocs.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Barkod karti — tikla: kopyala, uzun bas: barkod/QR goster.
-          _infoCard(
-            icon: Icons.qr_code_rounded,
-            label: 'Barkod',
-            value: _entry.barcode,
-            monospace: true,
-            copyable: true,
-            showCode: true,
-            isBarcode: true,
-          ),
-          // ── TANIMLI SKT (varsa) ──
-          if (_sktProducts.isNotEmpty) ...[
+          // ── STOK OZETI seridi (yeni) ──
+          _statSummary(),
+          // ── FIFO/FEFO uyarisi (yeni) ──
+          if (_fifo != null) ...[
             const SizedBox(height: 12),
-            _sktCard(),
+            _fifoCard(_fifo!),
           ],
-          // ── REYON KONUMU (varsa) — dokun: canlandirma ──
-          if (_shelfHit != null) ...[
-            const SizedBox(height: 12),
-            _shelfCard(_shelfHit!),
-          ],
-          // ── DEPO KONUMLARI (varsa) — dokun: depo canlandirmasi ──
-          for (final loc in _palletLocs) ...[
-            const SizedBox(height: 12),
-            _palletCard(loc),
-          ],
-          if (_shelfHit == null && _palletLocs.isEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: AppTheme.card(),
-              child: Row(
-                children: [
-                  Icon(Icons.location_off_rounded,
-                      color: AppTheme.textTertiary, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Bu ürün reyon diziliminde veya depoda kayıtlı değil.',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          // Stok kodu karti (Excel'den geldiyse).
+          // ── Satir ici taranabilir barkod (yeni) ──
+          const SizedBox(height: 12),
+          _inlineBarcodeCard(),
+          // Stok kodu (varsa).
           if (_entry.stockCode != null && _entry.stockCode!.isNotEmpty) ...[
             const SizedBox(height: 12),
             _infoCard(
@@ -516,112 +591,449 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
               isBarcode: false,
             ),
           ],
+          // ── Tum SKT partileri (yeni: hepsi, FEFO sirali) ──
+          if (_sktProducts.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _batchesCard(),
+          ],
+          // ── Reyon konumu — dokun: canlandirma ──
+          if (_shelfHit != null) ...[
+            const SizedBox(height: 12),
+            _shelfCard(_shelfHit!),
+          ],
+          // ── Depo palet konumlari — dokun: canlandirma ──
+          for (final loc in _palletLocs) ...[
+            const SizedBox(height: 12),
+            _palletCard(loc),
+          ],
+          if (!hasAnyLoc && _sktProducts.isEmpty) ...[
+            const SizedBox(height: 12),
+            _stateCard(Icons.location_off_rounded,
+                'Bu ürün reyon diziliminde veya depoda kayıtlı değil.'),
+          ],
           if (_category != null && _category!.isNotEmpty) ...[
             const SizedBox(height: 12),
             _infoCard(
-              icon: Icons.category_rounded,
-              label: 'Kategori',
-              value: _category!,
-            ),
+                icon: Icons.category_rounded,
+                label: 'Kategori',
+                value: _category!),
           ],
           if (_quantity != null && _quantity!.isNotEmpty) ...[
             const SizedBox(height: 12),
             _infoCard(
-              icon: Icons.straighten_rounded,
-              label: 'Miktar / Ağırlık',
-              value: _quantity!,
-            ),
+                icon: Icons.straighten_rounded,
+                label: 'Miktar / Ağırlık',
+                value: _quantity!),
           ],
+          // ── Hizli islemler (yeni) ──
+          const SizedBox(height: 18),
+          _quickActions(),
           if (!_loadingWeb &&
               _imageUrl == null &&
               _category == null &&
               _quantity == null) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: AppTheme.card(),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: AppTheme.textTertiary, size: 18),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Bu barkod için internette ek bilgi/görsel bulunamadı.',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _stateCard(Icons.info_outline_rounded,
+                'Bu barkod için internette ek bilgi/görsel bulunamadı.'),
           ],
         ],
       ),
     );
   }
 
-  /// TANIMLI SKT karti: en yakin tarih + kalan gun + toplam kayit/adet.
-  Widget _sktCard() {
-    final nearest = _sktProducts.first;
-    final days = nearest.expiryDate
-        .difference(DateTime.now())
-        .inDays;
-    final Color c = days < 0
+  /// Kucuk durum karti (bos konum / internet bilgisi yok).
+  Widget _stateCard(IconData icon, String text) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.card(),
+        child: Row(
+          children: [
+            Icon(icon, color: AppTheme.textTertiary, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(text,
+                  style:
+                      TextStyle(color: AppTheme.textSecondary, fontSize: 13)),
+            ),
+          ],
+        ),
+      );
+
+  /// STOK OZETI seridi — toplam adet, parti sayisi, konum sayisi.
+  Widget _statSummary() {
+    final sktQty = _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
+    final palletQty = _palletLocs.fold<int>(0, (t, l) => t + l.quantity);
+    final totalQty = sktQty + palletQty;
+    final batchCount = _sktProducts.length;
+    final locCount = (_shelfHit != null ? 1 : 0) + _palletLocs.length;
+    return Row(
+      children: [
+        Expanded(
+            child: _statTile(Icons.inventory_2_rounded, '$totalQty',
+                'Toplam Adet', AppTheme.primary)),
+        const SizedBox(width: 10),
+        Expanded(
+            child: _statTile(Icons.layers_rounded, '$batchCount',
+                'SKT Partisi', AppTheme.accent)),
+        const SizedBox(width: 10),
+        Expanded(
+            child: _statTile(Icons.place_rounded, '$locCount', 'Konum',
+                AppTheme.statusWarning)),
+      ],
+    );
+  }
+
+  Widget _statTile(IconData icon, String value, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+      decoration: AppTheme.card(),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.w900, color: color)),
+          const SizedBox(height: 2),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 11,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  /// FIFO/FEFO uyari karti — palet(arka) stok reyondan erken tarihliyse.
+  Widget _fifoCard(FifoFinding f) {
+    final c = _sevColor(f.severity);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(accentColor: c),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                    color: c.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(12)),
+                child: Icon(Icons.swap_vert_rounded, color: c, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('FIFO/FEFO Uyarısı · ${f.severity.label} öncelik',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w900,
+                            color: c)),
+                    const SizedBox(height: 2),
+                    Text(
+                        'Paletteki stok reyondan ${f.gapDays} gün DAHA ERKEN.',
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _fifoRow('Reyon (ön)', _fmtDate(f.shelfExpiry), f.shelfLabel,
+              AppTheme.primary),
+          const SizedBox(height: 6),
+          _fifoRow('Palet (arka)', _fmtDate(f.palletExpiry), f.palletLabel, c),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+                color: c.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(12)),
+            child: Row(
+              children: [
+                Icon(Icons.lightbulb_rounded, color: c, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                      'Öneri: paletteki erken tarihli stoğu öne (reyona) al; '
+                      'yerlerini değiştir.',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textPrimary)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _fifoRow(String where, String date, String label, Color c) {
+    return Row(
+      children: [
+        Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        SizedBox(
+            width: 92,
+            child: Text(where,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textSecondary))),
+        Text(date,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style:
+                    TextStyle(fontSize: 11.5, color: AppTheme.textTertiary))),
+      ],
+    );
+  }
+
+  /// SATIR ICI TARANABILIR BARKOD + deger. Dokun: kopyala, uzun bas: buyut.
+  Widget _inlineBarcodeCard() {
+    final bc = _pick1DBarcode(_entry.barcode);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.rLg),
+        onTap: () => _copyValue('Barkod', _entry.barcode),
+        onLongPress: () => _showCodeSheet('Barkod', _entry.barcode, true),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: AppTheme.card(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                        color: AppTheme.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.qr_code_2_rounded,
+                        color: AppTheme.primary, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Barkod',
+                            style: TextStyle(
+                                fontSize: 12, color: AppTheme.textSecondary)),
+                        const SizedBox(height: 2),
+                        Text(_entry.barcode,
+                            style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                fontFamily: 'monospace')),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.copy_rounded,
+                      size: 16, color: AppTheme.textTertiary),
+                ],
+              ),
+              if (bc != null) ...[
+                const SizedBox(height: 12),
+                // Beyaz zemin: her temada taranabilir kalsin.
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(AppTheme.rMd)),
+                  child: BarcodeWidget(
+                    barcode: bc,
+                    data: _entry.barcode.trim(),
+                    drawText: false,
+                    height: 64,
+                    color: Colors.black,
+                    errorBuilder: (context, error) => const SizedBox.shrink(),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text('Dokun: kopyala · Basılı tut: büyüt / QR',
+                    style:
+                        TextStyle(fontSize: 10.5, color: AppTheme.textTertiary)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// TUM SKT PARTILERI — FEFO sirali (en yakin once).
+  Widget _batchesCard() {
+    final sorted = [..._sktProducts]
+      ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: AppTheme.card(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.event_note_rounded,
+                  color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text('SKT Partileri (${sorted.length})',
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          for (int i = 0; i < sorted.length; i++)
+            _batchRow(sorted[i], i == sorted.length - 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _batchRow(Product p, bool last) {
+    final days = p.expiryDate.difference(DateTime.now()).inDays;
+    final c = days < 0
         ? AppTheme.statusExpired
         : days <= 7
             ? AppTheme.statusCritical
             : days <= 30
                 ? AppTheme.statusWarning
                 : AppTheme.statusSafe;
-    final totalQty =
-        _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.card(accentColor: c),
+    final left = days < 0
+        ? '${-days} gün geçti'
+        : days == 0
+            ? 'Bugün'
+            : '$days gün';
+    return Padding(
+      padding: EdgeInsets.only(top: 10, bottom: last ? 0 : 0),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: c.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.event_rounded, color: c, size: 22),
-          ),
-          const SizedBox(width: 12),
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Tanımlı SKT',
-                    style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textTertiary)),
-                const SizedBox(height: 2),
-                Text(
-                  '${nearest.expiryDate.day.toString().padLeft(2, '0')}.'
-                  '${nearest.expiryDate.month.toString().padLeft(2, '0')}.'
-                  '${nearest.expiryDate.year}',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      color: c),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  days < 0
-                      ? '${-days} gün geçti · $totalQty adet'
-                      : '$days gün kaldı · $totalQty adet'
-                          '${_sktProducts.length > 1 ? ' · ${_sktProducts.length} kayıt' : ''}',
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.textSecondary),
-                ),
+                Text(_fmtDate(p.expiryDate),
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w800)),
+                if (p.location != null && p.location!.trim().isNotEmpty)
+                  Text(p.location!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppTheme.textTertiary)),
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          Text('${p.quantity} adet',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+                color: c.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(999)),
+            child: Text(left,
+                style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w800, color: c)),
+          ),
         ],
+      ),
+    );
+  }
+
+  /// HIZLI ISLEMLER — Etiket Bas / Teshir / Reyona Ac / SKT Ekle.
+  Widget _quickActions() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      decoration: AppTheme.card(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.bolt_rounded, color: AppTheme.primary, size: 20),
+              SizedBox(width: 8),
+              Text('Hızlı İşlemler',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                  child: _actionTile(Icons.local_offer_rounded, 'Etiket Bas',
+                      AppTheme.primary, _addToLabelQueue)),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _actionTile(Icons.storefront_rounded, 'Teşhir',
+                      AppTheme.accent, _addToTeshir)),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _actionTile(Icons.shelves, 'Reyona Aç',
+                      AppTheme.statusWarning, _addToRestock)),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _actionTile(Icons.event_available_rounded, 'SKT Ekle',
+                      AppTheme.statusSafe, _addSkt)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionTile(
+      IconData icon, String label, Color color, VoidCallback onTap) {
+    return Material(
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(height: 6),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                      height: 1.1)),
+            ],
+          ),
+        ),
       ),
     );
   }
