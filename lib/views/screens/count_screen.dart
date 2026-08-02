@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/camera_lifecycle_mixin.dart';
+import '../../core/services/scan_engine.dart';
+import '../widgets/scan_mode_toggle.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -41,7 +43,10 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
+    formats: ScanEngine.broadFormats,
   );
+  // Tarama modu: true = EAN-13 kesin (kontrol basamagi), false = hepsi (Code128).
+  bool _strictScan = true;
   final TextEditingController _qtyController = TextEditingController();
   final FocusNode _qtyFocus = FocusNode();
 
@@ -85,12 +90,9 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
 
   void _onDetect(BarcodeCapture capture) {
     if (_scanPaused || _activeBarcode != null) return;
-    for (final b in capture.barcodes) {
-      final raw = b.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      _handleBarcode(raw);
-      return;
-    }
+    final code = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (code == null) return;
+    _handleBarcode(code);
   }
 
   Future<void> _handleBarcode(String code) async {
@@ -448,6 +450,17 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
               ? 'Adet girin'
               : 'Ürün barkodunu okutun',
           accent: _activeBarcode != null ? Colors.orange : AppTheme.primary,
+        ),
+        Positioned(
+          top: 12,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: ScanModeToggle(
+              value: _strictScan,
+              onChanged: (v) => setState(() => _strictScan = v),
+            ),
+          ),
         ),
       ],
     );

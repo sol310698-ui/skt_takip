@@ -20,6 +20,8 @@ import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/camera_lifecycle_mixin.dart';
+import '../../core/services/scan_engine.dart';
+import '../widgets/scan_mode_toggle.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/label_target_sheet.dart';
@@ -67,7 +69,10 @@ class _PriceChangeSessionScreenState
   final MobileScannerController _scanner = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     autoStart: false,
+    formats: ScanEngine.broadFormats,
   );
+  // Tarama modu: true = EAN-13 kesin (kontrol basamagi), false = hepsi.
+  bool _strictScan = true;
 
   PriceChangeSession? _session;
   List<PriceChangeItem> _items = [];
@@ -444,8 +449,8 @@ class _PriceChangeSessionScreenState
   // ─────────────────────────── Reyon uygulama ────────────────────────
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (_busy || _matched != null || _completed) return;
-    final raw = capture.barcodes.firstOrNull?.rawValue;
-    if (raw == null || raw.trim().isEmpty) return;
+    final raw = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (raw == null) return;
     await _processScanRaw(raw);
   }
 
@@ -1391,6 +1396,17 @@ class _PriceChangeSessionScreenState
                 children: [
                   MobileScanner(controller: _scanner, onDetect: _onDetect),
                   const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
+                  Positioned(
+                    top: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: ScanModeToggle(
+                        value: _strictScan,
+                        onChanged: (v) => setState(() => _strictScan = v),
+                      ),
+                    ),
+                  ),
                   if (_scanMessage != null)
                     Positioned(
                       bottom: 12,

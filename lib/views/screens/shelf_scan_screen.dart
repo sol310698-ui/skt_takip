@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../core/camera_lifecycle_mixin.dart';
+import '../../core/services/scan_engine.dart';
+import '../widgets/scan_mode_toggle.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
@@ -51,7 +53,10 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
+    formats: ScanEngine.broadFormats,
   );
+  // Tarama modu: true = EAN-13 kesin (kontrol basamagi), false = hepsi.
+  bool _strictScan = true;
   final BarcodeDirectoryDataSource _barcodeDs =
       BarcodeDirectoryDataSource(DatabaseService.instance);
 
@@ -85,13 +90,10 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
 
   void _onDetect(BarcodeCapture capture) {
     if (_busy) return;
-    for (final b in capture.barcodes) {
-      final raw = b.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      final code = ScanParser.parse(raw).barcode ?? raw;
-      _handle(code);
-      return;
-    }
+    final accepted = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (accepted == null) return;
+    final code = ScanParser.parse(accepted).barcode ?? accepted;
+    _handle(code);
   }
 
   Future<void> _handle(String code) async {
@@ -245,6 +247,17 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
                 const ScanOverlay(
                   hint: 'Ürün barkodunu okutun → fotoğraf çekilecek',
                   accent: AppTheme.accent,
+                ),
+                Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: ScanModeToggle(
+                      value: _strictScan,
+                      onChanged: (v) => setState(() => _strictScan = v),
+                    ),
+                  ),
                 ),
                 if (_busy)
                   Container(
