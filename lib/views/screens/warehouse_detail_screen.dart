@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/warehouse_service.dart';
 import '../../core/services/map_view_prefs.dart';
@@ -1503,7 +1504,11 @@ class _SearchScreen extends StatefulWidget {
   State<_SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<_SearchScreen> {
+class _SearchScreenState extends State<_SearchScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_scanner];
   final _ctrl = TextEditingController();
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);

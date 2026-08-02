@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -16,7 +17,11 @@ class UniversalScanScreen extends StatefulWidget {
 }
 
 class _UniversalScanScreenState extends State<UniversalScanScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     autoStart: false,

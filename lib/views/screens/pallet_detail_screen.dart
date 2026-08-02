@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -2067,7 +2068,11 @@ class _AddItemScreen extends StatefulWidget {
   State<_AddItemScreen> createState() => _AddItemScreenState();
 }
 
-class _AddItemScreenState extends State<_AddItemScreen> {
+class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_scanner];
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
   final _expiryCtrl = TextEditingController();

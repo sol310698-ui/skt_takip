@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/teshir_service.dart';
@@ -27,7 +28,11 @@ class TeshirScreen extends StatefulWidget {
   State<TeshirScreen> createState() => _TeshirScreenState();
 }
 
-class _TeshirScreenState extends State<TeshirScreen> {
+class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [if (_scanner != null) _scanner!];
   List<Map<String, Object?>> _items = [];
   final Map<String, String?> _photoCache = {};
   bool _cameraOn = false;

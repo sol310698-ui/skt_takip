@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
@@ -1282,7 +1283,11 @@ class _BarcodeSearchPage extends StatefulWidget {
   State<_BarcodeSearchPage> createState() => _BarcodeSearchPageState();
 }
 
-class _BarcodeSearchPageState extends State<_BarcodeSearchPage> {
+class _BarcodeSearchPageState extends State<_BarcodeSearchPage> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_ctrl];
   final MobileScannerController _ctrl = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     formats: const [

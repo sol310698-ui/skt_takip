@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -1875,7 +1876,11 @@ class _QrDefineScreen extends StatefulWidget {
   State<_QrDefineScreen> createState() => _QrDefineScreenState();
 }
 
-class _QrDefineScreenState extends State<_QrDefineScreen> {
+class _QrDefineScreenState extends State<_QrDefineScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_ctrl];
   final MobileScannerController _ctrl = MobileScannerController();
   bool _handled = false;
 

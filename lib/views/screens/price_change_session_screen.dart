@@ -19,6 +19,7 @@ import '../../core/services/database_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/label_target_sheet.dart';
@@ -46,7 +47,13 @@ class PriceChangeSessionScreen extends StatefulWidget {
 }
 
 class _PriceChangeSessionScreenState
-    extends State<PriceChangeSessionScreen> {
+    extends State<PriceChangeSessionScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin (oturum bittiyse yeniden baslatma).
+  @override
+  List<MobileScannerController> get cameraControllers => [_scanner];
+  @override
+  bool get shouldResumeCamera => !_completed;
   // ── EL TERMINALI (HID): odakli ama klavyesiz giris (v138 kalibi) ──
   final TextEditingController _hidCtrl = TextEditingController();
   final FocusNode _hidFocus = FocusNode();

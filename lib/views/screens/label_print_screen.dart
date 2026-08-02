@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/label_active_lists_service.dart';
 import '../../core/services/label_deleted_service.dart';
@@ -1384,7 +1385,11 @@ class _ContinuousScanScreen extends StatefulWidget {
   State<_ContinuousScanScreen> createState() => _ContinuousScanScreenState();
 }
 
-class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
+class _ContinuousScanScreenState extends State<_ContinuousScanScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     formats: const [

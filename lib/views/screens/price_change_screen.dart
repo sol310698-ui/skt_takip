@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
 import '../../core/services/price_change_service.dart';
@@ -913,7 +914,11 @@ class _BarcodeQueryScanner extends StatefulWidget {
   State<_BarcodeQueryScanner> createState() => _BarcodeQueryScannerState();
 }
 
-class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> {
+class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController();
   bool _handled = false;
 
