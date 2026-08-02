@@ -430,103 +430,101 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) Navigator.of(context).pop(_changed);
       },
-      child: Scaffold(
-        backgroundColor: AppTheme.background,
-        body: CustomScrollView(
-          slivers: [
-            _buildHeader(),
-            SliverToBoxAdapter(child: _buildBody()),
-          ],
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: AppTheme.systemBarForColor(AppTheme.background),
+        child: Scaffold(
+          backgroundColor: AppTheme.background,
+          body: SafeArea(
+            bottom: false,
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _posterHeader(),
+                _bentoBody(),
+              ],
+            ),
+          ),
+          bottomNavigationBar: _buildBottomBar(),
         ),
-        bottomNavigationBar: _buildBottomBar(),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  /// POSTER BASLIK — kavisli, yuzen fotograf karti (dokun: tam ekran).
+  Widget _posterHeader() {
     final hasImage = _localImagePath != null || _imageUrl != null;
-    return SliverAppBar(
-      expandedHeight: hasImage ? 340 : 220,
-      pinned: true,
-      stretch: true,
-      backgroundColor: AppTheme.primary,
-      foregroundColor: Colors.white,
-      systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_rounded),
-        onPressed: () => Navigator.of(context).pop(_changed),
-      ),
-      flexibleSpace: FlexibleSpaceBar(
-        stretchModes: const [StretchMode.zoomBackground],
-        // ÜST KISIM FOTO: fotograf banner'in tamamini kaplar; dokununca
-        // tam ekran acilir. Yerel foto internet gorselinden onceliklidir.
-        background: GestureDetector(
-          onTap: (!hasImage)
-              ? null
-              : () => openImageZoom(context,
-                  filePath: _localImagePath,
-                  networkUrl: _localImagePath == null ? _imageUrl : null,
-                  heroTag: 'bc_img',
-                  title: _entry.productName),
+    void openZoom() => openImageZoom(context,
+        filePath: _localImagePath,
+        networkUrl: _localImagePath == null ? _imageUrl : null,
+        heroTag: 'bc_img',
+        title: _entry.productName);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: SizedBox(
+          height: 236,
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Hero(
-                tag: 'bc_img',
-                child: _localImagePath != null
-                    ? Image.file(File(_localImagePath!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _heroBg())
-                    : (_imageUrl != null
-                        ? SmartProductImage(
-                            networkUrl: _imageUrl,
-                            barcode: _entry.barcode,
-                            fit: BoxFit.cover,
-                            placeholder: _heroBgIcon,
-                          )
-                        : _heroBg()),
+              GestureDetector(
+                onTap: hasImage ? openZoom : null,
+                child: Hero(
+                  tag: 'bc_img',
+                  child: _localImagePath != null
+                      ? Image.file(File(_localImagePath!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _heroBg())
+                      : (_imageUrl != null
+                          ? SmartProductImage(
+                              networkUrl: _imageUrl,
+                              barcode: _entry.barcode,
+                              fit: BoxFit.cover,
+                              placeholder: _heroBgIcon,
+                            )
+                          : _heroBg()),
+                ),
               ),
-              // Okunabilirlik perdesi (alt).
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    begin: Alignment.center,
+                    begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xCC000000)],
+                    colors: [
+                      Color(0x55000000),
+                      Colors.transparent,
+                      Color(0xE6000000),
+                    ],
+                    stops: [0.0, 0.42, 1.0],
                   ),
                 ),
               ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: _circleBtn(Icons.arrow_back_rounded,
+                    () => Navigator.of(context).pop(_changed)),
+              ),
               if (hasImage)
                 Positioned(
-                  top: MediaQuery.of(context).padding.top + 6,
+                  top: 10,
                   right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.35),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.fullscreen_rounded,
-                        color: Colors.white, size: 20),
-                  ),
+                  child: _circleBtn(Icons.fullscreen_rounded, openZoom),
                 ),
-              // Urun adi — banner altinda.
               Positioned(
-                left: 20,
-                right: 20,
-                bottom: 16,
+                left: 16,
+                right: 16,
+                bottom: 14,
                 child: Text(
                   _entry.productName,
-                  textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 20,
+                      fontSize: 21,
                       fontWeight: FontWeight.w900,
-                      shadows: [
-                        Shadow(color: Colors.black54, blurRadius: 8),
-                      ]),
+                      height: 1.15,
+                      shadows: [Shadow(color: Colors.black87, blurRadius: 10)]),
                 ),
               ),
               if (_loadingWeb && !hasImage)
@@ -545,6 +543,19 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
     );
   }
 
+  Widget _circleBtn(IconData icon, VoidCallback onTap) => Material(
+        color: Colors.black.withOpacity(0.4),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Icon(icon, color: Colors.white, size: 22),
+          ),
+        ),
+      );
+
   Widget _heroBg() => Container(
         decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
         child: const Center(
@@ -561,16 +572,42 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
   Widget _ph() => const Icon(Icons.inventory_2_rounded,
       color: Colors.white, size: 52);
 
-  Widget _buildBody() {
+  Widget _bentoBody() {
     final hasAnyLoc = _shelfHit != null || _palletLocs.isNotEmpty;
+    final sktQty = _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
+    final palletQty = _palletLocs.fold<int>(0, (t, l) => t + l.quantity);
+    final totalQty = sktQty + palletQty;
+    final locCount = (_shelfHit != null ? 1 : 0) + _palletLocs.length;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── STOK OZETI seridi (yeni) ──
-          _statSummary(),
-          // ── FIFO/FEFO uyarisi (yeni) ──
+          // ── BENTO UST SATIR: buyuk SKT hero + iki mini kutu ──
+          SizedBox(
+            height: 190,
+            child: Row(
+              children: [
+                Expanded(flex: 11, child: _sktHeroTile()),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 9,
+                  child: Column(
+                    children: [
+                      Expanded(
+                          child: _miniTile(Icons.inventory_2_rounded,
+                              '$totalQty', 'Toplam Adet', AppTheme.primary)),
+                      const SizedBox(height: 12),
+                      Expanded(
+                          child: _miniTile(Icons.place_rounded, '$locCount',
+                              'Konum', AppTheme.statusWarning)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // ── FIFO/FEFO uyarisi ──
           if (_fifo != null) ...[
             const SizedBox(height: 12),
             _fifoCard(_fifo!),
@@ -658,48 +695,143 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         ),
       );
 
-  /// STOK OZETI seridi — toplam adet, parti sayisi, konum sayisi.
-  Widget _statSummary() {
-    final sktQty = _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
-    final palletQty = _palletLocs.fold<int>(0, (t, l) => t + l.quantity);
-    final totalQty = sktQty + palletQty;
-    final batchCount = _sktProducts.length;
-    final locCount = (_shelfHit != null ? 1 : 0) + _palletLocs.length;
-    return Row(
-      children: [
-        Expanded(
-            child: _statTile(Icons.inventory_2_rounded, '$totalQty',
-                'Toplam Adet', AppTheme.primary)),
-        const SizedBox(width: 10),
-        Expanded(
-            child: _statTile(Icons.layers_rounded, '$batchCount',
-                'SKT Partisi', AppTheme.accent)),
-        const SizedBox(width: 10),
-        Expanded(
-            child: _statTile(Icons.place_rounded, '$locCount', 'Konum',
-                AppTheme.statusWarning)),
-      ],
+  /// BENTO: buyuk SKT durum kutusu (renkli gradyan). SKT yoksa "ekle" kutusu.
+  Widget _sktHeroTile() {
+    if (_sktProducts.isEmpty) {
+      return Material(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: _addSkt,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppTheme.hairline),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.event_busy_rounded,
+                    color: AppTheme.textTertiary, size: 30),
+                const Spacer(),
+                Text('SKT kaydı yok',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textSecondary)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.add_circle_rounded,
+                        size: 18, color: AppTheme.primary),
+                    const SizedBox(width: 5),
+                    Text('SKT ekle',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.primary)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final sorted = [..._sktProducts]
+      ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+    final nearest = sorted.first;
+    final days = nearest.expiryDate.difference(DateTime.now()).inDays;
+    final c = days < 0
+        ? AppTheme.statusExpired
+        : days <= 7
+            ? AppTheme.statusCritical
+            : days <= 30
+                ? AppTheme.statusWarning
+                : AppTheme.statusSafe;
+    final totalQty = _sktProducts.fold<int>(0, (t, p) => t + p.quantity);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [c, c.withOpacity(0.72)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+              color: c.withOpacity(0.40),
+              blurRadius: 18,
+              offset: const Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.event_rounded, color: Colors.white, size: 19),
+              const SizedBox(width: 6),
+              Text('Son Kullanma',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.92),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const Spacer(),
+          Text(days < 0 ? '${-days}' : '$days',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 46,
+                  fontWeight: FontWeight.w900,
+                  height: 1.0)),
+          Text(
+              days < 0
+                  ? 'gün geçti'
+                  : days == 0
+                      ? 'bugün doluyor'
+                      : 'gün kaldı',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.95),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Text('${_fmtDate(nearest.expiryDate)} · $totalQty adet',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.85), fontSize: 11.5)),
+        ],
+      ),
     );
   }
 
-  Widget _statTile(IconData icon, String value, String label, Color color) {
+  /// BENTO: kucuk kare kutu (sayi + etiket).
+  Widget _miniTile(IconData icon, String value, String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.card(),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w900, color: color)),
-          const SizedBox(height: 2),
-          Text(label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textSecondary,
-                  fontWeight: FontWeight.w600)),
+          Icon(icon, color: color, size: 20),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(value,
+                  style: TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.w900, color: color)),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
         ],
       ),
     );
