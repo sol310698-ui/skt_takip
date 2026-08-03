@@ -1339,7 +1339,7 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> with CameraLifec
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
+          MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _ctrl)),
           Container(
             width: 260,
             height: 140,

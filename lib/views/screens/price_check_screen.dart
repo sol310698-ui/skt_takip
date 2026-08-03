@@ -1714,7 +1714,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
   Widget _scannerView() {
     return Stack(
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
         const ScanOverlay(hint: 'Etiket barkodunu çerçeveye getirin'),
         // ── OTURUM ISTATISTIK SERIDI: okundu / dogru / sorunlu + paylas ──
         if (_stTotal > 0)

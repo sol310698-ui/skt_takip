@@ -671,7 +671,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> with Ca
   Widget _buildScanner() {
     return Stack(
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
         const ScanOverlay(hint: 'Etiket QR veya barkodunu çerçeveye getirin'),
         // ── EL TERMINALI GIRIS CUBUGU ──
         // Acilista imlec BURADA ama ekran klavyesi ACILMAZ

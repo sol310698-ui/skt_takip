@@ -1395,7 +1395,7 @@ class _PriceChangeSessionScreenState
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _scanner)),
+                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _scanner)),
                   const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
                   Positioned(
                     top: 10,

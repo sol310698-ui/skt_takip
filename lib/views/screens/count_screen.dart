@@ -445,7 +445,7 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
     return Stack(
       alignment: Alignment.center,
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
         ScanOverlay(
           hint: _activeBarcode != null
               ? 'Adet girin'

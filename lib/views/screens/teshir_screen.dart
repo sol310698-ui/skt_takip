@@ -366,7 +366,7 @@ class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
               child: MobileScanner(
                   controller: _scanner ??= MobileScannerController(),
                   onDetect: _onDetect,
-                  errorBuilder: (context, error) =>
+                  errorBuilder: (context, error, child) =>
                       ScanErrorRetry(controller: _scanner!)),
             ),
           _hidBar(),

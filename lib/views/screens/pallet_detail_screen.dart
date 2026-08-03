@@ -2547,7 +2547,7 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _scanner)),
+                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _scanner)),
                   // Nisan cercevesi.
                   IgnorePointer(
                     child: Center(

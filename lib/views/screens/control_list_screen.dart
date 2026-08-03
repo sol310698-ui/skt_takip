@@ -964,7 +964,7 @@ class _MatchScannerScreenState extends State<_MatchScannerScreen> with CameraLif
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
           // Hedef cercevesi.
           Container(
             width: 260,

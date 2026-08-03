@@ -116,7 +116,7 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
             _buildOverlay(),
             _buildTopBar(),
           ],

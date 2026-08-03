@@ -605,7 +605,7 @@ class _QrUnlockSheetState extends State<_QrUnlockSheet> with CameraLifecycleMixi
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
+                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _ctrl)),
                 // Tarama cercevesi
                 Container(
                   width: 220,

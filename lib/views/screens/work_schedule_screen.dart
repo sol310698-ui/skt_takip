@@ -1928,7 +1928,7 @@ class _QrDefineScreenState extends State<_QrDefineScreen> with CameraLifecycleMi
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
+                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _ctrl)),
                 Container(
                   width: 220,
                   height: 220,

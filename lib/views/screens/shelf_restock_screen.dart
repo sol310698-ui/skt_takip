@@ -397,7 +397,7 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> with CameraLife
               child: MobileScanner(
                   controller: _scanner ??= MobileScannerController(),
                   onDetect: _onDetect,
-                  errorBuilder: (context, error) =>
+                  errorBuilder: (context, error, child) =>
                       ScanErrorRetry(controller: _scanner!)),
             ),
           _hidBar(),

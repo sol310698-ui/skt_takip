@@ -960,7 +960,7 @@ class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> with CameraL
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
           const ScanOverlay(hint: 'Sorgulamak için barkodu çerçeveye getirin'),
         ],
       ),

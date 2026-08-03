@@ -1085,7 +1085,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                     drawText: true,
                     height: 160,
                     color: Colors.black,
-                    errorBuilder: (context, error) => const Text(
+                    errorBuilder: (context, error, child) => const Text(
                       'Barkod oluşturulamadı',
                       style: TextStyle(color: Colors.black54),
                     ),
@@ -1580,7 +1580,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> with Camer
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
           Container(
             width: 260,
             height: 160,

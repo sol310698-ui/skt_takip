@@ -1706,7 +1706,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleM
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error) =>
+            errorBuilder: (context, error, child) =>
                 ScanErrorRetry(controller: _controller),
           ),
           Container(

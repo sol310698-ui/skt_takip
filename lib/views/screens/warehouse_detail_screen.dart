@@ -1611,7 +1611,7 @@ class _SearchScreenState extends State<_SearchScreen> with CameraLifecycleMixin 
                       final raw = cap.barcodes.firstOrNull?.rawValue;
                       if (raw != null) _search(raw);
                     },
-                    errorBuilder: (context, error) =>
+                    errorBuilder: (context, error, child) =>
                         ScanErrorRetry(controller: _scanner),
                   ),
                 ),

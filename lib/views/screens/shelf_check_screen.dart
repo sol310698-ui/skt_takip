@@ -415,7 +415,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> with Camera
         body: Stack(
           fit: StackFit.expand,
           children: [
-            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
+            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
             _buildOverlay(frameColor, isProduct),
             _buildTopControls(),
             _buildBottomStatus(),
