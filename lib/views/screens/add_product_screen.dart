@@ -8,8 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../widgets/scan_error_retry.dart';
-import '../../core/camera_lifecycle_mixin.dart';
+import '../widgets/resilient_scanner.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
@@ -1584,11 +1583,7 @@ class BarcodeScanPage extends StatefulWidget {
   State<BarcodeScanPage> createState() => _BarcodeScanPageState();
 }
 
-class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleMixin {
-  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
-  // yasamasin diye durdur/yeniden baslat.
-  @override
-  List<MobileScannerController> get cameraControllers => [_controller];
+class _BarcodeScanPageState extends State<BarcodeScanPage> {
   // Varsayilan EAN-13 (kod 13). Switch kapatilinca Code 128.
   bool _ean13 = true;
   // Tek controller, HER iki formati da okur; secili formati detect
@@ -1598,10 +1593,14 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleM
   // KARARLILIK: detectionSpeed = normal (noDuplicates DEGIL). Ayni barkodu
   // ust uste birden cok kez okuyup DOGRULAYABILMEK icin tekrarlar gerekli.
   // Tek karelik yanlis okuma (yansima/bulaniklik) hemen kabul edilmesin.
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
-  );
+  //
+  // Kamera yasam dongusu + hataya karsi yeniden yaratma tamamen
+  // ResilientScanner'a birakildi (asagida). Bu yuzden controller'i FABRIKA
+  // ile veriyoruz; ekran controller'i kendi tutmaz/dispose etmez.
+  MobileScannerController _createController() => MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
+      );
   bool _handled = false;
 
   // ── COK KARELI DOGRULAMA ──────────────────────────────────────────
@@ -1618,12 +1617,6 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleM
       _candidate = null;
       _candidateHits = 0;
     });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   /// EAN-13 saglama basamagi (check digit) dogrulamasi. Yanlis okunan
@@ -1703,11 +1696,9 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleM
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(
-            controller: _controller,
+          ResilientScanner(
+            create: _createController,
             onDetect: _onDetect,
-            errorBuilder: (context, error, child) =>
-                ScanErrorRetry(controller: _controller),
           ),
           Container(
             width: 260,
