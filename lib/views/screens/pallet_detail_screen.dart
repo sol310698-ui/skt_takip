@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../widgets/scan_error_retry.dart';
-import '../../core/camera_lifecycle_mixin.dart';
+import '../widgets/resilient_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -2069,13 +2068,17 @@ class _AddItemScreen extends StatefulWidget {
   State<_AddItemScreen> createState() => _AddItemScreenState();
 }
 
-class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixin {
-  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
-  // yasamasin diye durdur/yeniden baslat.
-  @override
-  List<MobileScannerController> get cameraControllers => [_scanner];
-  final MobileScannerController _scanner =
+class _AddItemScreenState extends State<_AddItemScreen> {
+  // Kamera artik ResilientScanner tarafindan yonetiliyor: TARA moduna her
+  // gecildiginde (veya urun eklendikten sonra scan gorunumune donuldugunde)
+  // taze bir controller yaratilir; ARA moduna/forma gecince widget agactan
+  // cikip controller dispose edilir. Boylece stop()->start() sonrasi kararan
+  // kamera sorunu (mod degisiminde "kamera gitti") ortadan kalkar.
+  MobileScannerController _createScanner() =>
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
+  // Kamera okumasi islenirken (async ad/konum sorgusu) ikinci bir barkodun
+  // araya girmesini engelleyen eszamanli kilit (eski stop()'un yerine).
+  bool _capturing = false;
   final _expiryCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
   final _caseCtrl = TextEditingController(); // koli bazinda giris
@@ -2222,7 +2225,6 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
   @override
   void dispose() {
     _liveSub?.cancel();
-    _scanner.dispose();
     _expiryCtrl.dispose();
     _qtyCtrl.dispose();
     _caseCtrl.dispose();
@@ -2248,7 +2250,6 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
   }
 
   Future<void> _pickEntry(BarcodeEntry e) async {
-    await _scanner.stop();
     await _select(e.barcode, name: e.productName, stockCode: e.stockCode);
   }
 
@@ -2292,18 +2293,22 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
   }
 
   Future<void> _onDetect(BarcodeCapture cap) async {
-    if (_busy || _barcode != null) return;
-    final raw = cap.barcodes.firstOrNull?.rawValue;
-    if (raw == null) return;
-    final parsed = ScanParser.parse(raw);
-    final code = parsed.barcode ?? raw.trim();
-    await _scanner.stop();
-    if (parsed.expiryDate != null) {
-      final d = parsed.expiryDate!;
-      _expiryCtrl.text =
-          '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
+    if (_busy || _barcode != null || _capturing) return;
+    _capturing = true;
+    try {
+      final raw = cap.barcodes.firstOrNull?.rawValue;
+      if (raw == null) return;
+      final parsed = ScanParser.parse(raw);
+      final code = parsed.barcode ?? raw.trim();
+      if (parsed.expiryDate != null) {
+        final d = parsed.expiryDate!;
+        _expiryCtrl.text =
+            '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
+      }
+      await _select(code, expiry: parsed.expiryDate);
+    } finally {
+      _capturing = false;
     }
-    await _select(code, expiry: parsed.expiryDate);
   }
 
   void _parseExpiry() {
@@ -2378,10 +2383,11 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
       _nameCtrl.clear();
       _busy = false;
     });
-    if (_mode == 0) await _scanner.start();
+    // _barcode null oldugu icin gorunum scan'e doner; ResilientScanner taze
+    // controller ile yeniden kurulur (elle start gerekmez).
   }
 
-  void _reset() async {
+  void _reset() {
     setState(() {
       _barcode = null;
       _stockCode = null;
@@ -2390,7 +2396,6 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
       _expiryCtrl.clear();
       _nameCtrl.clear();
     });
-    if (_mode == 0) await _scanner.start();
   }
 
   // ── UI ────────────────────────────────────────────────────────────
@@ -2501,14 +2506,11 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
     final sel = _mode == i;
     return Expanded(
       child: GestureDetector(
-        onTap: () async {
+        onTap: () {
           if (_mode == i) return;
+          // Moda gore gorunum degisir; kamera (mod 0) ResilientScanner ile
+          // agaca girip ciktikca kendi kurulur/birakilir (elle start/stop yok).
           setState(() => _mode = i);
-          if (i == 0) {
-            await _scanner.start();
-          } else {
-            await _scanner.stop();
-          }
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -2547,7 +2549,10 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _scanner)),
+                  ResilientScanner(
+                      create: _createScanner,
+                      onDetect: _onDetect,
+                      accent: AppTheme.accent),
                   // Nisan cercevesi.
                   IgnorePointer(
                     child: Center(
