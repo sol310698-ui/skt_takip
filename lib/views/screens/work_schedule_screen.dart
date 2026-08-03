@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -1927,7 +1928,7 @@ class _QrDefineScreenState extends State<_QrDefineScreen> with CameraLifecycleMi
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(controller: _ctrl, onDetect: _onDetect),
+                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
                 Container(
                   width: 220,
                   height: 220,

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import '../../core/services/scan_engine.dart';
 import '../widgets/scan_mode_toggle.dart';
@@ -444,7 +445,7 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
     return Stack(
       alignment: Alignment.center,
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
+        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
         ScanOverlay(
           hint: _activeBarcode != null
               ? 'Adet girin'

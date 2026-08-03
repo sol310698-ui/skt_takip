@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -1394,7 +1395,7 @@ class _PriceChangeSessionScreenState
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect),
+                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _scanner)),
                   const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
                   Positioned(
                     top: 10,

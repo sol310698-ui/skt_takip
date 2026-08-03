@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/label_active_lists_service.dart';
@@ -1579,7 +1580,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> with Camer
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
           Container(
             width: 260,
             height: 160,

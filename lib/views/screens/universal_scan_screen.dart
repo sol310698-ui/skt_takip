@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -115,7 +116,7 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
         body: Stack(
           fit: StackFit.expand,
           children: [
-            MobileScanner(controller: _controller, onDetect: _onDetect),
+            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
             _buildOverlay(),
             _buildTopBar(),
           ],

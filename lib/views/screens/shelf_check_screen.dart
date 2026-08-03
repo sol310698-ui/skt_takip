@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
@@ -414,7 +415,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> with Camera
         body: Stack(
           fit: StackFit.expand,
           children: [
-            MobileScanner(controller: _controller, onDetect: _onDetect),
+            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
             _buildOverlay(frameColor, isProduct),
             _buildTopControls(),
             _buildBottomStatus(),

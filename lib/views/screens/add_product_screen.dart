@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
@@ -1705,6 +1706,8 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> with CameraLifecycleM
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
+            errorBuilder: (context, error) =>
+                ScanErrorRetry(controller: _controller),
           ),
           Container(
             width: 260,

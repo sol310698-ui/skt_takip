@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/constants/app_constants.dart';
@@ -1338,7 +1339,7 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> with CameraLifec
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _ctrl, onDetect: _onDetect),
+          MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
           Container(
             width: 260,
             height: 140,

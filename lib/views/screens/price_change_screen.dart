@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/gemini_ocr_service.dart';
@@ -959,7 +960,7 @@ class _BarcodeQueryScannerState extends State<_BarcodeQueryScanner> with CameraL
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
           const ScanOverlay(hint: 'Sorgulamak için barkodu çerçeveye getirin'),
         ],
       ),

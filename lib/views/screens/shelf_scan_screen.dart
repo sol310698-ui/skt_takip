@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import '../../core/services/scan_engine.dart';
 import '../widgets/scan_mode_toggle.dart';
@@ -243,7 +244,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
             flex: 3,
             child: Stack(
               children: [
-                MobileScanner(controller: _controller, onDetect: _onDetect),
+                MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
                 const ScanOverlay(
                   hint: 'Ürün barkodunu okutun → fotoğraf çekilecek',
                   accent: AppTheme.accent,

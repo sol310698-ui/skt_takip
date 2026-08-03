@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/database_service.dart';
@@ -364,7 +365,9 @@ class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
               height: 170,
               child: MobileScanner(
                   controller: _scanner ??= MobileScannerController(),
-                  onDetect: _onDetect),
+                  onDetect: _onDetect,
+                  errorBuilder: (context, error) =>
+                      ScanErrorRetry(controller: _scanner!)),
             ),
           _hidBar(),
           if (_groupId != null) _groupBar(),

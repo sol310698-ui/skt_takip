@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -963,7 +964,7 @@ class _MatchScannerScreenState extends State<_MatchScannerScreen> with CameraLif
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _controller)),
           // Hedef cercevesi.
           Container(
             width: 260,

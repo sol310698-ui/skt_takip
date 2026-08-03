@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -2546,7 +2547,7 @@ class _AddItemScreenState extends State<_AddItemScreen> with CameraLifecycleMixi
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect),
+                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _scanner)),
                   // Nisan cercevesi.
                   IgnorePointer(
                     child: Center(

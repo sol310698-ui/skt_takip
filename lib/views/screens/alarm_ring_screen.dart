@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/alarm_service.dart';
@@ -604,7 +605,7 @@ class _QrUnlockSheetState extends State<_QrUnlockSheet> with CameraLifecycleMixi
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(controller: _ctrl, onDetect: _onDetect),
+                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error) => ScanErrorRetry(controller: _ctrl)),
                 // Tarama cercevesi
                 Container(
                   width: 220,

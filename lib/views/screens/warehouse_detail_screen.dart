@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/warehouse_service.dart';
@@ -1610,6 +1611,8 @@ class _SearchScreenState extends State<_SearchScreen> with CameraLifecycleMixin 
                       final raw = cap.barcodes.firstOrNull?.rawValue;
                       if (raw != null) _search(raw);
                     },
+                    errorBuilder: (context, error) =>
+                        ScanErrorRetry(controller: _scanner),
                   ),
                 ),
               ),
