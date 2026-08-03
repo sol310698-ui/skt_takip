@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/database_service.dart';
@@ -12,12 +13,17 @@ import '../../data/datasources/barcode_directory_datasource.dart';
 /// ════════════════════════════════════════════════════════════════════
 
 /// Sik bos durum gostergesi (ikon + baslik + alt metin + opsiyonel aksiyon).
+/// #6: acilista nazikce belirir (fade + hafif olceklenme). `celebrate=true`
+/// ile basari/tebrik varyanti (yesil onay, hafif ziplama).
 class EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
   final Widget? action;
   final Color? iconColor;
+
+  /// Basari/tebrik varyanti (yesil onay tonu + ziplama).
+  final bool celebrate;
 
   const EmptyState({
     super.key,
@@ -26,31 +32,45 @@ class EmptyState extends StatelessWidget {
     this.subtitle,
     this.action,
     this.iconColor,
+    this.celebrate = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final c = iconColor ?? AppTheme.primary;
+    final c =
+        iconColor ?? (celebrate ? AppTheme.statusSafe : AppTheme.primary);
+
+    Widget art = Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [c.withOpacity(0.22), c.withOpacity(0.06)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(color: c.withOpacity(0.25), width: 1.5),
+        boxShadow: AppTheme.glow(c),
+      ),
+      child: Icon(icon, size: 46, color: c),
+    );
+
+    // Giris canlandirmasi: fade + olceklenme. Basari ise daha "ziplayan" egri.
+    art = art.animate().fadeIn(duration: 400.ms).scale(
+          begin: const Offset(0.85, 0.85),
+          end: const Offset(1, 1),
+          duration: celebrate ? 550.ms : 420.ms,
+          curve: celebrate ? Curves.elasticOut : Curves.easeOutBack,
+        );
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.s32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [c.withOpacity(0.22), c.withOpacity(0.06)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                shape: BoxShape.circle,
-                border: Border.all(color: c.withOpacity(0.25), width: 1.5),
-              ),
-              child: Icon(icon, size: 44, color: c),
-            ),
+            art,
             const SizedBox(height: AppTheme.s20),
             Text(
               title,
@@ -60,7 +80,7 @@ class EmptyState extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textPrimary,
               ),
-            ),
+            ).animate().fadeIn(delay: 120.ms, duration: 380.ms),
             if (subtitle != null) ...[
               const SizedBox(height: AppTheme.s8),
               Text(
@@ -71,11 +91,11 @@ class EmptyState extends StatelessWidget {
                   color: AppTheme.textSecondary,
                   height: 1.4,
                 ),
-              ),
+              ).animate().fadeIn(delay: 190.ms, duration: 380.ms),
             ],
             if (action != null) ...[
               const SizedBox(height: AppTheme.s24),
-              action!,
+              action!.animate().fadeIn(delay: 280.ms, duration: 380.ms),
             ],
           ],
         ),

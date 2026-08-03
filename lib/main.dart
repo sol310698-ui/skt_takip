@@ -11,6 +11,7 @@ import 'core/services/alarm_flow.dart';
 import 'core/services/alarm_service.dart';
 import 'core/services/ai_model_prefs.dart';
 import 'core/services/db_source_prefs.dart';
+import 'core/services/feedback_service.dart';
 import 'core/services/flow_prefs.dart';
 import 'core/services/label_inspect_button_prefs.dart';
 import 'core/services/location_reveal_prefs.dart';
@@ -144,6 +145,10 @@ Future<void> main() async {
 
   // Bildirim servisini arka planda baslat.
   NotificationService.instance.init();
+
+  // Tarama geri bildirimi (haptik + ses kimligi) — ilk okuma gecikmesin diye
+  // ses oynaticiyi onceden hazirla.
+  FeedbackService.instance.init();
 }
 
 /// SKT imha alarmi etkinse, bir sonraki gun/saate kurulu oldugundan emin ol.

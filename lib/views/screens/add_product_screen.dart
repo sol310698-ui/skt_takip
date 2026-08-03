@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets/resilient_scanner.dart';
+import '../../core/services/feedback_service.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
@@ -1654,6 +1655,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
       if (_candidateHits >= _needed) {
         _handled = true;
         HapticFeedback.mediumImpact();
+        FeedbackService.instance.play(ScanFeedback.product);
         Navigator.of(context).pop(val);
       }
       return; // her capture'da tek aday isle

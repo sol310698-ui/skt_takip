@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../widgets/resilient_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -2300,6 +2301,9 @@ class _AddItemScreenState extends State<_AddItemScreen> {
       if (raw == null) return;
       final parsed = ScanParser.parse(raw);
       final code = parsed.barcode ?? raw.trim();
+      // Tarama imzasi: haptik + kisa bip (#4).
+      HapticFeedback.mediumImpact();
+      FeedbackService.instance.play(ScanFeedback.product);
       if (parsed.expiryDate != null) {
         final d = parsed.expiryDate!;
         _expiryCtrl.text =

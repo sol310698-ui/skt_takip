@@ -337,7 +337,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// Gunun tek cumlelik ozeti — okunmasi gereken TEK satir.
+  /// Saate gore selam (karsilama dashboard'unun kalbi).
+  String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 6) return 'İyi geceler';
+    if (h < 12) return 'Günaydın';
+    if (h < 18) return 'İyi günler';
+    return 'İyi akşamlar';
+  }
+
+  /// Gunun tek cumlelik ozeti — selam + okunmasi gereken TEK satir + canli
+  /// sayac. (#3 karsilama dashboard, #5 mikro-animasyon.)
   Widget _headline(Map<ExpiryStatus, int> counts, int total) {
     final expired = counts[ExpiryStatus.expired] ?? 0;
     final critical = counts[ExpiryStatus.critical] ?? 0;
@@ -353,33 +363,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } else if (warning > 0) {
       text = '$warning ürün bu hafta doluyor';
     } else {
-      text = 'Yakın tarihli ürün yok';
+      text = 'Bugün acil ürün yok 👌';
     }
 
-    return Row(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
+        // ── Selam satiri ──
+        Row(
+          children: [
+            Text(
+              '${_greeting()} 👋',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.85),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const Spacer(),
+            if (total > 0)
+              // Canli sayac: acilista 0'dan gercek sayiya sayar.
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: total.toDouble()),
+                duration: const Duration(milliseconds: 900),
+                curve: Curves.easeOutCubic,
+                builder: (_, v, __) => Text(
+                  '${v.round()} ürün',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        // ── Ozet satiri (degisince yumusak gecis) ──
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 350),
+          transitionBuilder: (child, anim) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.25),
+                end: Offset.zero,
+              ).animate(anim),
+              child: child,
+            ),
+          ),
           child: Text(
             text,
+            key: ValueKey(text),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
               height: 1.1,
+              letterSpacing: -0.2,
             ),
           ),
         ),
-        if (total > 0)
-          Text(
-            '$total ürün',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.75),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
       ],
     );
   }
@@ -525,10 +573,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               )
             : EmptyState(
-                icon: Icons.filter_alt_off_rounded,
-                iconColor: activeFilter?.color,
-                title: '${activeFilter?.label ?? 'Bu durumda'} ürün yok',
-                subtitle: 'Bu durumda bekleyen ürün bulunmuyor.',
+                // Riskli bir durum (Doldu/Kritik) bos ise bu IYI haber →
+                // tebrik varyanti.
+                celebrate: activeFilter == ExpiryStatus.expired ||
+                    activeFilter == ExpiryStatus.critical,
+                icon: (activeFilter == ExpiryStatus.expired ||
+                        activeFilter == ExpiryStatus.critical)
+                    ? Icons.verified_rounded
+                    : Icons.filter_alt_off_rounded,
+                iconColor: (activeFilter == ExpiryStatus.expired ||
+                        activeFilter == ExpiryStatus.critical)
+                    ? null
+                    : activeFilter?.color,
+                title: (activeFilter == ExpiryStatus.expired)
+                    ? 'Süresi dolan ürün yok 🎉'
+                    : (activeFilter == ExpiryStatus.critical)
+                        ? 'Kritik ürün yok 🎉'
+                        : '${activeFilter?.label ?? 'Bu durumda'} ürün yok',
+                subtitle: (activeFilter == ExpiryStatus.expired ||
+                        activeFilter == ExpiryStatus.critical)
+                    ? 'Harika iş — bu grupta bekleyen yok.'
+                    : 'Bu durumda bekleyen ürün bulunmuyor.',
                 action: OutlinedButton.icon(
                   onPressed: () =>
                       ref.read(statusFilterProvider.notifier).state = null,
