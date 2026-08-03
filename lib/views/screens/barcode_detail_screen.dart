@@ -998,7 +998,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                     drawText: false,
                     height: 64,
                     color: Colors.black,
-                    errorBuilder: (context, error, child) => const SizedBox.shrink(),
+                    errorBuilder: (context, error) => const SizedBox.shrink(),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1545,7 +1545,7 @@ class _CodeSheet extends StatelessWidget {
                 drawText: true,
                 height: 90,
                 color: Colors.black,
-                errorBuilder: (context, error, child) => Text(
+                errorBuilder: (context, error) => Text(
                   'Barkod oluşturulamadı',
                   style: const TextStyle(color: Colors.black54, fontSize: 12),
                 ),

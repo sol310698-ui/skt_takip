@@ -1085,7 +1085,7 @@ class _LabelFlowScreenState extends State<_LabelFlowScreen> {
                     drawText: true,
                     height: 160,
                     color: Colors.black,
-                    errorBuilder: (context, error, child) => const Text(
+                    errorBuilder: (context, error) => const Text(
                       'Barkod oluşturulamadı',
                       style: TextStyle(color: Colors.black54),
                     ),
