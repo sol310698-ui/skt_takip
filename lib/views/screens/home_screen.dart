@@ -715,7 +715,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 trailing: mode == _sort
-                    ? const Icon(Icons.check_rounded, color: AppTheme.primary)
+                    ? Icon(Icons.check_rounded, color: AppTheme.primary)
                     : null,
                 onTap: () => Navigator.pop(ctx, mode),
               ),

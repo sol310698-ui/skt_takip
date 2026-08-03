@@ -115,7 +115,7 @@ class _SktDisposalAlarmScreenState extends State<SktDisposalAlarmScreen> {
         backgroundColor: AppTheme.background,
         body: SafeArea(
           child: _loading
-              ? const Center(
+              ? Center(
                   child: CircularProgressIndicator(color: AppTheme.primary))
               : Column(
                   children: [

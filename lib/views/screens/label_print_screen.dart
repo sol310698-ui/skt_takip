@@ -706,7 +706,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           'Kısa kod: ${it.stockCode}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             color: AppTheme.accent,
                             fontWeight: FontWeight.w600,
@@ -726,7 +726,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                   child: Text(
                     '${it.quantity}',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 18,
                         color: AppTheme.accent),
@@ -841,7 +841,7 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
                     autofocus: true,
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 56,
                       fontWeight: FontWeight.w800,
                       color: AppTheme.accent,
@@ -1340,7 +1340,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                         padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
                         child: Text(
                           dayKey,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: AppTheme.accent,
@@ -1391,7 +1391,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                                           ),
                                           child: Text(
                                             e.groupTitle,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.w700,
                                               color: AppTheme.primaryLight,

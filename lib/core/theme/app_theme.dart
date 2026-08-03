@@ -31,17 +31,58 @@ class AppTheme {
   // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
   // DOA yesil kimlik: ana renk YESIL (butonlar/basliklar), vurgu daha acik
   // yesil. Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
-  static const Color primary = Color(0xFF1E9E52);      // DOA yesili (butonlar)
-  static const Color primaryLight = Color(0xFF52C07E); // acik yesil
-  static const Color primaryDark = Color(0xFF157A3E);  // koyu yesil
-  static const Color accent = Color(0xFF34C77B);        // acik yesil vurgu
+  // MARKA / VURGU PALETI — artik `const` DEGIL: kullanici Ayarlar'dan vurgu
+  // rengini degistirebilir (#10). applyAccent() bu 7 rengi (ve gradyanlari)
+  // birlikte gunceller; 298+ kullanim runtime'da statik okudugu icin tumu
+  // otomatik yeni renge gecer. Varsayilan: DOA yesili.
+  static Color primary = _accentDefault.primary;      // ana renk (butonlar)
+  static Color primaryLight = _accentDefault.primaryLight; // acik ton
+  static Color primaryDark = _accentDefault.primaryDark;  // koyu ton
+  static Color accent = _accentDefault.accent;         // vurgu
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
   // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
-  static const Color orchid = Color(0xFF23A055);  // yesil
-  static const Color blush = Color(0xFF178A46);   // koyu yesil
-  static const Color sky = Color(0xFF52C07E);     // acik yesil
+  static Color orchid = _accentDefault.gradB;  // orta ton
+  static Color blush = _accentDefault.gradA;   // koyu ton (gradyan basi)
+  static Color sky = _accentDefault.primaryLight; // acik ton
+
+  // ─── VURGU PALETI SECIMI (#10) ─────────────────────────────────────
+  static const AccentPalette _accentDefault = AccentPalette.green;
+  static AccentPalette activeAccent = _accentDefault;
+
+  /// Secilebilir vurgu paletleri (Ayarlar'da gosterilir).
+  static const List<AccentPalette> accentPalettes = [
+    AccentPalette.green,
+    AccentPalette.blue,
+    AccentPalette.purple,
+    AccentPalette.orange,
+    AccentPalette.teal,
+  ];
+
+  /// Vurgu paletini uygular (ThemeData kurulmadan ONCE, main.dart'ta cagrilir).
+  /// Marka renklerini ve gradyanlari birlikte gunceller; boylece butonlarla
+  /// header/aurora renkleri asla ayrisik kalmaz.
+  static void applyAccent(AccentPalette p) {
+    activeAccent = p;
+    primary = p.primary;
+    primaryLight = p.primaryLight;
+    primaryDark = p.primaryDark;
+    accent = p.accent;
+    orchid = p.gradB;
+    blush = p.gradA;
+    sky = p.primaryLight;
+  }
+
+  /// id'den palet bul (kayitli tercih yuklenirken kullanilir).
+  static AccentPalette accentById(String id) => accentPalettes.firstWhere(
+        (p) => p.id == id,
+        orElse: () => _accentDefault,
+      );
+
+  // ─── LISTE YOGUNLUGU (#10) ─────────────────────────────────────────
+  // Ferah (standart) veya Kompakt. ThemeData.visualDensity'ye uygulanir.
+  static VisualDensity uiDensity = VisualDensity.standard;
 
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
   static const Color statusSafe = Color(0xFF34D399);
@@ -129,18 +170,18 @@ class AppTheme {
   static const double rXl = 32;
   static const double rPill = 999;
 
-  // ─── Imza gradyanlar — kirmizi-mavi ────────────────────────────────
-  static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF157A3E), Color(0xFF23A055), Color(0xFF3BB873)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  // ─── Imza gradyanlar — aktif vurgu paletine gore (artik getter) ────
+  static LinearGradient get bannerGradient => LinearGradient(
+        colors: [activeAccent.gradA, activeAccent.gradB, activeAccent.gradC],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      );
 
-  static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFF23A055), Color(0xFF52C07E)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  static LinearGradient get accentGradient => LinearGradient(
+        colors: [orchid, primaryLight],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      );
 
   static const LinearGradient scannerGradient = LinearGradient(
     colors: [Color(0xFF0F1A33), Color(0xFF1A1020)],
@@ -150,12 +191,12 @@ class AppTheme {
 
   /// Aurora gradyani — header arka planlarinda yavasca kayan, daha cok
   /// renk katmani iceren versiyon (animasyonlu kullanim icin tasarlandi).
-  static const List<Color> auroraColors = [
-    Color(0xFF157A3E), // koyu yesil
-    Color(0xFF23A055), // canli yesil
-    Color(0xFF3BB873), // acik yesil
-    Color(0xFF23A055), // canli yesil (donguyu kapatir)
-  ];
+  static List<Color> get auroraColors => [
+        activeAccent.gradA,
+        activeAccent.gradB,
+        activeAccent.gradC,
+        activeAccent.gradB, // donguyu kapatir
+      ];
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
   static SystemUiOverlayStyle systemBarForColor(Color bg) {
@@ -250,6 +291,7 @@ class AppTheme {
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      visualDensity: uiDensity,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         brightness: brightness,
@@ -321,7 +363,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: primary, width: 1.8),
+          borderSide: BorderSide(color: primary, width: 1.8),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -566,15 +608,16 @@ class _AuroraBackgroundState extends State<AuroraBackground>
         // kirmizi kalir, renkler birbirine karismaz).
         final t = _AuroraSync.instance.value * 2 * math.pi;
         final mid = 0.5 + 0.12 * math.sin(t); // 0.38 ↔ 0.62 arasi salinim
-        const blue = Color(0xFF178A46); // koyu yesil (isim eski API)
-        const red = Color(0xFF34C77B);  // acik yesil (isim eski API)
+        // Aktif vurgu paletine gore (isim eski API — blue/red tarihsel).
+        final blue = AppTheme.blush; // koyu ton
+        final red = AppTheme.accent; // acik ton
         return Container(
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: const [blue, blue, red, red],
+              colors: [blue, blue, red, red],
               stops: [
                 0.0,
                 (mid - 0.10).clamp(0.0, 1.0),
@@ -588,4 +631,99 @@ class _AuroraBackgroundState extends State<AuroraBackground>
       },
     );
   }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  VURGU PALETI (#10) — kullanicinin secebilecegi renk aileleri.
+/// ────────────────────────────────────────────────────────────────────
+///  Her palet; ana renk (primary) + acik/koyu tonlar + vurgu + uclu
+///  header gradyanini birlikte tanimlar. Boylece buton, header, aurora,
+///  secili durum — hepsi tek renk ailesinde kalir.
+/// ════════════════════════════════════════════════════════════════════
+class AccentPalette {
+  final String id;
+  final String label;
+  final Color primary;
+  final Color primaryLight;
+  final Color primaryDark;
+  final Color accent;
+  final Color gradA; // gradyan basi (koyu)
+  final Color gradB; // gradyan ortasi
+  final Color gradC; // gradyan sonu (acik)
+
+  const AccentPalette({
+    required this.id,
+    required this.label,
+    required this.primary,
+    required this.primaryLight,
+    required this.primaryDark,
+    required this.accent,
+    required this.gradA,
+    required this.gradB,
+    required this.gradC,
+  });
+
+  /// Onizleme rozeti icin temsili renk.
+  Color get swatch => primary;
+
+  // ── Hazir paletler ──────────────────────────────────────────────
+  static const green = AccentPalette(
+    id: 'green',
+    label: 'Yeşil',
+    primary: Color(0xFF1E9E52),
+    primaryLight: Color(0xFF52C07E),
+    primaryDark: Color(0xFF157A3E),
+    accent: Color(0xFF34C77B),
+    gradA: Color(0xFF157A3E),
+    gradB: Color(0xFF23A055),
+    gradC: Color(0xFF3BB873),
+  );
+
+  static const blue = AccentPalette(
+    id: 'blue',
+    label: 'Mavi',
+    primary: Color(0xFF2563EB),
+    primaryLight: Color(0xFF60A5FA),
+    primaryDark: Color(0xFF1D4ED8),
+    accent: Color(0xFF38BDF8),
+    gradA: Color(0xFF1D4ED8),
+    gradB: Color(0xFF2563EB),
+    gradC: Color(0xFF3B82F6),
+  );
+
+  static const purple = AccentPalette(
+    id: 'purple',
+    label: 'Mor',
+    primary: Color(0xFF7C3AED),
+    primaryLight: Color(0xFFA78BFA),
+    primaryDark: Color(0xFF5B21B6),
+    accent: Color(0xFFC084FC),
+    gradA: Color(0xFF5B21B6),
+    gradB: Color(0xFF7C3AED),
+    gradC: Color(0xFF9333EA),
+  );
+
+  static const orange = AccentPalette(
+    id: 'orange',
+    label: 'Turuncu',
+    primary: Color(0xFFEA7317),
+    primaryLight: Color(0xFFFB923C),
+    primaryDark: Color(0xFFC2560E),
+    accent: Color(0xFFFDBA74),
+    gradA: Color(0xFFC2560E),
+    gradB: Color(0xFFEA7317),
+    gradC: Color(0xFFF97316),
+  );
+
+  static const teal = AccentPalette(
+    id: 'teal',
+    label: 'Deniz',
+    primary: Color(0xFF0D9488),
+    primaryLight: Color(0xFF2DD4BF),
+    primaryDark: Color(0xFF0F766E),
+    accent: Color(0xFF5EEAD4),
+    gradA: Color(0xFF0F766E),
+    gradB: Color(0xFF0D9488),
+    gradC: Color(0xFF14B8A6),
+  );
 }

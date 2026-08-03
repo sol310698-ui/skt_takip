@@ -89,7 +89,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
               onTap: () => Navigator.pop(context, 'scan'),
             ),
             ListTile(
-              leading: const Icon(Icons.keyboard_rounded,
+              leading: Icon(Icons.keyboard_rounded,
                   color: AppTheme.primary),
               title: const Text('Elle Gir'),
               onTap: () => Navigator.pop(context, 'manual'),

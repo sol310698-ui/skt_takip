@@ -1192,7 +1192,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.build_rounded,
+              Icon(Icons.build_rounded,
                   color: AppTheme.primary, size: 20),
               const SizedBox(width: 8),
               const Text('Araçlar',
@@ -1428,7 +1428,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                     Text(
                       '${_sktHour.toString().padLeft(2, '0')}:'
                       '${_sktMinute.toString().padLeft(2, '0')}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
                           color: AppTheme.primary),
@@ -1643,7 +1643,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                   ),
                   // Hizli ekleme (kapaliyken de erisilebilir).
                   IconButton(
-                    icon: const Icon(Icons.add_circle_rounded,
+                    icon: Icon(Icons.add_circle_rounded,
                         color: AppTheme.primary),
                     tooltip: 'Saat Ekle',
                     visualDensity: VisualDensity.compact,
@@ -1694,7 +1694,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
                         if (v == 'copy') _copyDayToWeek(weekday);
                         if (v == 'clear') _deleteDay(weekday);
                       },
-                      itemBuilder: (_) => const [
+                      itemBuilder: (_) => [
                         PopupMenuItem(
                           value: 'copy',
                           child: Row(children: [
@@ -1831,7 +1831,7 @@ class _WorkScheduleScreenState extends State<WorkScheduleScreen> {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
               child: Row(
                 children: [
-                  const Icon(Icons.alarm_rounded,
+                  Icon(Icons.alarm_rounded,
                       color: AppTheme.primary),
                   const SizedBox(width: 10),
                   Text(e.timeStr,

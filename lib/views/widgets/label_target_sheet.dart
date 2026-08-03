@@ -519,7 +519,7 @@ class _LabelTargetSheetState extends State<_LabelTargetSheet> {
                     borderRadius: BorderRadius.circular(AppTheme.rPill),
                   ),
                   child: Text('$count bekliyor',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
                           color: AppTheme.primary)),

@@ -295,7 +295,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
             ),
             const SizedBox(height: 16),
             ListTile(
-              leading: const Icon(Icons.cloud_upload_rounded,
+              leading: Icon(Icons.cloud_upload_rounded,
                   color: AppTheme.accent),
               title: const Text('Google Drive\'a Yedekle'),
               subtitle: const Text('Veri + tüm fotoğraflar (ZIP)'),
@@ -330,7 +330,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.description_rounded,
+              leading: Icon(Icons.description_rounded,
                   color: AppTheme.primary),
               title: const Text('Metin özet'),
               subtitle: const Text('Paylaşılabilir özet'),
@@ -353,7 +353,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   }
 
   Widget _buildEmpty() {
-    return const EmptyState(
+    return EmptyState(
       icon: Icons.access_time_rounded,
       iconColor: AppTheme.accent,
       title: 'Henüz mesai kaydı yok',
@@ -403,7 +403,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                   )
                 else
                   Text(s.durationLabel,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: AppTheme.primary,
                           fontWeight: FontWeight.w700)),
               ],

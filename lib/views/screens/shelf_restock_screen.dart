@@ -327,7 +327,7 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> with CameraLife
             ),
             for (final l in locs)
               ListTile(
-                leading: const Icon(Icons.warehouse_rounded,
+                leading: Icon(Icons.warehouse_rounded,
                     color: AppTheme.accent),
                 title: Text(l.pallet.code,
                     style:

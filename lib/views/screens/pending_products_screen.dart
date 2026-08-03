@@ -145,7 +145,7 @@ class _PendingProductsScreenState
       decoration: AppTheme.card(),
       child: Row(
         children: [
-          const Icon(Icons.qr_code_2_rounded,
+          Icon(Icons.qr_code_2_rounded,
               color: AppTheme.primary, size: 24),
           const SizedBox(width: 12),
           Expanded(

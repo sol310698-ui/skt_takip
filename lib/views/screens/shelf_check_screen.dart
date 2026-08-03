@@ -340,7 +340,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> with Camera
                 ),
               ),
             ),
-            const Row(
+            Row(
               children: [
                 Icon(Icons.analytics_rounded,
                     color: AppTheme.accent, size: 22),

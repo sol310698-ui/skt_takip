@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
@@ -116,9 +117,21 @@ Future<void> main() async {
   //     icin hangi acik veri tabanlarinin aktif oldugu).
   await DbSourcePrefs.instance.load();
 
-  // 7) Tema tercihini yukle (Aydinlik/Koyu/Sistem).
+  // 7) Tema tercihini yukle (Aydinlik/Koyu/Sistem + vurgu paleti + yogunluk +
+  //    gun isigi otomatik). Renk/yogunluk MaterialApp kurulmadan ONCE set
+  //    edilir ki statik AppTheme renkleri gosterilen tema ile ayni olsun.
   await ThemePrefs.instance.load();
-  AppTheme.applyBrightness(ThemePrefs.instance.mode == ThemeMode.light);
+  AppTheme.applyAccent(AppTheme.accentById(ThemePrefs.instance.accentId));
+  AppTheme.uiDensity = ThemePrefs.instance.compact
+      ? VisualDensity.compact
+      : VisualDensity.standard;
+  {
+    final tp = ThemePrefs.instance;
+    final light = tp.daylightAuto
+        ? tp.isDaytimeNow
+        : tp.mode == ThemeMode.light;
+    AppTheme.applyBrightness(light);
+  }
 
   // 8) Etiket Incele butonu nabiz animasyonu tercihini yukle.
   await LabelInspectButtonPrefs.instance.load();
@@ -183,10 +196,24 @@ class _SktTakipAppState extends State<SktTakipApp>
   // (AppLockService.consumeIsSystemActivityResume).
   DateTime? _pausedAt;
 
+  // Gun isigi otomatik tema (#1): dakikada bir kontrol edip 07:00/19:00
+  // esiginde temayi kendiliginden cevirir (uygulama acikken).
+  Timer? _daylightTimer;
+  bool? _lastDaytime;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _lastDaytime = ThemePrefs.instance.isDaytimeNow;
+    _daylightTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!ThemePrefs.instance.daylightAuto) return;
+      final now = ThemePrefs.instance.isDaytimeNow;
+      if (now != _lastDaytime) {
+        _lastDaytime = now;
+        if (mounted) setState(() {}); // temayi yeniden hesapla
+      }
+    });
     _checkLockOnStart();
     // Ilk frame cizildikten sonra (navigator hazir olunca) bekleyen alarmi
     // kontrol et. Uygulama alarm tarafindan soguk baslatildiysa AlarmFlow
@@ -224,6 +251,14 @@ class _SktTakipAppState extends State<SktTakipApp>
     if (state == AppLifecycleState.resumed) {
       // Uygulama one geldiginde bekleyen alarm varsa goster.
       AlarmFlow.instance.onUiReady();
+      // Gun isigi otomatik: arka planda esik gecildiyse temayi tazele.
+      if (ThemePrefs.instance.daylightAuto) {
+        final now = ThemePrefs.instance.isDaytimeNow;
+        if (now != _lastDaytime && mounted) {
+          _lastDaytime = now;
+          setState(() {});
+        }
+      }
       // NOT: tam ekran modu artik Dart'tan degil, MainActivity.kt'deki
       // onResume/onWindowFocusChanged tarafindan native olarak yonetiliyor.
 
@@ -265,6 +300,7 @@ class _SktTakipAppState extends State<SktTakipApp>
 
   @override
   void dispose() {
+    _daylightTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -278,7 +314,16 @@ class _SktTakipAppState extends State<SktTakipApp>
         // (Statik AppTheme renkleri ile gosterilen ThemeData ayni palette
         //  olmali; bu yuzden MaterialApp kurulmadan once dogru paleti set
         //  ediyoruz.)
-        final mode = ThemePrefs.instance.mode;
+        final tp = ThemePrefs.instance;
+        // Vurgu paleti + yogunluk her rebuild'de uygulanir (Ayarlar'dan
+        // degisince notifyListeners -> buraya duser -> yeni renk/yogunluk).
+        AppTheme.applyAccent(AppTheme.accentById(tp.accentId));
+        AppTheme.uiDensity =
+            tp.compact ? VisualDensity.compact : VisualDensity.standard;
+        // Gun isigi otomatik aciksa mod SAATE gore secilir.
+        final mode = tp.daylightAuto
+            ? (tp.isDaytimeNow ? ThemeMode.light : ThemeMode.dark)
+            : tp.mode;
         final platformLight = MediaQuery.maybeOf(context)?.platformBrightness ==
             Brightness.light;
         final useLight = switch (mode) {
@@ -294,7 +339,7 @@ class _SktTakipAppState extends State<SktTakipApp>
           navigatorKey: navigatorKey,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
-          themeMode: ThemePrefs.instance.mode,
+          themeMode: mode,
           builder: (context, child) {
             // MaterialApp icindeki gercek brightness'a gore paleti son kez
             // sabitle (system modunda dogru taraf secilsin).

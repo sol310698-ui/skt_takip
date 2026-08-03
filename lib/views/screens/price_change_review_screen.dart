@@ -269,7 +269,7 @@ class _PriceChangeReviewScreenState extends State<PriceChangeReviewScreen> {
             decoration: AppTheme.card(accentColor: AppTheme.accent),
             child: Row(
               children: [
-                const Icon(Icons.auto_awesome_rounded,
+                Icon(Icons.auto_awesome_rounded,
                     color: AppTheme.accent, size: 18),
                 const SizedBox(width: 10),
                 Expanded(

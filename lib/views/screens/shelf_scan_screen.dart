@@ -245,7 +245,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
             child: Stack(
               children: [
                 MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
-                const ScanOverlay(
+                ScanOverlay(
                   hint: 'Ürün barkodunu okutun → fotoğraf çekilecek',
                   accent: AppTheme.accent,
                 ),

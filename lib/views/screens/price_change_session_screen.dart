@@ -1646,13 +1646,13 @@ class _PriceChangeSessionScreenState
     return PopupMenuButton<String>(
       enabled: !_busy,
       tooltip: 'Liste ekle',
-      icon: const Icon(Icons.add_circle_rounded,
+      icon: Icon(Icons.add_circle_rounded,
           color: AppTheme.primary, size: 26),
       onSelected: (v) {
         if (v == 'a4') _captureA4();
         if (v == 'excel') _importExcel();
       },
-      itemBuilder: (_) => const [
+      itemBuilder: (_) => [
         PopupMenuItem(
           value: 'a4',
           child: Row(children: [
@@ -1765,7 +1765,7 @@ class _PriceChangeSessionScreenState
                       Row(
                         children: [
                           if (item.changed && item.photoPath != null) ...[
-                            const Icon(Icons.photo_camera_rounded,
+                            Icon(Icons.photo_camera_rounded,
                                 size: 13, color: AppTheme.accent),
                             const SizedBox(width: 4),
                           ],
@@ -1814,7 +1814,7 @@ class _PriceChangeSessionScreenState
                   child: InkWell(
                     customBorder: const CircleBorder(),
                     onTap: () => _showInShelf(item),
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.all(7),
                       child: Icon(Icons.travel_explore_rounded,
                           size: 18, color: AppTheme.primary),
@@ -2016,7 +2016,7 @@ class _EditItemSheetState extends State<_EditItemSheet>
                         color: AppTheme.primary.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.edit_rounded,
+                      child: Icon(Icons.edit_rounded,
                           color: AppTheme.primary, size: 20),
                     ),
                     const SizedBox(width: 12),

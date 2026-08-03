@@ -224,7 +224,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 22),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: AppTheme.bannerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),

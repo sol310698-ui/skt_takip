@@ -460,7 +460,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> with Ca
                       padding: const EdgeInsets.all(14),
                       child: Row(
                         children: [
-                          const Icon(Icons.inventory_2_rounded,
+                          Icon(Icons.inventory_2_rounded,
                               color: AppTheme.primary, size: 20),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1085,7 +1085,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> with Ca
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
+            children: [
               Icon(Icons.warehouse_rounded,
                   color: AppTheme.primary, size: 20),
               SizedBox(width: 8),
@@ -1117,7 +1117,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> with Ca
                             color: AppTheme.textSecondary),
                       ),
                     ),
-                    const Icon(Icons.play_circle_outline_rounded,
+                    Icon(Icons.play_circle_outline_rounded,
                         size: 18, color: AppTheme.primary),
                   ],
                 ),

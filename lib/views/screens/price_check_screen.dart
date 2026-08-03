@@ -825,7 +825,7 @@ class _PriceCheckScreenState extends State<PriceCheckScreen>
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          const Icon(Icons.grid_view_rounded,
+          Icon(Icons.grid_view_rounded,
               size: 18, color: AppTheme.accent),
           const SizedBox(width: 8),
           Expanded(

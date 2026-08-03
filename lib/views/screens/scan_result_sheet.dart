@@ -154,7 +154,7 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
                   color: AppTheme.primary.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.qr_code_2,
+                child: Icon(Icons.qr_code_2,
                     color: AppTheme.primary, size: 28),
               ),
               const SizedBox(width: 12),
@@ -183,7 +183,7 @@ class _ScanResultSheetState extends ConsumerState<ScanResultSheet> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.public_rounded,
+                            Icon(Icons.public_rounded,
                                 size: 12, color: AppTheme.accent),
                             const SizedBox(width: 4),
                             Text('İnternetten bulundu',

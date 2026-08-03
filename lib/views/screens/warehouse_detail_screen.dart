@@ -655,7 +655,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                               BorderRadius.circular(AppTheme.rPill),
                         ),
                         child: Text(valueLabel,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 color: AppTheme.accent)),
@@ -703,7 +703,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     ),
                     Row(
                       children: [
-                        const Icon(Icons.view_in_ar_rounded,
+                        Icon(Icons.view_in_ar_rounded,
                             color: AppTheme.accent),
                         const SizedBox(width: 8),
                         const Expanded(
@@ -1451,7 +1451,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     color: AppTheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.image_rounded,

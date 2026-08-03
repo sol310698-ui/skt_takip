@@ -95,7 +95,7 @@ class LoadingState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 34,
             height: 34,
             child: CircularProgressIndicator(
@@ -566,7 +566,7 @@ class CachedImage extends StatelessWidget {
           ? placeholder!()
           : Container(
               color: AppTheme.surfaceAlt,
-              child: const Center(
+              child: Center(
                 child: SizedBox(
                   width: 22,
                   height: 22,

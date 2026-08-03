@@ -406,7 +406,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
               fit: BoxFit.contain,
               placeholder: () => _imageCache.containsKey(item.barcode)
                   ? _noImage()
-                  : const Center(
+                  : Center(
                       child: CircularProgressIndicator(
                           color: AppTheme.primary, strokeWidth: 2),
                     ),
@@ -456,7 +456,7 @@ class _PriceReviewGuideScreenState extends State<PriceReviewGuideScreen> {
                   AppTheme.textSecondary,
                   strike: true,
                 ),
-                const Icon(Icons.arrow_forward_rounded,
+                Icon(Icons.arrow_forward_rounded,
                     size: 32, color: AppTheme.primary),
                 _priceBlock(
                   'YENİ ETİKET',

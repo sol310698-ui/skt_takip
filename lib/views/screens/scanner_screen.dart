@@ -246,7 +246,7 @@ class _ScannerScreenState extends State<ScannerScreen>
               child: _CameraPreviewFitted(controller: c),
             )
           else
-            const Center(
+            Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -691,7 +691,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
                     color: AppTheme.accent.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.auto_awesome_rounded,
+                  child: Icon(Icons.auto_awesome_rounded,
                       color: AppTheme.accent, size: 26),
                 ),
                 const SizedBox(width: 12),
@@ -759,7 +759,7 @@ class _AiScanSheetState extends State<_AiScanSheet> {
               const SizedBox(height: 8),
               Text(
                   '${(_countdownMs / 1000).toStringAsFixed(1)} sn içinde otomatik kaydedilecek',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: AppTheme.accent,
                       fontSize: 13,
                       fontWeight: FontWeight.w600)),

@@ -239,7 +239,7 @@ class ShelfResultSheet extends StatelessWidget {
             color: AppTheme.primary.withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Text(
+          child: Text(
             'Bu bir ürün barkodu gibi görünüyor. Yeni bir ürünü kontrol '
             'etmeye geçmek istiyor musunuz?',
             style: TextStyle(color: AppTheme.primary, fontSize: 13),

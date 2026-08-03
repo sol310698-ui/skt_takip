@@ -297,7 +297,7 @@ class _ShelfLayoutListScreenState extends State<ShelfLayoutListScreen> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.add_rounded,
+              child: Icon(Icons.add_rounded,
                   color: AppTheme.primary, size: 22),
             ),
           ),

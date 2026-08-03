@@ -279,7 +279,7 @@ class _ShelfBulkMoveScreenState extends State<ShelfBulkMoveScreen> {
             width: 22,
             height: 22,
             alignment: Alignment.center,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
                 color: AppTheme.primary, shape: BoxShape.circle),
             child: Text(no,
                 style: const TextStyle(

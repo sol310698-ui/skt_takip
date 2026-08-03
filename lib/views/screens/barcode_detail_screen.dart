@@ -557,7 +557,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       );
 
   Widget _heroBg() => Container(
-        decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
+        decoration: BoxDecoration(gradient: AppTheme.bannerGradient),
         child: const Center(
           child: Icon(Icons.inventory_2_rounded,
               color: Colors.white, size: 56),
@@ -724,7 +724,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.add_circle_rounded,
+                    Icon(Icons.add_circle_rounded,
                         size: 18, color: AppTheme.primary),
                     const SizedBox(width: 5),
                     Text('SKT ekle',
@@ -958,7 +958,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                     decoration: BoxDecoration(
                         color: AppTheme.primary.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.qr_code_2_rounded,
+                    child: Icon(Icons.qr_code_2_rounded,
                         color: AppTheme.primary, size: 20),
                   ),
                   const SizedBox(width: 12),
@@ -1025,7 +1025,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.event_note_rounded,
+              Icon(Icons.event_note_rounded,
                   color: AppTheme.primary, size: 20),
               const SizedBox(width: 8),
               Text('SKT Partileri (${sorted.length})',
@@ -1109,7 +1109,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
+            children: [
               Icon(Icons.bolt_rounded, color: AppTheme.primary, size: 20),
               SizedBox(width: 8),
               Text('Hızlı İşlemler',
@@ -1186,7 +1186,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                 color: AppTheme.primary.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.shelves,
+              child: Icon(Icons.shelves,
                   color: AppTheme.primary, size: 22),
             ),
             const SizedBox(width: 12),
@@ -1213,7 +1213,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
               ),
             ),
             Column(
-              children: const [
+              children: [
                 Icon(Icons.play_circle_fill_rounded,
                     color: AppTheme.primary, size: 28),
                 SizedBox(height: 2),
@@ -1246,7 +1246,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                 color: AppTheme.accent.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.warehouse_rounded,
+              child: Icon(Icons.warehouse_rounded,
                   color: AppTheme.accent, size: 22),
             ),
             const SizedBox(width: 12),
@@ -1273,7 +1273,7 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
               ),
             ),
             Column(
-              children: const [
+              children: [
                 Icon(Icons.play_circle_fill_rounded,
                     color: AppTheme.accent, size: 28),
                 SizedBox(height: 2),
