@@ -16,6 +16,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../core/services/label_history_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../data/models/label_history_entry.dart';
 import '../../data/models/label_item.dart';
 import '../../viewmodels/providers.dart';
@@ -100,6 +101,56 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     // Baska ekranlardan (orn. Fiyat Degisim) "Etikete Gonder" ile
     // gelmis bekleyen urunleri kuyruktan al, ilgili sekmelere ekle.
     await _drainPendingQueue();
+    // Kayitli satirlarin adlarini veritabaniyla tazele: onceden "Bilinmeyen
+    // ürün" eklenip sonradan dizine adi girilenler guncel adiyla gorunsun.
+    await _refreshNamesFromDirectory();
+  }
+
+  /// Her acilista TUM gruplardaki satirlarin urun adi/kisa kodunu barkod
+  /// dizininden (veritabani) yeniden cozer. Dizinde adi bulunan satirlar
+  /// guncellenir; dizinde OLMAYAN barkodlarin mevcut adi KORUNUR (elle/baska
+  /// kaynaktan gelmis ad "Bilinmeyen ürün" ile ezilmez).
+  Future<void> _refreshNamesFromDirectory() async {
+    // Tum gruplardaki benzersiz barkodlar.
+    final barcodes = <String>{
+      for (final list in _lists.values)
+        for (final it in list) it.barcode,
+    };
+    if (barcodes.isEmpty) return;
+    final repo = ref.read(barcodeDirectoryRepositoryProvider);
+    final resolved = <String, BarcodeEntry?>{};
+    for (final b in barcodes) {
+      try {
+        resolved[b] = await repo.findEntryByBarcode(b);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final changedGroups = <LabelGroup>{};
+    setState(() {
+      for (final group in LabelGroup.values) {
+        final list = _lists[group]!;
+        for (int i = 0; i < list.length; i++) {
+          final it = list[i];
+          final entry = resolved[it.barcode];
+          final newName = entry?.productName.trim();
+          if (newName == null || newName.isEmpty) continue; // dizinde yok → koru
+          final newStock = entry?.stockCode;
+          final nameChanged = newName != it.productName;
+          final stockChanged = newStock != null && newStock != it.stockCode;
+          if (nameChanged || stockChanged) {
+            list[i] = it.copyWith(
+              productName: newName,
+              stockCode: newStock ?? it.stockCode,
+            );
+            changedGroups.add(group);
+          }
+        }
+      }
+    });
+    // Degisen gruplari kalici depoya yaz (bir dahaki acilista da guncel gelsin).
+    for (final g in changedGroups) {
+      await LabelActiveListsService.instance.saveGroup(g.name, _lists[g]!);
+    }
   }
 
   /// Aktif grubun listesini kalici depoya yazar. Liste degisen HER
