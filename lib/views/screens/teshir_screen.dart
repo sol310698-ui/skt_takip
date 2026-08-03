@@ -379,12 +379,26 @@ class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
                         'GRUPLAMA yapar; etiket gönderimi Fiyat Değişim '
                         'akışında, ürün eşleştiğinde sorulur.',
                   )
-                : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(16, 8, 16,
-                        MediaQuery.of(context).padding.bottom + 16),
-                    itemCount: _items.length,
-                    itemBuilder: (_, i) => _card(_items[i]),
-                  ),
+                : Builder(builder: (_) {
+                    final meta = _buildGroupMeta();
+                    return ListView.builder(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16,
+                          MediaQuery.of(context).padding.bottom + 16),
+                      itemCount: _items.length,
+                      itemBuilder: (_, i) {
+                        final m = meta[i];
+                        final card = _card(_items[i], m);
+                        // A4 grubunun ILK ogesinin ustunde grup basligi.
+                        if (m.color != null && m.isFirst) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [_groupHeader(m.color!, m.total), card],
+                          );
+                        }
+                        return card;
+                      },
+                    );
+                  }),
           ),
         ],
       ),
@@ -508,99 +522,242 @@ class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
     );
   }
 
-  Widget _card(Map<String, Object?> it) {
-    final barcode = it['barcode'] as String;
-    final name = (it['product_name'] as String?) ?? barcode;
-    final note = it['note'] as String?;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: AppTheme.card(accentColor: AppTheme.coral),
+  // ── A4 GRUPLARI: her gruba belirgin renk ───────────────────────────
+  static const List<Color> _groupPalette = [
+    Color(0xFF60A5FA), // mavi
+    Color(0xFFA78BFA), // mor
+    Color(0xFF34D399), // yesil
+    Color(0xFFFBBF24), // amber
+    Color(0xFFF472B6), // pembe
+    Color(0xFF22D3EE), // camgobegi
+    Color(0xFFFB923C), // turuncu
+    Color(0xFF818CF8), // indigo
+  ];
+
+  /// Her oge icin A4 grup meta bilgisi (renk, ilk/son, konum/toplam).
+  /// Ayni group_id'ye sahip (2+) urunler bir A4 grubudur; her gruba ayri
+  /// renk atanir. Grupsuz (tekil) urunler notrdur.
+  List<_TGroupMeta> _buildGroupMeta() {
+    final counts = <String, int>{};
+    for (final it in _items) {
+      final g = it['group_id'] as String?;
+      if (g != null && g.isNotEmpty) counts[g] = (counts[g] ?? 0) + 1;
+    }
+    final colorOf = <String, Color>{};
+    var ci = 0;
+    for (final it in _items) {
+      final g = it['group_id'] as String?;
+      if (g != null && (counts[g] ?? 0) > 1 && !colorOf.containsKey(g)) {
+        colorOf[g] = _groupPalette[ci % _groupPalette.length];
+        ci++;
+      }
+    }
+    final meta = <_TGroupMeta>[];
+    for (var i = 0; i < _items.length; i++) {
+      final g = _items[i]['group_id'] as String?;
+      final grouped = g != null && (counts[g] ?? 0) > 1;
+      if (!grouped) {
+        meta.add(const _TGroupMeta());
+        continue;
+      }
+      final prevG = i > 0 ? _items[i - 1]['group_id'] as String? : null;
+      final nextG =
+          i < _items.length - 1 ? _items[i + 1]['group_id'] as String? : null;
+      var pos = 1;
+      for (var j = i - 1; j >= 0 && _items[j]['group_id'] == g; j--) {
+        pos++;
+      }
+      meta.add(_TGroupMeta(
+        color: colorOf[g],
+        isFirst: prevG != g,
+        isLast: nextG != g,
+        pos: pos,
+        total: counts[g]!,
+      ));
+    }
+    return meta;
+  }
+
+  /// A4 grup basligi — grubun ILK ogesinin ustunde renkli rozet.
+  Widget _groupHeader(Color color, int total) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 5, left: 2),
       child: Row(
         children: [
-          // Foto (varsa) — dokununca urun sayfasi.
-          GestureDetector(
-            onTap: () => _openHub(barcode, name),
-            child: FutureBuilder<String?>(
-              future: _photo(barcode),
-              builder: (_, snap) {
-                final p = snap.data;
-                return Container(
-                  width: 46,
-                  height: 46,
-                  clipBehavior: Clip.antiAlias,
-                  decoration: BoxDecoration(
-                    color: AppTheme.coral.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: p != null
-                      ? Image.file(File(p), fit: BoxFit.cover)
-                      : const Icon(Icons.storefront_rounded,
-                          size: 22, color: AppTheme.coral),
-                );
-              },
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.16),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: color.withOpacity(0.5)),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _openHub(barcode, name),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w800)),
-                  Text(barcode,
-                      style: TextStyle(
-                          fontSize: 10.5,
-                          fontFamily: 'monospace',
-                          color: AppTheme.textTertiary)),
-                  if (note != null && note.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.place_rounded,
-                              size: 12, color: AppTheme.coral),
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(note,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.coral)),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.description_rounded, size: 13, color: color),
+                const SizedBox(width: 5),
+                Text('A4 Grubu · $total ürün',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                        color: color)),
+              ],
             ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            tooltip: 'Teşhir yeri notu',
-            onPressed: () => _editNote(it),
-            icon: Icon(Icons.edit_location_alt_outlined,
-                size: 18, color: AppTheme.textTertiary),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            tooltip: 'Teşhirden çıkar',
-            onPressed: () async {
-              await TeshirService.instance.remove(it['id'] as int);
-              _load();
-            },
-            icon: Icon(Icons.close_rounded,
-                size: 18, color: AppTheme.textTertiary),
           ),
         ],
       ),
     );
   }
+
+  Widget _card(Map<String, Object?> it, _TGroupMeta m) {
+    final barcode = it['barcode'] as String;
+    final name = (it['product_name'] as String?) ?? barcode;
+    final note = it['note'] as String?;
+    final grouped = m.color != null;
+    final accent = m.color ?? AppTheme.coral;
+    return Container(
+      // Grup uyeleri birbirine yakin (belirgin blok), grup sonu/tekil daha genis.
+      margin: EdgeInsets.only(bottom: grouped && !m.isLast ? 3 : 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: AppTheme.card(accentColor: accent),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // A4 grubu SOL RENKLI SERIT — hangi kartlarin ayni A4'te oldugu
+            // bir bakista bellidir.
+            if (grouped) Container(width: 6, color: accent),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _openHub(barcode, name),
+                      child: FutureBuilder<String?>(
+                        future: _photo(barcode),
+                        builder: (_, snap) {
+                          final p = snap.data;
+                          return Container(
+                            width: 46,
+                            height: 46,
+                            clipBehavior: Clip.antiAlias,
+                            decoration: BoxDecoration(
+                              color: accent.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: p != null
+                                ? Image.file(File(p), fit: BoxFit.cover)
+                                : Icon(Icons.storefront_rounded,
+                                    size: 22, color: accent),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _openHub(barcode, name),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                if (grouped) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: accent.withOpacity(0.18),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text('A4 ${m.pos}/${m.total}',
+                                        style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w900,
+                                            color: accent)),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                Expanded(
+                                  child: Text(name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800)),
+                                ),
+                              ],
+                            ),
+                            Text(barcode,
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontFamily: 'monospace',
+                                    color: AppTheme.textTertiary)),
+                            if (note != null && note.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.place_rounded,
+                                        size: 12, color: accent),
+                                    const SizedBox(width: 3),
+                                    Flexible(
+                                      child: Text(note,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: accent)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Teşhir yeri notu',
+                      onPressed: () => _editNote(it),
+                      icon: Icon(Icons.edit_location_alt_outlined,
+                          size: 18, color: AppTheme.textTertiary),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Teşhirden çıkar',
+                      onPressed: () async {
+                        await TeshirService.instance.remove(it['id'] as int);
+                        _load();
+                      },
+                      icon: Icon(Icons.close_rounded,
+                          size: 18, color: AppTheme.textTertiary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Teshir listesinde bir ogenin A4 grup bilgisi (renk + konum).
+class _TGroupMeta {
+  final Color? color;
+  final bool isFirst;
+  final bool isLast;
+  final int pos;
+  final int total;
+  const _TGroupMeta({
+    this.color,
+    this.isFirst = false,
+    this.isLast = false,
+    this.pos = 0,
+    this.total = 0,
+  });
 }
