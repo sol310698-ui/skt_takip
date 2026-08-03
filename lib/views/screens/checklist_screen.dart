@@ -22,7 +22,9 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   bool _loading = true;
 
   // Yeni liste icin secilebilir renkler.
-  static const _palette = [
+  // NOT: AppTheme.primary/accent artik degistirilebilir (const degil), bu
+  // yuzden liste `final` (const olamaz).
+  static final _palette = <Color>[
     AppTheme.primary,
     AppTheme.accent,
     AppTheme.amber,
