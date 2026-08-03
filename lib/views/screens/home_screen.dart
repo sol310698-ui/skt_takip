@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
@@ -107,7 +108,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// yanip soner.
   bool _listEntryAnimDone = false;
 
-  static const double _heroContentHeight = 152;
+  // Selam satiri eklendigi icin hero biraz yukseldi (aksi halde selam, ust
+  // satirdaki "SKT Takip" basligiyla cakisiyordu).
+  static const double _heroContentHeight = 182;
 
   @override
   void initState() {
@@ -1382,6 +1385,8 @@ class _BarcodeSearchPageState extends State<_BarcodeSearchPage> with CameraLifec
         capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
     if (value == null || value.isEmpty) return;
     _handled = true;
+    HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     Navigator.of(context).pop(value);
   }
 

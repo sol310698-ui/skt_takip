@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import '../../core/services/scan_engine.dart';
@@ -103,6 +104,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleM
       _lastMsg = null;
     });
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
 
     // Urun adi: once yerel dizin, sonra internet.
     String? name = await _barcodeDs.findProductName(code);

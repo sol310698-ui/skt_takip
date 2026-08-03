@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
@@ -116,6 +117,7 @@ class _TeshirScreenState extends State<TeshirScreen> with CameraLifecycleMixin {
       groupSize: inGroup ? _groupSize : null,
     );
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     if (inGroup) {
       setState(() => _groupFilled++);
       if (_groupFilled >= _groupSize) {

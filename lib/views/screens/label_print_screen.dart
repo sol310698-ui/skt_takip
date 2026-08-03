@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
@@ -1551,6 +1552,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> with Camer
     _lastScanTime = now;
 
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     final newQty = await widget.onScan(value);
     if (!mounted) return;
 

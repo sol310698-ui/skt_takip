@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:pdf/pdf.dart';
@@ -936,6 +938,8 @@ class _MatchScannerScreenState extends State<_MatchScannerScreen> with CameraLif
       final raw = b.rawValue?.trim();
       if (raw != null && raw.isNotEmpty) {
         _handled = true;
+        HapticFeedback.mediumImpact();
+        FeedbackService.instance.play(ScanFeedback.product);
         Navigator.of(context).pop(raw);
         return;
       }

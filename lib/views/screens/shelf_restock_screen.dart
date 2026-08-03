@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 
@@ -119,6 +120,7 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> with CameraLife
     _awaitingId = null;
     if (!mounted) return;
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -82,6 +83,8 @@ class _UniversalScanScreenState extends State<UniversalScanScreen>
     if (value == null || value.isEmpty) return;
 
     _handled = true;
+    HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     await _controller.stop();
     _scanAnim.stop();
 

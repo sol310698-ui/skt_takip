@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import '../widgets/scan_error_retry.dart';
 import '../../core/camera_lifecycle_mixin.dart';
 import '../../core/services/scan_engine.dart';
@@ -98,6 +99,7 @@ class _CountScreenState extends ConsumerState<CountScreen> with CameraLifecycleM
 
   Future<void> _handleBarcode(String code) async {
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     setState(() => _scanPaused = true);
 
     // Bu barkod daha once sayildi mi?
