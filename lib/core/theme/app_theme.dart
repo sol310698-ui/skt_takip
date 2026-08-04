@@ -294,6 +294,10 @@ class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       visualDensity: uiDensity,
+      // Premium tipografi (luks/minimal): Manrope. Eksik glif olursa NotoSans'a
+      // duser. Tum uygulama tek yerden bu fonta gecer.
+      fontFamily: 'Manrope',
+      fontFamilyFallback: const ['NotoSans'],
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         brightness: brightness,
