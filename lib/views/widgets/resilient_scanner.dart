@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/theme/app_theme.dart';
+
 /// ════════════════════════════════════════════════════════════════════
 ///  DAYANIKLI TARAYICI (ResilientScanner)
 /// ────────────────────────────────────────────────────────────────────
@@ -42,8 +44,10 @@ class ResilientScanner extends StatefulWidget {
   /// Kamera onizleme sigdirma bicimi.
   final BoxFit fit;
 
-  /// Hata/hazirlik ekraninin vurgu rengi.
-  final Color accent;
+  /// Hata/hazirlik ekraninin vurgu rengi (verilmezse aktif tema rengi).
+  /// null birakilir; build sirasinda AppTheme.primary'e cozulur (const
+  /// constructor korunur ama renk temaya bagli kalir).
+  final Color? accent;
 
   const ResilientScanner({
     super.key,
@@ -51,7 +55,7 @@ class ResilientScanner extends StatefulWidget {
     required this.onDetect,
     this.onReady,
     this.fit = BoxFit.cover,
-    this.accent = const Color(0xFF1E9E52),
+    this.accent,
   });
 
   @override
@@ -148,7 +152,7 @@ class _ResilientScannerState extends State<ResilientScanner>
   Widget build(BuildContext context) {
     final c = _controller;
     if (c == null) {
-      return _Preparing(accent: widget.accent);
+      return _Preparing(accent: widget.accent ?? AppTheme.primary);
     }
     return MobileScanner(
       controller: c,
@@ -159,7 +163,7 @@ class _ResilientScannerState extends State<ResilientScanner>
         // setState yapmadan; Timer bir sonraki frame'de calisir).
         _scheduleErrorRecreate();
         return _Preparing(
-          accent: widget.accent,
+          accent: widget.accent ?? AppTheme.primary,
           onRetry: _errAttempt >= _maxAutoAttempts ? _manualRetry : null,
         );
       },

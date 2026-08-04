@@ -213,9 +213,11 @@ class AppTheme {
   }
 
   // ─── Golge tokenleri — Soft Glass: daha yumusak, daha dagilmis ─────
+  // Golgeler de temaya bagli: acik temada vurgu renginin koyu tonuyla
+  // renklenir (accent degisince golge tonu da degisir), koyu temada siyah.
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF0E7A3D) : Colors.black)
+          color: (isLight ? primaryDark : Colors.black)
               .withOpacity(isLight ? 0.10 : 0.24),
           blurRadius: 16,
           offset: const Offset(0, 4),
@@ -224,7 +226,7 @@ class AppTheme {
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF0E7A3D) : Colors.black)
+          color: (isLight ? primaryDark : Colors.black)
               .withOpacity(isLight ? 0.14 : 0.32),
           blurRadius: 28,
           offset: const Offset(0, 10),

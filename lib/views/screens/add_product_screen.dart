@@ -726,16 +726,14 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Color get _doaInk2 => AppTheme.textSecondary;
   Color get _doaInk3 => AppTheme.textTertiary;
   Color get _doaHair => AppTheme.hairline;
-  static const Color _doaGreen = Color(0xFF23A055);   // ana yesil (iki temada)
-  static const Color _doaGreenDark = Color(0xFF17843F);
-  static const LinearGradient _doaHeroGrad = LinearGradient(
-    colors: [Color(0xFF2BAA63), Color(0xFF178A46)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  // Vurgu rengi ARTIK temaya bagli: Ayarlar'dan secilen palete gore degisir
+  // (eskiden sabit yesildi -> vurgu Mavi/Mor secilince bu ekran yesil kaliyordu).
+  Color get _doaGreen => AppTheme.primary;
+  Color get _doaGreenDark => AppTheme.primaryDark;
+  LinearGradient get _doaHeroGrad => AppTheme.bannerGradient;
   static List<BoxShadow> get _doaShadow => [
         BoxShadow(
-          color: const Color(0xFF0B4F27).withOpacity(0.08),
+          color: AppTheme.primaryDark.withOpacity(0.10),
           blurRadius: 18,
           offset: const Offset(0, 8),
         ),
@@ -843,7 +841,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () => Navigator.of(context).maybePop(),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.all(9),
                 child: Icon(Icons.arrow_back_rounded,
                     color: _doaGreenDark, size: 22),
@@ -1026,7 +1024,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   /// Gorsel yuklenemezse hero'da yesil gradyan zemin.
   Widget _heroGreenFallback() =>
-      const DecoratedBox(decoration: BoxDecoration(gradient: _doaHeroGrad));
+      DecoratedBox(decoration: BoxDecoration(gradient: _doaHeroGrad));
 
   void _openHeroFullscreen() {
     if (_localImagePath != null) {
@@ -1107,7 +1105,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           height: 1.2),
                       decoration: _bareDeco('Ürün adını yazın').copyWith(
                         suffixIcon: _nameOcrRunning
-                            ? const Padding(
+                            ? Padding(
                                 padding: EdgeInsets.all(6),
                                 child: SizedBox(
                                   width: 16,
@@ -1144,7 +1142,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               child: Row(
                 children: [
                   if (_looking) ...[
-                    const SizedBox(
+                    SizedBox(
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(
@@ -1188,7 +1186,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           color: _doaGreen.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(999),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.document_scanner_rounded,
@@ -1224,7 +1222,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                     color: _doaGreen.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(13),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: SizedBox(
                       width: 18,
                       height: 18,
@@ -1479,7 +1477,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         color: _doaCard,
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B4F27).withOpacity(0.10),
+            color: AppTheme.primaryDark.withOpacity(0.10),
             blurRadius: 18,
             offset: const Offset(0, -4),
           ),
@@ -1509,7 +1507,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                         border: Border.all(
                             color: _doaGreen.withOpacity(0.5), width: 1.4),
                       ),
-                      child: const Text('İptal',
+                      child: Text('İptal',
                           style: TextStyle(
                               color: _doaGreenDark,
                               fontSize: 15,

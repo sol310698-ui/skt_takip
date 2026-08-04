@@ -203,7 +203,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${_preview.length} kayıt içe aktarıldı'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppTheme.statusSafe,
           ),
         );
         setState(() {
