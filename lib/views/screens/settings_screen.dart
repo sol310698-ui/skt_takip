@@ -10,6 +10,7 @@ import '../../core/services/export_service.dart';
 import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/app_navigator.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_prefs.dart';
 import '../../viewmodels/providers.dart';
@@ -308,8 +309,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return '$base · $accent${tp.compact ? ' · Kompakt' : ''}';
   }
 
-  void _openThemeMenu() {
-    showModalBottomSheet(
+  void _openThemeMenu() async {
+    // Tema/vurgu/yogunluk degistiyse, kapaninca uygulamayi tazele ki yigindaki
+    // TUM ekranlar yeni temayi alsin (AppTheme renkleri statik oldugu icin
+    // gorunmeyen ekranlar aksi halde eski renkte kalabiliyor).
+    bool changed = false;
+    await showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
       isScrollControlled: true,
@@ -321,6 +326,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           builder: (ctx, setSheet) {
             final tp = ThemePrefs.instance;
             void refresh() {
+              changed = true;
               setSheet(() {});
               if (mounted) setState(() {});
             }
@@ -524,6 +530,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         );
       },
     );
+    // Sheet kapandi: tema degistiyse uygulamayi tazele (tum ekranlar guncellensin).
+    if (changed && mounted) {
+      RestartWidget.restart(context);
+    }
   }
 
   // ── Araçlar sekmesi ────────────────────────────────────────────────

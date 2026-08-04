@@ -141,7 +141,8 @@ Future<void> main() async {
   await LocationRevealPrefs.instance.load();
   await AiModelPrefs.instance.load();
 
-  runApp(const ProviderScope(child: SktTakipApp()));
+  runApp(const ProviderScope(
+      child: RestartWidget(child: SktTakipApp())));
 
   // Bildirim servisini arka planda baslat.
   NotificationService.instance.init();
@@ -232,13 +233,16 @@ class _SktTakipAppState extends State<SktTakipApp>
     final enabled = await AppLockService.instance.isLockEnabled();
     if (!mounted) return;
     setState(() {
-      _locked = enabled; // kilit kapaliysa direkt acik say
+      // Kilit kapaliysa VEYA bu oturumda zaten acildiysa (tema restart'i)
+      // dogrudan acik say; yalnizca gercek soguk baslatmada kilitle.
+      _locked = enabled && !gSessionUnlocked;
       _lockCheckDone = true;
     });
   }
 
   void _onUnlocked({bool goToShift = false}) {
     if (mounted) {
+      gSessionUnlocked = true; // tema restart'inda tekrar kilit sorma
       setState(() {
         _initialNavIndex = goToShift ? 3 : 0;
         _locked = false;
