@@ -4,10 +4,14 @@ import 'dart:io';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -911,7 +915,11 @@ class _MatchScannerScreen extends StatefulWidget {
   State<_MatchScannerScreen> createState() => _MatchScannerScreenState();
 }
 
-class _MatchScannerScreenState extends State<_MatchScannerScreen> {
+class _MatchScannerScreenState extends State<_MatchScannerScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
@@ -930,6 +938,8 @@ class _MatchScannerScreenState extends State<_MatchScannerScreen> {
       final raw = b.rawValue?.trim();
       if (raw != null && raw.isNotEmpty) {
         _handled = true;
+        HapticFeedback.mediumImpact();
+        FeedbackService.instance.play(ScanFeedback.product);
         Navigator.of(context).pop(raw);
         return;
       }
@@ -958,7 +968,7 @@ class _MatchScannerScreenState extends State<_MatchScannerScreen> {
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
           // Hedef cercevesi.
           Container(
             width: 260,

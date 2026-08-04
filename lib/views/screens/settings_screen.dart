@@ -10,6 +10,7 @@ import '../../core/services/export_service.dart';
 import '../../core/services/label_inspect_button_prefs.dart';
 import '../../core/services/location_reveal_prefs.dart';
 import '../../core/services/notification_service.dart';
+import '../../core/app_navigator.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/theme_prefs.dart';
 import '../../viewmodels/providers.dart';
@@ -298,70 +299,241 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         ThemeMode.system => 'Sistem (otomatik)',
       };
 
-  void _openThemeMenu() {
-    showModalBottomSheet(
+  /// Tile alt yazisi: gun isigi otomatik aciksa onu, degilse mod adini goster.
+  String _themeSubtitle() {
+    final tp = ThemePrefs.instance;
+    final base = tp.daylightAuto
+        ? 'Gün ışığına göre (otomatik)'
+        : _themeModeLabel(tp.mode);
+    final accent = AppTheme.accentById(tp.accentId).label;
+    return '$base · $accent${tp.compact ? ' · Kompakt' : ''}';
+  }
+
+  void _openThemeMenu() async {
+    // Tema/vurgu/yogunluk degistiyse, kapaninca uygulamayi tazele ki yigindaki
+    // TUM ekranlar yeni temayi alsin (AppTheme renkleri statik oldugu icin
+    // gorunmeyen ekranlar aksi halde eski renkte kalabiliyor).
+    bool changed = false;
+    await showModalBottomSheet(
       context: context,
       backgroundColor: AppTheme.surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        Widget option(ThemeMode mode, IconData icon, String label) {
-          final selected = ThemePrefs.instance.mode == mode;
-          return ListTile(
-            leading: Icon(icon,
-                color: selected ? AppTheme.primary : AppTheme.textSecondary),
-            title: Text(label,
-                style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight:
-                        selected ? FontWeight.w700 : FontWeight.w500)),
-            trailing: selected
-                ? Icon(Icons.check_rounded, color: AppTheme.primary)
-                : null,
-            onTap: () async {
-              await ThemePrefs.instance.setMode(mode);
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            final tp = ThemePrefs.instance;
+            void refresh() {
+              changed = true;
+              setSheet(() {});
               if (mounted) setState(() {});
-              if (ctx.mounted) Navigator.of(ctx).pop();
-            },
-          );
-        }
+            }
 
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppTheme.textSecondary.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(2),
+            Widget modeOption(ThemeMode mode, IconData icon, String label) {
+              final selected = !tp.daylightAuto && tp.mode == mode;
+              return ListTile(
+                leading: Icon(icon,
+                    color:
+                        selected ? AppTheme.primary : AppTheme.textSecondary),
+                title: Text(label,
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500)),
+                trailing: selected
+                    ? Icon(Icons.check_rounded, color: AppTheme.primary)
+                    : null,
+                onTap: () async {
+                  if (tp.daylightAuto) await tp.setDaylightAuto(false);
+                  await tp.setMode(mode);
+                  refresh();
+                },
+              );
+            }
+
+            Widget daylightOption() {
+              final selected = tp.daylightAuto;
+              return ListTile(
+                leading: Icon(Icons.wb_twilight_rounded,
+                    color:
+                        selected ? AppTheme.primary : AppTheme.textSecondary),
+                title: Text('Gün ışığına göre (otomatik)',
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500)),
+                subtitle: Text('Gündüz aydınlık, akşam koyu',
+                    style: TextStyle(
+                        fontSize: 12, color: AppTheme.textSecondary)),
+                trailing: selected
+                    ? Icon(Icons.check_rounded, color: AppTheme.primary)
+                    : null,
+                onTap: () async {
+                  await tp.setDaylightAuto(true);
+                  refresh();
+                },
+              );
+            }
+
+            Widget sectionLabel(String t) => Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(t,
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                );
+
+            Widget accentRow() {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    for (final p in AppTheme.accentPalettes)
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () async {
+                            await tp.setAccentId(p.id);
+                            refresh();
+                          },
+                          child: Column(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin: const EdgeInsets.all(6),
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: p.swatch,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: tp.accentId == p.id
+                                        ? AppTheme.textPrimary
+                                        : Colors.transparent,
+                                    width: 2.5,
+                                  ),
+                                  boxShadow: AppTheme.glow(p.swatch),
+                                ),
+                                child: tp.accentId == p.id
+                                    ? const Icon(Icons.check_rounded,
+                                        color: Colors.white, size: 20)
+                                    : null,
+                              ),
+                              Text(p.label,
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppTheme.textSecondary)),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            }
+
+            Widget densityRow() {
+              Widget chip(String label, IconData icon, bool compact) {
+                final selected = tp.compact == compact;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () async {
+                      await tp.setCompact(compact);
+                      refresh();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.all(6),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppTheme.primary.withOpacity(0.14)
+                            : AppTheme.surfaceAlt,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: selected
+                              ? AppTheme.primary
+                              : AppTheme.hairline,
+                          width: selected ? 1.6 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(icon,
+                              color: selected
+                                  ? AppTheme.primary
+                                  : AppTheme.textSecondary),
+                          const SizedBox(height: 4),
+                          Text(label,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: selected
+                                      ? FontWeight.w800
+                                      : FontWeight.w500,
+                                  color: selected
+                                      ? AppTheme.primary
+                                      : AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    chip('Ferah', Icons.density_medium_rounded, false),
+                    chip('Kompakt', Icons.density_small_rounded, true),
+                  ],
+                ),
+              );
+            }
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.textSecondary.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    sectionLabel('Tema'),
+                    daylightOption(),
+                    modeOption(ThemeMode.system,
+                        Icons.brightness_auto_rounded, 'Sistem (otomatik)'),
+                    modeOption(
+                        ThemeMode.light, Icons.light_mode_rounded, 'Aydınlık'),
+                    modeOption(
+                        ThemeMode.dark, Icons.dark_mode_rounded, 'Koyu'),
+                    sectionLabel('Vurgu Rengi'),
+                    accentRow(),
+                    sectionLabel('Liste Yoğunluğu'),
+                    densityRow(),
+                    const SizedBox(height: 20),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Tema',
-                      style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800)),
-                ),
-              ),
-              option(ThemeMode.system, Icons.brightness_auto_rounded,
-                  'Sistem (otomatik)'),
-              option(ThemeMode.light, Icons.light_mode_rounded, 'Aydınlık'),
-              option(ThemeMode.dark, Icons.dark_mode_rounded, 'Koyu'),
-              const SizedBox(height: 12),
-            ],
-          ),
+            );
+          },
         );
       },
     );
+    // Sheet kapandi: tema degistiyse uygulamayi tazele (tum ekranlar guncellensin).
+    if (changed && mounted) {
+      RestartWidget.restart(context);
+    }
   }
 
   // ── Araçlar sekmesi ────────────────────────────────────────────────
@@ -374,8 +546,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         _tile(
           icon: Icons.brightness_6_rounded,
           color: AppTheme.primary,
-          title: 'Tema',
-          subtitle: _themeModeLabel(ThemePrefs.instance.mode),
+          title: 'Tema & Görünüm',
+          subtitle: _themeSubtitle(),
           onTap: _openThemeMenu,
         ),
         AnimatedBuilder(
@@ -753,7 +925,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text('${g.items.length}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
                             color: AppTheme.primary)),
@@ -785,7 +957,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       padding: const EdgeInsets.fromLTRB(14, 8, 8, 0),
       child: Row(
         children: [
-          const Icon(Icons.notifications_active_rounded,
+          Icon(Icons.notifications_active_rounded,
               color: AppTheme.primaryLight, size: 18),
           const SizedBox(width: 10),
           Expanded(
@@ -1107,7 +1279,7 @@ class _SecuritySectionState extends State<_SecuritySection> {
                   color: AppTheme.primary.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.password_rounded,
+                child: Icon(Icons.password_rounded,
                     color: AppTheme.primary, size: 22),
               ),
               title: const Text('PIN Değiştir',
@@ -1393,7 +1565,7 @@ class _DbSourceSectionState extends State<_DbSourceSection> {
             value: _off,
             onChanged: _setOff,
             activeColor: AppTheme.primary,
-            secondary: const Icon(Icons.restaurant_rounded,
+            secondary: Icon(Icons.restaurant_rounded,
                 color: AppTheme.primary),
             title: const Text('Open Food Facts',
                 style: TextStyle(fontWeight: FontWeight.w700)),
@@ -1409,7 +1581,7 @@ class _DbSourceSectionState extends State<_DbSourceSection> {
             value: _obf,
             onChanged: _setObf,
             activeColor: AppTheme.accent,
-            secondary: const Icon(Icons.spa_rounded, color: AppTheme.accent),
+            secondary: Icon(Icons.spa_rounded, color: AppTheme.accent),
             title: const Text('Open Beauty Facts',
                 style: TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text('Kozmetik / kişisel bakım ürünleri',

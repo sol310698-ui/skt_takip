@@ -274,7 +274,7 @@ class ProductCard extends StatelessWidget {
           ]),
         ),
         if (product.barcode != null)
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'search',
             child: Row(children: [
               Icon(Icons.search_rounded, size: 18, color: AppTheme.accent),

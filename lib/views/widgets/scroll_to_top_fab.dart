@@ -96,7 +96,7 @@ class _ScrollToTopFabState extends State<ScrollToTopFab> {
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: _scrollToTop,
-        child: const Padding(
+        child: Padding(
           padding: EdgeInsets.all(12),
           child: Icon(Icons.keyboard_arrow_up_rounded,
               color: AppTheme.primaryLight, size: 26),

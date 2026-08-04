@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
+import '../../core/services/scan_engine.dart';
+import '../widgets/scan_mode_toggle.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
@@ -42,11 +47,18 @@ class ShelfScanScreen extends StatefulWidget {
   State<ShelfScanScreen> createState() => _ShelfScanScreenState();
 }
 
-class _ShelfScanScreenState extends State<ShelfScanScreen> {
+class _ShelfScanScreenState extends State<ShelfScanScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
+    formats: ScanEngine.broadFormats,
   );
+  // Tarama modu: true = EAN-13 kesin (kontrol basamagi), false = hepsi.
+  bool _strictScan = true;
   final BarcodeDirectoryDataSource _barcodeDs =
       BarcodeDirectoryDataSource(DatabaseService.instance);
 
@@ -80,13 +92,10 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_busy) return;
-    for (final b in capture.barcodes) {
-      final raw = b.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      final code = ScanParser.parse(raw).barcode ?? raw;
-      _handle(code);
-      return;
-    }
+    final accepted = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (accepted == null) return;
+    final code = ScanParser.parse(accepted).barcode ?? accepted;
+    _handle(code);
   }
 
   Future<void> _handle(String code) async {
@@ -95,6 +104,7 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
       _lastMsg = null;
     });
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
 
     // Urun adi: once yerel dizin, sonra internet.
     String? name = await _barcodeDs.findProductName(code);
@@ -236,10 +246,21 @@ class _ShelfScanScreenState extends State<ShelfScanScreen> {
             flex: 3,
             child: Stack(
               children: [
-                MobileScanner(controller: _controller, onDetect: _onDetect),
-                const ScanOverlay(
+                MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
+                ScanOverlay(
                   hint: 'Ürün barkodunu okutun → fotoğraf çekilecek',
                   accent: AppTheme.accent,
+                ),
+                Positioned(
+                  top: 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: ScanModeToggle(
+                      value: _strictScan,
+                      onChanged: (v) => setState(() => _strictScan = v),
+                    ),
+                  ),
                 ),
                 if (_busy)
                   Container(

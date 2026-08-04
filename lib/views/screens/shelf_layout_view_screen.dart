@@ -1015,7 +1015,7 @@ class _ProductSheetState extends State<_ProductSheet> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.warehouse_rounded,
+                          Icon(Icons.warehouse_rounded,
                               size: 16, color: AppTheme.accent),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1023,13 +1023,13 @@ class _ProductSheetState extends State<_ProductSheet> {
                               'Depoda ${ctx.whQty} adet · '
                               '${ctx.firstPallet ?? ''}'
                               '${ctx.palletCount > 1 ? ' +${ctx.palletCount - 1} palet' : ''}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.w800,
                                   color: AppTheme.accent),
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded,
+                          Icon(Icons.chevron_right_rounded,
                               size: 18, color: AppTheme.accent),
                         ],
                       ),

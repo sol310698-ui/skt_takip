@@ -512,7 +512,7 @@ class _MainShellState extends State<MainShell> {
         height: 64,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             colors: [AppTheme.accent, AppTheme.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,

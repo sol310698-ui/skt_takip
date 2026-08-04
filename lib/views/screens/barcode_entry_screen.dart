@@ -204,7 +204,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
               child: Row(
                 children: [
                   if (_looking)
-                    const SizedBox(
+                    SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
@@ -246,7 +246,7 @@ class _BarcodeEntryScreenState extends ConsumerState<BarcodeEntryScreen> {
             decoration: InputDecoration(
               hintText: 'Barkod numarası',
               prefixIcon: _looking
-                  ? const Padding(
+                  ? Padding(
                       padding: EdgeInsets.all(12),
                       child: SizedBox(
                         width: 20,

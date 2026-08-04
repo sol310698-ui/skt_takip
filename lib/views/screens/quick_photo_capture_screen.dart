@@ -341,7 +341,7 @@ class _QuickPhotoCaptureScreenState extends State<QuickPhotoCaptureScreen>
                       value: 1.0 - _ring.value,
                       strokeWidth: 5,
                       backgroundColor: Colors.white24,
-                      valueColor: const AlwaysStoppedAnimation(
+                      valueColor: AlwaysStoppedAnimation(
                           AppTheme.accent),
                     ),
                   ),

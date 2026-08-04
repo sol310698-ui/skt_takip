@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/database_service.dart';
 import '../../core/services/flow_prefs.dart';
@@ -29,7 +32,11 @@ class ShelfRestockScreen extends StatefulWidget {
   State<ShelfRestockScreen> createState() => _ShelfRestockScreenState();
 }
 
-class _ShelfRestockScreenState extends State<ShelfRestockScreen> {
+class _ShelfRestockScreenState extends State<ShelfRestockScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [if (_scanner != null) _scanner!];
   List<Map<String, Object?>> _items = [];
   // barkod -> depodaki konumlar (onbellek).
   final Map<String, List<ProductLocation>> _locCache = {};
@@ -113,6 +120,7 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> {
     _awaitingId = null;
     if (!mounted) return;
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -321,7 +329,7 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> {
             ),
             for (final l in locs)
               ListTile(
-                leading: const Icon(Icons.warehouse_rounded,
+                leading: Icon(Icons.warehouse_rounded,
                     color: AppTheme.accent),
                 title: Text(l.pallet.code,
                     style:
@@ -390,7 +398,9 @@ class _ShelfRestockScreenState extends State<ShelfRestockScreen> {
               height: 170,
               child: MobileScanner(
                   controller: _scanner ??= MobileScannerController(),
-                  onDetect: _onDetect),
+                  onDetect: _onDetect,
+                  errorBuilder: (context, error, child) =>
+                      ScanErrorRetry(controller: _scanner!)),
             ),
           _hidBar(),
           Expanded(

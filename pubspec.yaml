@@ -14,7 +14,6 @@ dependencies:
   path: ^1.9.0
   image_picker: ^1.1.2
   image: ^4.2.0
-  flutter_scalable_ocr: ^2.2.1
   camera: ^0.10.6
   mobile_scanner: ^5.2.3
   permission_handler: ^12.0.1
@@ -29,7 +28,6 @@ dependencies:
   path_provider: ^2.1.4
   share_plus: ^10.0.0
   url_launcher: ^6.3.0
-  android_intent_plus: ^5.2.0
   archive: ^3.6.1
   wakelock_plus: ^1.2.8
   webview_flutter: ^4.10.0
@@ -58,3 +56,24 @@ flutter:
   assets:
     - assets/sounds/
     - assets/fonts/
+  fonts:
+    # Manrope — luks/minimal premium tipografi (OFL). Turkce destekli.
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-400Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope-500Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope-600SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope-700Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope-800ExtraBold.ttf
+          weight: 800
+    # NotoSans — eksik glif icin yedek (fontFamilyFallback).
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700

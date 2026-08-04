@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/warehouse_service.dart';
 import '../../core/services/map_view_prefs.dart';
@@ -653,7 +655,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                               BorderRadius.circular(AppTheme.rPill),
                         ),
                         child: Text(valueLabel,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w800,
                                 color: AppTheme.accent)),
@@ -701,7 +703,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     ),
                     Row(
                       children: [
-                        const Icon(Icons.view_in_ar_rounded,
+                        Icon(Icons.view_in_ar_rounded,
                             color: AppTheme.accent),
                         const SizedBox(width: 8),
                         const Expanded(
@@ -1449,7 +1451,7 @@ class _WarehouseDetailScreenState extends State<WarehouseDetailScreen>
                     color: AppTheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.image_rounded,
@@ -1503,7 +1505,11 @@ class _SearchScreen extends StatefulWidget {
   State<_SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<_SearchScreen> {
+class _SearchScreenState extends State<_SearchScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_scanner];
   final _ctrl = TextEditingController();
   final MobileScannerController _scanner =
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
@@ -1605,6 +1611,8 @@ class _SearchScreenState extends State<_SearchScreen> {
                       final raw = cap.barcodes.firstOrNull?.rawValue;
                       if (raw != null) _search(raw);
                     },
+                    errorBuilder: (context, error, child) =>
+                        ScanErrorRetry(controller: _scanner),
                   ),
                 ),
               ),

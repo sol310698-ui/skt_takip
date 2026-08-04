@@ -217,7 +217,7 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.access_time_rounded,
+              Icon(Icons.access_time_rounded,
                   color: AppTheme.primary, size: 20),
               const SizedBox(width: 8),
               Text('Saat: $time',
@@ -238,17 +238,17 @@ class _ShiftDetailScreenState extends ConsumerState<ShiftDetailScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_on,
+                    Icon(Icons.location_on,
                         color: AppTheme.accent, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13, color: AppTheme.accent),
                       ),
                     ),
-                    const Icon(Icons.open_in_new_rounded,
+                    Icon(Icons.open_in_new_rounded,
                         size: 16, color: AppTheme.accent),
                   ],
                 ),

@@ -8,6 +8,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -19,6 +20,9 @@ import '../../core/services/database_service.dart';
 import '../../data/datasources/barcode_directory_datasource.dart';
 import '../../data/models/barcode_entry.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/camera_lifecycle_mixin.dart';
+import '../../core/services/scan_engine.dart';
+import '../widgets/scan_mode_toggle.dart';
 import '../widgets/scan_overlay.dart';
 import '../../core/utils/scan_parser.dart';
 import '../widgets/label_target_sheet.dart';
@@ -46,17 +50,30 @@ class PriceChangeSessionScreen extends StatefulWidget {
 }
 
 class _PriceChangeSessionScreenState
-    extends State<PriceChangeSessionScreen> {
+    extends State<PriceChangeSessionScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin (oturum bittiyse yeniden baslatma).
+  @override
+  List<MobileScannerController> get cameraControllers => [_scanner];
+  @override
+  bool get shouldResumeCamera => !_completed;
   // ── EL TERMINALI (HID): odakli ama klavyesiz giris (v138 kalibi) ──
   final TextEditingController _hidCtrl = TextEditingController();
   final FocusNode _hidFocus = FocusNode();
   // Rota modu: kalanlar reyon dizilim sirasina gore siralanir.
   bool _routeSorted = false;
+  // Kamera onizlemesi gizli mi? (Yalnizca GORUNUR yukseklik degisir; kamera
+  // agacta kalir ve mantik/yasam dongusu AYNEN korunur — el terminaliyle
+  // calisirken listeye daha cok yer acmak icin.)
+  bool _cameraCollapsed = false;
 
   final MobileScannerController _scanner = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     autoStart: false,
+    formats: ScanEngine.broadFormats,
   );
+  // Tarama modu: true = EAN-13 kesin (kontrol basamagi), false = hepsi.
+  bool _strictScan = true;
 
   PriceChangeSession? _session;
   List<PriceChangeItem> _items = [];
@@ -433,8 +450,8 @@ class _PriceChangeSessionScreenState
   // ─────────────────────────── Reyon uygulama ────────────────────────
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (_busy || _matched != null || _completed) return;
-    final raw = capture.barcodes.firstOrNull?.rawValue;
-    if (raw == null || raw.trim().isEmpty) return;
+    final raw = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (raw == null) return;
     await _processScanRaw(raw);
   }
 
@@ -559,7 +576,8 @@ class _PriceChangeSessionScreenState
       final groupTitle = labelGroup == null
           ? null
           : LabelGroup.values
-              .firstWhere((g) => g.name == labelGroup)
+              .firstWhere((g) => g.name == labelGroup,
+                  orElse: () => LabelGroup.a4)
               .title;
       final labelNote =
           groupTitle != null ? ' • $groupTitle\'a gönderildi' : '';
@@ -670,7 +688,8 @@ class _PriceChangeSessionScreenState
     final active = hasGroup || _alsoTeshirLabel;
     final groupTitle = hasGroup
         ? LabelGroup.values
-            .firstWhere((g) => g.name == _sendToLabelGroup!)
+            .firstWhere((g) => g.name == _sendToLabelGroup!,
+                orElse: () => LabelGroup.a4)
             .title
         : null;
     return InkWell(
@@ -1224,7 +1243,6 @@ class _PriceChangeSessionScreenState
   }
 
   Widget _buildActiveView() {
-    final pending = _items.where((i) => !i.changed).length;
     final total = _items.length;
 
     if (total == 0) {
@@ -1262,162 +1280,167 @@ class _PriceChangeSessionScreenState
 
     return Column(
       children: [
-        // ── EL TERMINALI GIRIS CUBUGU: odakli, klavyesiz ──
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceAlt,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.hairline),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.settings_remote_rounded,
-                    size: 16, color: AppTheme.textTertiary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _hidCtrl,
-                    focusNode: _hidFocus,
-                    keyboardType: TextInputType.none, // klavye ACILMAZ
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: _onHidSubmit,
-                    style: const TextStyle(
-                        fontSize: 13, fontFamily: 'monospace'),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 10),
-                      hintText: 'El terminali: barkodu buraya okutun',
-                      hintStyle: TextStyle(
-                          fontSize: 12, color: AppTheme.textTertiary),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        SizedBox(
-          height: 230,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              MobileScanner(controller: _scanner, onDetect: _onDetect),
-              const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
-              if (_scanMessage != null)
-                Positioned(
-                  bottom: 12,
-                  left: 16,
-                  right: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: AppTheme.statusWarning.withOpacity(0.94),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(_scanMessage!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13)),
-                  ),
-                ),
-              if (_busy)
-                Container(
-                  color: Colors.black54,
-                  child: const Center(
-                      child: CircularProgressIndicator(
-                          color: Colors.white)),
-                ),
-            ],
-          ),
-        ),
+        _scanBar(),
+        _cameraPanel(),
         if (_matched != null) _buildMatchedPanel(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Kalan: $pending / $total',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textSecondary)),
-                    const SizedBox(height: 4),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: total == 0
-                            ? 0
-                            : (total - pending) / total,
-                        minHeight: 5,
-                        backgroundColor: AppTheme.surfaceAlt,
-                        color: AppTheme.statusSafe,
-                      ),
-                    ),
-                  ],
-                ),
+        Expanded(child: _buildItemList()),
+      ],
+    );
+  }
+
+  // ── EL TERMINALI + KAMERA AC/KAPA CUBUGU ──────────────────────────
+  Widget _scanBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceAlt,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.hairline),
               ),
-              PopupMenuButton<String>(
-                enabled: !_busy,
-                onSelected: (v) {
-                  if (v == 'a4') _captureA4();
-                  if (v == 'excel') _importExcel();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'a4',
-                    child: Row(
-                      children: [
-                        Icon(Icons.document_scanner_rounded,
-                            size: 18, color: AppTheme.primary),
-                        SizedBox(width: 8),
-                        Text('A4 Tara'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'excel',
-                    child: Row(
-                      children: [
-                        Icon(Icons.table_chart_rounded,
-                            size: 18, color: AppTheme.accent),
-                        SizedBox(width: 8),
-                        Text('Excel İçe Aktar'),
-                      ],
+              child: Row(
+                children: [
+                  Icon(Icons.settings_remote_rounded,
+                      size: 18, color: AppTheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _hidCtrl,
+                      focusNode: _hidFocus,
+                      keyboardType: TextInputType.none, // klavye ACILMAZ
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: _onHidSubmit,
+                      style: const TextStyle(
+                          fontSize: 13.5, fontFamily: 'monospace'),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 12),
+                        hintText: 'El terminaliyle okut',
+                        hintStyle: TextStyle(
+                            fontSize: 12.5, color: AppTheme.textTertiary),
+                      ),
                     ),
                   ),
                 ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.add_rounded,
-                          size: 18, color: AppTheme.primary),
-                      SizedBox(width: 4),
-                      Text('Ekle',
-                          style: TextStyle(
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w600)),
-                    ],
-                  ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Kamera onizlemesini ac/kapa (yalnizca gorunur yukseklik).
+          Material(
+            color: _cameraCollapsed
+                ? AppTheme.primary
+                : AppTheme.surfaceAlt,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () =>
+                  setState(() => _cameraCollapsed = !_cameraCollapsed),
+              child: Container(
+                height: 46,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                        _cameraCollapsed
+                            ? Icons.photo_camera_rounded
+                            : Icons.keyboard_arrow_up_rounded,
+                        size: 20,
+                        color: _cameraCollapsed
+                            ? Colors.white
+                            : AppTheme.primary),
+                    const SizedBox(width: 5),
+                    Text(_cameraCollapsed ? 'Kamera' : 'Gizle',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: _cameraCollapsed
+                                ? Colors.white
+                                : AppTheme.primary)),
+                  ],
                 ),
               ),
-            ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Kamera onizlemesi — GORUNUR yuksekligi animasyonla acilir/kapanir;
+  /// MobileScanner her zaman 190px'de canli kalir (mantik/yasam dongusu
+  /// degismez), yalnizca ClipRect ile kirpilir.
+  Widget _cameraPanel() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          height: _cameraCollapsed ? 0 : 190,
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: 190,
+            maxHeight: 190,
+            child: SizedBox(
+              height: 190,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  MobileScanner(controller: _scanner, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _scanner)),
+                  const ScanOverlay(hint: 'Barkodu çerçeveye getirin'),
+                  Positioned(
+                    top: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: ScanModeToggle(
+                        value: _strictScan,
+                        onChanged: (v) => setState(() => _strictScan = v),
+                      ),
+                    ),
+                  ),
+                  if (_scanMessage != null)
+                    Positioned(
+                      bottom: 12,
+                      left: 16,
+                      right: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.statusWarning.withOpacity(0.94),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(_scanMessage!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13)),
+                      ),
+                    ),
+                  if (_busy)
+                    Container(
+                      color: Colors.black54,
+                      child: const Center(
+                          child:
+                              CircularProgressIndicator(color: Colors.white)),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
-        Expanded(child: _buildItemList()),
-      ],
+      ),
     );
   }
 
@@ -1552,6 +1575,7 @@ class _PriceChangeSessionScreenState
               Text('$done / $total',
                   style: const TextStyle(
                       fontWeight: FontWeight.w900, fontSize: 15)),
+              _addMenu(),
             ],
           ),
         ),
@@ -1617,6 +1641,39 @@ class _PriceChangeSessionScreenState
     );
   }
 
+  /// A4 tara / Excel ice aktar menusu (liste basligina yerlesir).
+  Widget _addMenu() {
+    return PopupMenuButton<String>(
+      enabled: !_busy,
+      tooltip: 'Liste ekle',
+      icon: Icon(Icons.add_circle_rounded,
+          color: AppTheme.primary, size: 26),
+      onSelected: (v) {
+        if (v == 'a4') _captureA4();
+        if (v == 'excel') _importExcel();
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'a4',
+          child: Row(children: [
+            Icon(Icons.document_scanner_rounded,
+                size: 18, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Text('A4 Tara'),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'excel',
+          child: Row(children: [
+            Icon(Icons.table_chart_rounded, size: 18, color: AppTheme.accent),
+            SizedBox(width: 8),
+            Text('Excel İçe Aktar'),
+          ]),
+        ),
+      ],
+    );
+  }
+
   Widget _filterChip(String label, _ItemFilter f, int count) {
     final sel = _filter == f;
     return InkWell(
@@ -1661,21 +1718,33 @@ class _PriceChangeSessionScreenState
             }
           },
           child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
+            margin: const EdgeInsets.only(bottom: 10),
             padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: AppTheme.card(
                 accentColor: item.changed ? AppTheme.statusSafe : null),
             child: Row(
               children: [
-                Icon(
-                  item.changed
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  color: item.changed
-                      ? AppTheme.statusSafe
-                      : AppTheme.textTertiary,
-                  size: 20,
+                // Durum halkasi (bitti/kalan) — net ve buyuk dokunma alani.
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: (item.changed
+                            ? AppTheme.statusSafe
+                            : AppTheme.textTertiary)
+                        .withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    item.changed
+                        ? Icons.check_rounded
+                        : Icons.circle_outlined,
+                    color: item.changed
+                        ? AppTheme.statusSafe
+                        : AppTheme.textTertiary,
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1683,46 +1752,73 @@ class _PriceChangeSessionScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(item.productName ?? item.barcode,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14.5,
+                              height: 1.15,
                               color: item.changed
                                   ? AppTheme.textSecondary
                                   : AppTheme.textPrimary)),
-                      Text(
-                          '${item.barcode}'
-                          '${item.aisle != null ? "  •  ${item.aisle}" : ""}',
-                          style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              color: AppTheme.textTertiary)),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          if (item.changed && item.photoPath != null) ...[
+                            Icon(Icons.photo_camera_rounded,
+                                size: 13, color: AppTheme.accent),
+                            const SizedBox(width: 4),
+                          ],
+                          Flexible(
+                            child: Text(
+                              '${item.barcode}'
+                              '${item.aisle != null ? "  •  ${item.aisle}" : ""}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11.5,
+                                  color: AppTheme.textTertiary),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                // Kanit fotografi gostergesi
-                if (item.changed && item.photoPath != null)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 8),
-                    child: Icon(Icons.photo_camera_rounded,
-                        size: 16, color: AppTheme.accent),
-                  ),
+                const SizedBox(width: 8),
                 if (item.newPrice != null)
-                  Text('${item.newPrice!.toStringAsFixed(2)} ₺',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: item.changed
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (item.changed
                               ? AppTheme.textTertiary
-                              : AppTheme.statusSafe)),
-                // Reyonda göster (animasyon) — ürünün rafta yerini canlandırır.
-                InkWell(
-                  onTap: () => _showInShelf(item),
-                  borderRadius: BorderRadius.circular(20),
-                  child: const Padding(
-                    padding: EdgeInsets.only(left: 6),
-                    child: Icon(Icons.travel_explore_rounded,
-                        size: 19, color: AppTheme.primary),
+                              : AppTheme.statusSafe)
+                          .withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${item.newPrice!.toStringAsFixed(2)} ₺',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13.5,
+                            color: item.changed
+                                ? AppTheme.textSecondary
+                                : AppTheme.statusSafe)),
+                  ),
+                const SizedBox(width: 6),
+                // Reyonda goster (animasyon) — urunun rafta yerini canlandirir.
+                Material(
+                  color: AppTheme.primary.withOpacity(0.12),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _showInShelf(item),
+                    child: Padding(
+                      padding: EdgeInsets.all(7),
+                      child: Icon(Icons.travel_explore_rounded,
+                          size: 18, color: AppTheme.primary),
+                    ),
                   ),
                 ),
               ],
@@ -1920,7 +2016,7 @@ class _EditItemSheetState extends State<_EditItemSheet>
                         color: AppTheme.primary.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.edit_rounded,
+                      child: Icon(Icons.edit_rounded,
                           color: AppTheme.primary, size: 20),
                     ),
                     const SizedBox(width: 12),

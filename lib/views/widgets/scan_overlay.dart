@@ -19,9 +19,11 @@ class ScanOverlay extends StatefulWidget {
   /// Tarama penceresinin altinda gosterilen ipucu ( or. "Barkodu okutun").
   final String hint;
 
-  /// Vurgu rengi (varsayilan marka mavisi). Uyari/eslesme durumunda
+  /// Vurgu rengi (verilmezse aktif marka rengi). Uyari/eslesme durumunda
   /// degistirilebilir (ornegin bulunamayinca turuncu).
-  final Color accent;
+  /// NOT: null birakilir; build sirasinda AppTheme.primary'e cozulur. Boylece
+  /// const constructor korunur ama vurgu rengi degistirilebilir kalir.
+  final Color? accent;
 
   /// Tarama penceresi boyutu (kare kenar orani ekran genisligine gore).
   final double windowWidthFactor;
@@ -36,7 +38,7 @@ class ScanOverlay extends StatefulWidget {
   const ScanOverlay({
     super.key,
     this.hint = 'Barkodu çerçeveye getirin',
-    this.accent = AppTheme.primary,
+    this.accent,
     this.windowWidthFactor = 0.78,
     this.aspect = 1.7,
     this.title,
@@ -76,6 +78,8 @@ class _ScanOverlayState extends State<ScanOverlay>
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Vurgu rengi verilmediyse aktif marka rengine coz.
+        final acc = widget.accent ?? AppTheme.primary;
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
         final winW = w * widget.windowWidthFactor;
@@ -123,7 +127,7 @@ class _ScanOverlayState extends State<ScanOverlay>
                 width: winW,
                 height: winH,
                 child: CustomPaint(
-                  painter: _CornerPainter(color: widget.accent),
+                  painter: _CornerPainter(color: acc),
                 ),
               ),
             ),
@@ -146,14 +150,14 @@ class _ScanOverlayState extends State<ScanOverlay>
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              widget.accent.withOpacity(0),
-                              widget.accent,
-                              widget.accent.withOpacity(0),
+                              acc.withOpacity(0),
+                              acc,
+                              acc.withOpacity(0),
                             ],
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: widget.accent.withOpacity(0.6),
+                              color: acc.withOpacity(0.6),
                               blurRadius: 8,
                             ),
                           ],

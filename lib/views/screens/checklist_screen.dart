@@ -22,7 +22,9 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   bool _loading = true;
 
   // Yeni liste icin secilebilir renkler.
-  static const _palette = [
+  // NOT: AppTheme.primary/accent artik degistirilebilir (const degil), bu
+  // yuzden liste `final` (const olamaz).
+  static final _palette = <Color>[
     AppTheme.primary,
     AppTheme.accent,
     AppTheme.amber,
@@ -224,7 +226,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, 16 + topInset, 20, 22),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: AppTheme.bannerGradient,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),

@@ -43,7 +43,6 @@
     <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
     <!-- "alarm" paketinin Samsung/Xiaomi/Oppo gibi OEM cihazlarda
          full-screen intent + arka plan baslatma icin gerekli gordugu izin -->
-    <uses-permission android:name="android.permission.auto_start_flutter" />
 
     <application
         android:label="SKT Takip"

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/resilient_scanner.dart';
+import '../../core/services/feedback_service.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/services/camera_helper.dart';
@@ -92,13 +94,13 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             ),
             const SizedBox(height: 12),
             ListTile(
-              leading: const Icon(Icons.photo_camera_rounded,
+              leading: Icon(Icons.photo_camera_rounded,
                   color: AppTheme.accent),
               title: const Text('Kamera ile çek'),
               onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_rounded,
+              leading: Icon(Icons.photo_library_rounded,
                   color: AppTheme.accent),
               title: const Text('Galeriden seç'),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
@@ -824,7 +826,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
                 children: [
-                  const Icon(Icons.qr_code_2_rounded,
+                  Icon(Icons.qr_code_2_rounded,
                       color: AppTheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
@@ -839,7 +841,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
             // ── EN ISLEVSEL SECENEK: her urunun yaninda TARANABILIR
             // barkod. Kagidi el terminaliyle okutup is yapabilirsin.
             ListTile(
-              leading: const Icon(Icons.qr_code_scanner_rounded,
+              leading: Icon(Icons.qr_code_scanner_rounded,
                   color: AppTheme.accent),
               title: const Text('A4 ürün listesi (barkodlu)'),
               subtitle: Text(
@@ -1154,7 +1156,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                 },
                 itemBuilder: (_) => [
                   if (hasPhoto)
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'image',
                       child: Row(children: [
                         Icon(Icons.image_rounded,
@@ -1163,7 +1165,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                         Text('Resmi Göster'),
                       ]),
                     ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'qr',
                     child: Row(children: [
                       Icon(Icons.qr_code_2_rounded,
@@ -1181,7 +1183,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                       Text('Mağaza Dışı Sevk'),
                     ]),
                   ),
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'history',
                     child: Row(children: [
                       Icon(Icons.history_rounded,
@@ -1348,7 +1350,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text('${item.quantity}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 16,
                         color: AppTheme.accent)),
@@ -1506,7 +1508,7 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text('${item.quantity}',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w900,
                                 color: AppTheme.accent)),
@@ -1575,12 +1577,12 @@ class _PalletDetailScreenState extends State<PalletDetailScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.shelves,
+                          Icon(Icons.shelves,
                               size: 13, color: AppTheme.primary),
                           const SizedBox(width: 4),
                           Text(
                               '${shelfHit!.unitName} · S${shelfHit!.section}·R${shelfHit!.row}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                   color: AppTheme.primary)),
@@ -2068,8 +2070,16 @@ class _AddItemScreen extends StatefulWidget {
 }
 
 class _AddItemScreenState extends State<_AddItemScreen> {
-  final MobileScannerController _scanner =
+  // Kamera artik ResilientScanner tarafindan yonetiliyor: TARA moduna her
+  // gecildiginde (veya urun eklendikten sonra scan gorunumune donuldugunde)
+  // taze bir controller yaratilir; ARA moduna/forma gecince widget agactan
+  // cikip controller dispose edilir. Boylece stop()->start() sonrasi kararan
+  // kamera sorunu (mod degisiminde "kamera gitti") ortadan kalkar.
+  MobileScannerController _createScanner() =>
       MobileScannerController(detectionSpeed: DetectionSpeed.noDuplicates);
+  // Kamera okumasi islenirken (async ad/konum sorgusu) ikinci bir barkodun
+  // araya girmesini engelleyen eszamanli kilit (eski stop()'un yerine).
+  bool _capturing = false;
   final _expiryCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
   final _caseCtrl = TextEditingController(); // koli bazinda giris
@@ -2216,7 +2226,6 @@ class _AddItemScreenState extends State<_AddItemScreen> {
   @override
   void dispose() {
     _liveSub?.cancel();
-    _scanner.dispose();
     _expiryCtrl.dispose();
     _qtyCtrl.dispose();
     _caseCtrl.dispose();
@@ -2242,7 +2251,6 @@ class _AddItemScreenState extends State<_AddItemScreen> {
   }
 
   Future<void> _pickEntry(BarcodeEntry e) async {
-    await _scanner.stop();
     await _select(e.barcode, name: e.productName, stockCode: e.stockCode);
   }
 
@@ -2286,18 +2294,25 @@ class _AddItemScreenState extends State<_AddItemScreen> {
   }
 
   Future<void> _onDetect(BarcodeCapture cap) async {
-    if (_busy || _barcode != null) return;
-    final raw = cap.barcodes.firstOrNull?.rawValue;
-    if (raw == null) return;
-    final parsed = ScanParser.parse(raw);
-    final code = parsed.barcode ?? raw.trim();
-    await _scanner.stop();
-    if (parsed.expiryDate != null) {
-      final d = parsed.expiryDate!;
-      _expiryCtrl.text =
-          '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
+    if (_busy || _barcode != null || _capturing) return;
+    _capturing = true;
+    try {
+      final raw = cap.barcodes.firstOrNull?.rawValue;
+      if (raw == null) return;
+      final parsed = ScanParser.parse(raw);
+      final code = parsed.barcode ?? raw.trim();
+      // Tarama imzasi: haptik + kisa bip (#4).
+      HapticFeedback.mediumImpact();
+      FeedbackService.instance.play(ScanFeedback.product);
+      if (parsed.expiryDate != null) {
+        final d = parsed.expiryDate!;
+        _expiryCtrl.text =
+            '${d.day.toString().padLeft(2, "0")}.${d.month.toString().padLeft(2, "0")}.${d.year}';
+      }
+      await _select(code, expiry: parsed.expiryDate);
+    } finally {
+      _capturing = false;
     }
-    await _select(code, expiry: parsed.expiryDate);
   }
 
   void _parseExpiry() {
@@ -2372,10 +2387,11 @@ class _AddItemScreenState extends State<_AddItemScreen> {
       _nameCtrl.clear();
       _busy = false;
     });
-    if (_mode == 0) await _scanner.start();
+    // _barcode null oldugu icin gorunum scan'e doner; ResilientScanner taze
+    // controller ile yeniden kurulur (elle start gerekmez).
   }
 
-  void _reset() async {
+  void _reset() {
     setState(() {
       _barcode = null;
       _stockCode = null;
@@ -2384,7 +2400,6 @@ class _AddItemScreenState extends State<_AddItemScreen> {
       _expiryCtrl.clear();
       _nameCtrl.clear();
     });
-    if (_mode == 0) await _scanner.start();
   }
 
   // ── UI ────────────────────────────────────────────────────────────
@@ -2449,7 +2464,7 @@ class _AddItemScreenState extends State<_AddItemScreen> {
                               BorderRadius.circular(AppTheme.rPill),
                         ),
                         child: Text('$_added eklendi',
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: AppTheme.accent,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 12)),
@@ -2495,14 +2510,11 @@ class _AddItemScreenState extends State<_AddItemScreen> {
     final sel = _mode == i;
     return Expanded(
       child: GestureDetector(
-        onTap: () async {
+        onTap: () {
           if (_mode == i) return;
+          // Moda gore gorunum degisir; kamera (mod 0) ResilientScanner ile
+          // agaca girip ciktikca kendi kurulur/birakilir (elle start/stop yok).
           setState(() => _mode = i);
-          if (i == 0) {
-            await _scanner.start();
-          } else {
-            await _scanner.stop();
-          }
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -2541,7 +2553,10 @@ class _AddItemScreenState extends State<_AddItemScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  MobileScanner(controller: _scanner, onDetect: _onDetect),
+                  ResilientScanner(
+                      create: _createScanner,
+                      onDetect: _onDetect,
+                      accent: AppTheme.accent),
                   // Nisan cercevesi.
                   IgnorePointer(
                     child: Center(
@@ -2649,7 +2664,7 @@ class _AddItemScreenState extends State<_AddItemScreen> {
                                         borderRadius:
                                             BorderRadius.circular(10),
                                       ),
-                                      child: const Icon(
+                                      child: Icon(
                                           Icons.qr_code_2_rounded,
                                           size: 18,
                                           color: AppTheme.accent),
@@ -2718,7 +2733,7 @@ class _AddItemScreenState extends State<_AddItemScreen> {
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: AppTheme.card(accentColor: AppTheme.accent),
             child: Row(children: [
-              const Icon(Icons.qr_code_2_rounded,
+              Icon(Icons.qr_code_2_rounded,
                   color: AppTheme.accent, size: 20),
               const SizedBox(width: 10),
               Expanded(
@@ -2879,7 +2894,7 @@ class _AddItemScreenState extends State<_AddItemScreen> {
                       border: Border.all(
                           color: AppTheme.textTertiary.withOpacity(0.3)),
                     ),
-                    child: const Icon(Icons.document_scanner_rounded,
+                    child: Icon(Icons.document_scanner_rounded,
                         size: 20, color: AppTheme.primary),
                   ),
                 ),

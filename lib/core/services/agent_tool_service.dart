@@ -187,6 +187,14 @@ class AgentToolService {
       return '❌ db_query yalnızca SELECT/PRAGMA/WITH kabul eder. '
           'Değişiklik için ```action bloğu ile db_write kullan.';
     }
+    // GUVENLIK: SQLite'ta WITH ... AS (...) DELETE/UPDATE/INSERT gecerli
+    // bir ifadedir. Bu arac ONAY SORMADAN calistigi icin CTE ile gizlenmis
+    // yazma denemeleri burada durdurulur; yazma tek yoldan, onay kartli
+    // db_write'tan gecer.
+    if (_hasWrite(lower)) {
+      return '❌ db_query salt okunurdur; bu sorgu veri değiştiriyor. '
+          'Değişiklik için ```action bloğu ile db_write kullan.';
+    }
     if (q.contains(';')) return '❌ Tek sorgu gönder (";" kullanma).';
     final db = await DatabaseService.instance.database;
     final rows = await db.rawQuery(q);
@@ -221,6 +229,18 @@ class AgentToolService {
     }
     if (n == 0) return 'Eşleşen ayar yok.';
     return 'Ayarlar ($n):\n${buf.toString().trim()}';
+  }
+
+  /// Sorgunun govdesinde (string literal disinda) yazma anahtar kelimesi
+  /// var mi? WITH ile baslayan CTE'lerde gizlenen DML'i yakalar.
+  static bool _hasWrite(String lowerSql) {
+    // String literalleri cikar ki 'delete' gecen bir metin yanlis alarm
+    // uretmesin.
+    final bare = lowerSql.replaceAll(RegExp(r"'[^']*'"), "''");
+    return RegExp(
+            r'\b(insert|update|delete|replace|drop|alter|create|attach|'
+            r'detach|vacuum|reindex|truncate)\b')
+        .hasMatch(bare);
   }
 
   static bool _isSecret(String key) {

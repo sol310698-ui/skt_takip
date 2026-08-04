@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/feedback_service.dart';
@@ -29,7 +31,11 @@ class ShelfCheckScreen extends ConsumerStatefulWidget {
 
 enum _Phase { product, label }
 
-class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
+class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
   );
@@ -334,7 +340,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
                 ),
               ),
             ),
-            const Row(
+            Row(
               children: [
                 Icon(Icons.analytics_rounded,
                     color: AppTheme.accent, size: 22),
@@ -409,7 +415,7 @@ class _ShelfCheckScreenState extends ConsumerState<ShelfCheckScreen> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            MobileScanner(controller: _controller, onDetect: _onDetect),
+            MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
             _buildOverlay(frameColor, isProduct),
             _buildTopControls(),
             _buildBottomStatus(),

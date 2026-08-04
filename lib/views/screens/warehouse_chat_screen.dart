@@ -512,7 +512,7 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
                 ],
               ),
             ),
-            child: const Icon(Icons.auto_awesome_rounded,
+            child: Icon(Icons.auto_awesome_rounded,
                 size: 34, color: AppTheme.accent),
           ),
         ),
@@ -834,7 +834,7 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
-          const Icon(Icons.mic_rounded, color: AppTheme.accent, size: 20),
+          Icon(Icons.mic_rounded, color: AppTheme.accent, size: 20),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -890,7 +890,7 @@ class _WarehouseChatScreenState extends State<WarehouseChatScreen> {
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: _scanBarcode,
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(12),
                   child: Icon(Icons.qr_code_scanner_rounded,
                       color: AppTheme.primary),
@@ -1039,7 +1039,7 @@ class _ProductRefCard extends StatelessWidget {
                   ),
                   child: photo != null
                       ? Image.file(File(photo), fit: BoxFit.cover)
-                      : const Icon(Icons.inventory_2_rounded,
+                      : Icon(Icons.inventory_2_rounded,
                           size: 22, color: AppTheme.primary),
                 ),
                 const SizedBox(width: 10),
@@ -1063,7 +1063,7 @@ class _ProductRefCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Icon(Icons.chevron_right_rounded,
+                Icon(Icons.chevron_right_rounded,
                     size: 18, color: AppTheme.primary),
               ],
             ),

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/alarm_service.dart';
 import '../../core/services/app_logger.dart';
@@ -546,7 +548,11 @@ class _QrUnlockSheet extends StatefulWidget {
   State<_QrUnlockSheet> createState() => _QrUnlockSheetState();
 }
 
-class _QrUnlockSheetState extends State<_QrUnlockSheet> {
+class _QrUnlockSheetState extends State<_QrUnlockSheet> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_ctrl];
   final MobileScannerController _ctrl = MobileScannerController();
   bool _handled = false;
 
@@ -599,7 +605,7 @@ class _QrUnlockSheetState extends State<_QrUnlockSheet> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(controller: _ctrl, onDetect: _onDetect),
+                MobileScanner(controller: _ctrl, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _ctrl)),
                 // Tarama cercevesi
                 Container(
                   width: 220,

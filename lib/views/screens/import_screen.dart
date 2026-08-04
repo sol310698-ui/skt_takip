@@ -203,7 +203,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${_preview.length} kayıt içe aktarıldı'),
-            backgroundColor: Colors.green,
+            backgroundColor: AppTheme.statusSafe,
           ),
         );
         setState(() {
@@ -260,7 +260,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  const Icon(Icons.info_outline,
+                  Icon(Icons.info_outline,
                       color: AppTheme.primary, size: 20),
                   const SizedBox(width: 8),
                   const Text('Excel Formatı',

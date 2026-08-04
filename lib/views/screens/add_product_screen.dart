@@ -8,6 +8,8 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/resilient_scanner.dart';
+import '../../core/services/feedback_service.dart';
 
 import '../../core/services/barcode_lookup_service.dart';
 import '../../core/services/camera_helper.dart';
@@ -562,7 +564,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       const SizedBox(width: 8),
                       Text(
                         '${fmt(p.expiryDate)} — ${p.quantity} adet',
-                        style: const TextStyle(fontSize: 13),
+                        style: TextStyle(fontSize: 13),
                       ),
                     ],
                   ),
@@ -702,280 +704,331 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //  YENIDEN TASARIM (v168) — "DOA" tasarim dili (PILOT, sadece bu ekran)
+  // ────────────────────────────────────────────────────────────────────
+  //  Referans: DOA geri-donusum uygulamasi. Acik/mint zemin, buyuk yuvarlak
+  //  YESIL GRADYAN "hero" kart (DOA'daki bakiye karti gibi — burada SKT'yi
+  //  one cikarir), beyaz yumusak-golgeli alan kartlari, yesil pill butonlar,
+  //  havadar bosluklar. Renkler bu EKRANA OZEL yereldir (global AppTheme'e
+  //  dokunulmadi) — boylece pilot digerlerini etkilemez. TUM is mantigi
+  //  (OCR, arama, tarama, hizli akis, kaydetme, adet) birebir korunmustur.
+  // ════════════════════════════════════════════════════════════════════
+
+  // ── DOA paleti — TEMAYA DUYARLI ────────────────────────────────────
+  //  Notr renkler (zemin/kart/metin/kenar) AppTheme'ten gelir; boylece
+  //  ekran acik temada acik, KOYU temada KOYU olur ve yazilar HER ZAMAN
+  //  okunur. Yesiller + hero gradyani iki temada da calistigi icin sabit.
+  Color get _doaBg => AppTheme.background;
+  Color get _doaBgTop => AppTheme.surface;
+  Color get _doaCard => AppTheme.surface;
+  Color get _doaInk => AppTheme.textPrimary;
+  Color get _doaInk2 => AppTheme.textSecondary;
+  Color get _doaInk3 => AppTheme.textTertiary;
+  Color get _doaHair => AppTheme.hairline;
+  // Vurgu rengi ARTIK temaya bagli: Ayarlar'dan secilen palete gore degisir
+  // (eskiden sabit yesildi -> vurgu Mavi/Mor secilince bu ekran yesil kaliyordu).
+  Color get _doaGreen => AppTheme.primary;
+  Color get _doaGreenDark => AppTheme.primaryDark;
+  LinearGradient get _doaHeroGrad => AppTheme.bannerGradient;
+  static List<BoxShadow> get _doaShadow => [
+        BoxShadow(
+          color: AppTheme.primaryDark.withOpacity(0.10),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
+        ),
+      ];
+
+  /// Girilen tarihe gore canli durum: (renk, etiket, kalan-gun metni).
+  /// Tarih yoksa null.
+  ({Color color, String label, String daysText})? _liveStatus() {
+    final d = _expiryDate;
+    if (d == null) return null;
+    final st = du.DateUtils.statusFor(d);
+    final left = du.DateUtils.daysUntil(d);
+    final daysText = left < 0
+        ? '${-left} gün geçti'
+        : left == 0
+            ? 'Bugün doluyor'
+            : '$left gün kaldı';
+    return (color: st.color, label: st.label, daysText: daysText);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
-
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: CustomScrollView(
-        slivers: [
-          _buildHeader(isEdit),
-          SliverToBoxAdapter(
-            child: Form(
-              key: _formKey,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Arama durumu / resim — header kucukken buradan gorunur.
-                    _buildInlinePreview(),
-                    _label('Ürün Adı'),
-                    TextFormField(
-                      controller: _nameCtrl,
-                      textInputAction: TextInputAction.next,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600),
-                      decoration: InputDecoration(
-                        hintText: 'Ürün adı',
-                        prefixIcon: const Icon(Icons.shopping_bag_outlined),
-                        suffixIcon: _nameOcrRunning
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppTheme.accent),
-                                ),
-                              )
-                            : null,
-                      ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? '' : null,
-                      onChanged: (_) {
-                        // Kullanici elle yazmaya basladiysa OCR basarisizlik
-                        // butonunu gizle (artik gerek yok).
-                        if (_nameOcrFailed && _nameCtrl.text.trim().isNotEmpty) {
-                          setState(() => _nameOcrFailed = false);
-                        }
-                      },
-                    ),
-                    // ETIKETTEN OKU: isim bos + otomatik OCR de basarisiz
-                    // olduysa (veya hic etiket fotografi yoksa) bu buton
-                    // gorunur; kullanici elle fotograf cekip deneyebilir.
-                    if (_nameOcrFailed &&
-                        _nameCtrl.text.trim().isEmpty &&
-                        !_nameOcrRunning)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _scanNameFromPhoto,
-                            icon: const Icon(Icons.document_scanner_rounded,
-                                size: 18),
-                            label: const Text('Etiketten Oku'),
-                            style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.accent),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 18),
-                    _label('Barkod'),
-                    TextFormField(
-                      controller: _barcodeCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        hintText: 'Barkod numarası',
-                        // Arama suruyorsa prefix spinner; bitmisse ikon.
-                        // Suffix butonlari HEP aktif (kilitlenme olmaz).
-                        prefixIcon: _looking
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: AppTheme.primary),
-                                ),
-                              )
-                            : const Icon(Icons.qr_code_rounded),
-                        suffixIcon: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.search),
-                              tooltip: "Google'da Ara",
-                              onPressed: _searchOnline,
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.qr_code_scanner),
-                              tooltip: 'Tara',
-                              onPressed: _scanBarcode,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _label('Kategori / Reyon'),
-                    TextFormField(
-                      controller: _categoryCtrl,
-                      decoration: const InputDecoration(
-                        hintText: 'örn. Süt Ürünleri, A1 reyonu',
-                        prefixIcon: Icon(Icons.category_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _label('Konum / Yer'),
-                    TextFormField(
-                      controller: _locationCtrl,
-                      decoration: const InputDecoration(
-                        hintText: 'örn. Raf A3, Zemin, B Koridoru Sağ',
-                        prefixIcon: Icon(Icons.place_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _label('Son Kullanma Tarihi'),
-                    _buildExpiryCard(),
-                    const SizedBox(height: 18),
-                    _label('Adet'),
-                    _buildQuantitySelector(),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.systemBarForColor(AppTheme.background),
+      child: Scaffold(
+        backgroundColor: _doaBg,
+        body: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [_doaBgTop, _doaBg],
             ),
           ),
-        ],
-      ),
-      // Onemli butonlar ALTTA sabit.
-      bottomNavigationBar: _buildBottomBar(isEdit),
-    );
-  }
-
-  /// Header: gorsel varsa gradyanli SliverAppBar, yoksa sade AppBar yuksekligi.
-  Widget _buildHeader(bool isEdit) {
-    final hasImage = _previewImageUrl != null || _localImagePath != null;
-    return SliverAppBar(
-      expandedHeight: hasImage ? 320 : kToolbarHeight,
-      pinned: true,
-      stretch: hasImage,
-      backgroundColor: AppTheme.primary,
-      foregroundColor: Colors.white,
-      systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_rounded),
-        onPressed: () => Navigator.of(context).maybePop(),
-      ),
-      title: Text(isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
-          style: const TextStyle(fontWeight: FontWeight.w700)),
-      // Gorsel yokken FlexibleSpaceBar gosterme (gri bosluk olmaz).
-      flexibleSpace: hasImage
-          ? FlexibleSpaceBar(
-              titlePadding: EdgeInsets.zero,
-              stretchModes: const [StretchMode.zoomBackground],
-              // ÜST KISIM FOTO: fotograf tum banner'i kaplar; dokununca
-              // tam ekran acilir. Altta durum rozeti (Kayitlardan bulundu).
-              background: GestureDetector(
-                onTap: _openHeroFullscreen,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Hero(
-                      tag: 'product_img',
-                      child: _localImagePath != null
-                          ? Image.file(File(_localImagePath!),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  _heroBgPlaceholder())
-                          : (_previewImageUrl != null
-                              ? CachedImage(
-                                  url: _previewImageUrl!,
-                                  fit: BoxFit.cover,
-                                  placeholder: _heroBgPlaceholder)
-                              : _heroBgPlaceholder()),
-                    ),
-                    // Alttan koyu perde (durum yazisi okunakli kalsin).
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.center,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Color(0xCC000000),
-                          ],
-                        ),
-                      ),
-                    ),
-                    // "Tam ekran" ipucu (sag ust).
-                    Positioned(
-                      top: MediaQuery.of(context).padding.top + 6,
-                      right: 10,
-                      child: Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.35),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.fullscreen_rounded,
-                            color: Colors.white, size: 20),
-                      ),
-                    ),
-                    // Durum rozeti (altta).
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 14,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+          child: SafeArea(
+            bottom: false,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  _doaTopBar(isEdit),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (_looking)
-                            const Text('Ürün bilgisi aranıyor...',
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 12.5))
-                          else if (_lookupInfo != null)
-                            Flexible(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.4),
-                                  borderRadius:
-                                      BorderRadius.circular(AppTheme.rPill),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      _lookupInfo!.contains('bulundu')
-                                          ? Icons.check_circle_rounded
-                                          : Icons.info_outline_rounded,
-                                      color: _lookupInfo!.contains('bulundu')
-                                          ? AppTheme.statusSafe
-                                          : Colors.white,
-                                      size: 15,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(_lookupInfo!,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12.5,
-                                              fontWeight:
-                                                  FontWeight.w600)),
-                                    ),
-                                  ],
+                          _doaHeroCard(),
+                          const SizedBox(height: 16),
+                          _nameCard(),
+                          const SizedBox(height: 12),
+                          _barcodeCard(),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: _halfField(
+                                  label: 'Kategori / Reyon',
+                                  hint: 'örn. Süt, A1',
+                                  icon: Icons.category_outlined,
+                                  controller: _categoryCtrl,
                                 ),
                               ),
-                            ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _halfField(
+                                  label: 'Konum / Yer',
+                                  hint: 'örn. Raf A3',
+                                  icon: Icons.place_outlined,
+                                  controller: _locationCtrl,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _dateCard(),
+                          const SizedBox(height: 12),
+                          _qtyCard(),
                         ],
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        bottomNavigationBar: _doaBottomBar(isEdit),
+      ),
+    );
+  }
+
+  // ── UST BAR (mint zemin uzerinde geri + baslik) ────────────────────
+  Widget _doaTopBar(bool isEdit) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 16, 8),
+      child: Row(
+        children: [
+          Material(
+            color: _doaCard,
+            shape: const CircleBorder(),
+            elevation: 0,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => Navigator.of(context).maybePop(),
+              child: Padding(
+                padding: EdgeInsets.all(9),
+                child: Icon(Icons.arrow_back_rounded,
+                    color: _doaGreenDark, size: 22),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            isEdit ? 'Ürün Düzenle' : 'Yeni Ürün',
+            style: TextStyle(
+                color: _doaInk,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── HERO KART (DOA "bakiye" kartinin SKT karsiligi) ───────────────
+  //  Urun gorseli varsa TUM karti orantili (BoxFit.cover) kaplar; ustune
+  //  alttan koyu yesil okunabilirlik perdesi + SKT bilgisi biner. Gorsel
+  //  yoksa yesil gradyan + imza halkalari gosterilir.
+  Widget _doaHeroCard() {
+    final st = _liveStatus();
+    final hasDate = _expiryDate != null;
+    final bigDate = hasDate
+        ? DateFormat('dd MMMM yyyy', 'tr').format(_expiryDate!)
+        : 'Tarih seçilmedi';
+    final hasImage = _localImagePath != null || _previewImageUrl != null;
+    return GestureDetector(
+      onTap: hasImage ? _openHeroFullscreen : null,
+      child: Container(
+        height: 210,
+        decoration: BoxDecoration(
+          // Gorsel varsa zemin gorsel olur (gradient yok); yoksa yesil gradyan.
+          gradient: hasImage ? null : _doaHeroGrad,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: _doaGreenDark.withOpacity(0.35),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // ARKA PLAN: urun gorseli TUM karti orantili (cover) kaplar.
+              if (hasImage)
+                Hero(
+                  tag: 'product_img',
+                  child: _localImagePath != null
+                      ? Image.file(File(_localImagePath!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _heroGreenFallback())
+                      : CachedImage(
+                          url: _previewImageUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: _heroGreenFallback),
+                ),
+              // Gorsel yoksa: DOA imza suyu (yari-seffaf beyaz halkalar).
+              if (!hasImage) ...[
+                Positioned(right: -46, top: -54, child: _wmCircle(180)),
+                Positioned(right: 34, bottom: -66, child: _wmCircle(150)),
+                Positioned(left: -34, bottom: -44, child: _wmCircle(120)),
+              ],
+              // OKUNABILIRLIK PERDESI: alttan koyu yesil (yazi net kalsin).
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.transparent,
+                      Color(0xE6105A2E),
+                    ],
+                    stops: [0.0, 0.42, 1.0],
+                  ),
+                ),
+              ),
+              // TAM EKRAN IPUCU (gorsel varsa, sag ust).
+              if (hasImage)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.32),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.fullscreen_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+              // ICERIK: SKT bilgisi (altta).
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Son Kullanma Tarihi',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Text(bigDate,
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.6)),
+                    const SizedBox(height: 12),
+                    if (st != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                  color: st.color, shape: BoxShape.circle),
+                            ),
+                            const SizedBox(width: 7),
+                            Text('${st.label} · ${st.daysText}',
+                                style: const TextStyle(
+                                    // Pill zemini HER TEMADA beyaz; bu yuzden
+                                    // yazi temaya bagli DEGIL, sabit koyu olmali
+                                    // (koyu temada _doaInk acik olup beyaz-uzeri-
+                                    // beyaz kaliyordu).
+                                    color: Color(0xFF1E2A22),
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800)),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.22),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text('Henüz seçilmedi',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700)),
+                      ),
                   ],
                 ),
               ),
-            )
-          : null,
+            ],
+          ),
+        ),
+      ),
     );
   }
+
+  Widget _wmCircle(double d) => Container(
+        width: d,
+        height: d,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withOpacity(0.08),
+        ),
+      );
+
+  /// Gorsel yuklenemezse hero'da yesil gradyan zemin.
+  Widget _heroGreenFallback() =>
+      DecoratedBox(decoration: BoxDecoration(gradient: _doaHeroGrad));
 
   void _openHeroFullscreen() {
     if (_localImagePath != null) {
@@ -987,158 +1040,325 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
   }
 
-  Widget _heroBgPlaceholder() => Container(
-        decoration: const BoxDecoration(gradient: AppTheme.bannerGradient),
-        child: const Center(
-          child: Icon(Icons.inventory_2_rounded,
-              color: Colors.white, size: 56),
+  // ── ORTAK DOA PARCALARI ────────────────────────────────────────────
+  Widget _fieldCard({required Widget child, EdgeInsets? padding}) => Container(
+        padding: padding ??
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: _doaCard,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _doaHair),
+          boxShadow: _doaShadow,
         ),
+        child: child,
       );
 
-  /// Form icindeki arama durumu baneri (gorsel YOK; gorsel ustteki header'da).
-  Widget _buildInlinePreview() {
-    if (!_looking && _lookupInfo == null) {
-      return const SizedBox.shrink();
-    }
+  Widget _iconBubble(IconData icon, {Color? color}) {
+    final c = color ?? _doaGreen;
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: AppTheme.card(),
-      child: Row(
-        children: [
-          if (_looking)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: AppTheme.primary),
-            )
-          else
-            Icon(
-              _lookupInfo != null && _lookupInfo!.contains('bulundu')
-                  ? Icons.check_circle_rounded
-                  : Icons.info_outline_rounded,
-              size: 16,
-              color: _lookupInfo != null && _lookupInfo!.contains('bulundu')
-                  ? AppTheme.statusSafe
-                  : AppTheme.textSecondary,
-            ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _looking ? 'Ürün bilgisi aranıyor...' : (_lookupInfo ?? ''),
-              style: TextStyle(
-                fontSize: 13,
-                color: _lookupInfo != null &&
-                        _lookupInfo!.contains('bulundu')
-                    ? AppTheme.statusSafe
-                    : AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(13),
       ),
+      child: Icon(icon, color: c, size: 21),
     );
   }
 
-  Widget _label(String t) => Padding(
-        padding: const EdgeInsets.only(left: 4, bottom: 8),
-        child: Text(t,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textSecondary)),
+  Widget _miniLabel(String t) => Text(t,
+      style: TextStyle(
+          fontSize: 11.5, fontWeight: FontWeight.w700, color: _doaInk2));
+
+  InputDecoration _bareDeco(String hint) => InputDecoration(
+        isDense: true,
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 2),
+        hintText: hint,
+        hintStyle: TextStyle(color: _doaInk3, fontWeight: FontWeight.w500),
       );
 
-  Widget _buildExpiryCard() {
-    final hasDate = _expiryDate != null;
-    final dateStr = hasDate
-        ? DateFormat('dd MMMM yyyy', 'tr').format(_expiryDate!)
-        : 'Seçilmedi';
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: AppTheme.card(accentColor: hasDate ? AppTheme.primary : null),
+  // ── URUN ADI KARTI (gorsel hero'da; burada ad + arama + OCR) ───────
+  Widget _nameCard() {
+    final foundOk = _lookupInfo != null && _lookupInfo!.contains('bulundu');
+    return _fieldCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: (hasDate ? AppTheme.primary : AppTheme.textTertiary)
-                      .withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(Icons.event_rounded,
-                    color: hasDate ? AppTheme.primary : AppTheme.textTertiary),
-              ),
+              _iconBubble(Icons.shopping_bag_outlined),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(dateStr,
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: hasDate
-                            ? AppTheme.textPrimary
-                            : AppTheme.textSecondary)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _miniLabel('Ürün Adı'),
+                    TextFormField(
+                      controller: _nameCtrl,
+                      cursorColor: _doaGreen,
+                      textInputAction: TextInputAction.next,
+                      style: TextStyle(
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w700,
+                          color: _doaInk,
+                          height: 1.2),
+                      decoration: _bareDeco('Ürün adını yazın').copyWith(
+                        suffixIcon: _nameOcrRunning
+                            ? Padding(
+                                padding: EdgeInsets.all(6),
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: _doaGreen),
+                                ),
+                              )
+                            : null,
+                        suffixIconConstraints:
+                            const BoxConstraints(minWidth: 28, minHeight: 28),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? '' : null,
+                      onChanged: (_) {
+                        if (_nameOcrFailed &&
+                            _nameCtrl.text.trim().isNotEmpty) {
+                          setState(() => _nameOcrFailed = false);
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          // Elle hizli tarih girisi: numerik klavye, otomatik nokta (gg.aa.yyyy).
-          TextField(
-            controller: _dateTextCtrl,
-            focusNode: _dateFocus,
-            keyboardType: TextInputType.number,
-            inputFormatters: [_DateTextInputFormatter()],
-            style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-                letterSpacing: 1.5),
-            decoration: InputDecoration(
-              hintText: 'gg.aa.yyyy',
-              hintStyle: TextStyle(
-                  color: AppTheme.textTertiary, letterSpacing: 1.5),
-              prefixIcon: Icon(Icons.keyboard_rounded,
-                  color: AppTheme.textSecondary),
-              filled: true,
-              fillColor: AppTheme.background.withOpacity(0.4),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppTheme.hairline),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppTheme.hairline),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide:
-                    BorderSide(color: AppTheme.primary, width: 1.5),
+          if (_looking ||
+              _lookupInfo != null ||
+              (_nameOcrFailed &&
+                  _nameCtrl.text.trim().isEmpty &&
+                  !_nameOcrRunning))
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                children: [
+                  if (_looking) ...[
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: _doaGreen),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('Ürün bilgisi aranıyor...',
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: _doaInk2)),
+                  ] else if (_lookupInfo != null) ...[
+                    Icon(
+                      foundOk
+                          ? Icons.check_circle_rounded
+                          : Icons.info_outline_rounded,
+                      size: 15,
+                      color: foundOk ? _doaGreen : _doaInk2,
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(_lookupInfo!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: foundOk ? _doaGreen : _doaInk2)),
+                    ),
+                  ],
+                  const Spacer(),
+                  if (_nameOcrFailed &&
+                      _nameCtrl.text.trim().isEmpty &&
+                      !_nameOcrRunning)
+                    GestureDetector(
+                      onTap: _scanNameFromPhoto,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _doaGreen.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.document_scanner_rounded,
+                                size: 15, color: _doaGreen),
+                            SizedBox(width: 5),
+                            Text('Etiketten Oku',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: _doaGreenDark)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  // ── BARKOD KARTI ───────────────────────────────────────────────────
+  Widget _barcodeCard() {
+    return _fieldCard(
+      child: Row(
+        children: [
+          _looking
+              ? Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: _doaGreen.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: _doaGreen),
+                    ),
+                  ),
+                )
+              : _iconBubble(Icons.qr_code_rounded),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _miniLabel('Barkod'),
+                TextFormField(
+                  controller: _barcodeCtrl,
+                  cursorColor: _doaGreen,
+                  keyboardType: TextInputType.number,
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: _doaInk),
+                  decoration: _bareDeco('Barkod numarası'),
+                ),
+              ],
+            ),
+          ),
+          _smallIconBtn(Icons.search, "Google'da Ara", _searchOnline),
+          _smallIconBtn(Icons.qr_code_scanner, 'Tara', _scanBarcode),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallIconBtn(IconData icon, String tooltip, VoidCallback onTap) =>
+      IconButton(
+        icon: Icon(icon, color: _doaGreen),
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        onPressed: onTap,
+      );
+
+  // ── YARIM GENISLIK ALAN (Kategori / Konum) ────────────────────────
+  Widget _halfField({
+    required String label,
+    required String hint,
+    required IconData icon,
+    required TextEditingController controller,
+  }) {
+    return _fieldCard(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: _doaGreen),
+              const SizedBox(width: 6),
+              Flexible(child: _miniLabel(label)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          TextFormField(
+            controller: controller,
+            cursorColor: _doaGreen,
+            style: TextStyle(
+                fontSize: 15, fontWeight: FontWeight.w700, color: _doaInk),
+            decoration: _bareDeco(hint),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── TARIH KARTI (elle giris + Takvim/Foto/Hassas) ─────────────────
+  Widget _dateCard() {
+    final st = _liveStatus();
+    final accent = st?.color ?? _doaGreen;
+    return _fieldCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _iconBubble(Icons.keyboard_alt_outlined, color: accent),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _miniLabel('Tarihi Elle Yaz'),
+                    TextField(
+                      controller: _dateTextCtrl,
+                      focusNode: _dateFocus,
+                      cursorColor: _doaGreen,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [_DateTextInputFormatter()],
+                      style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: _doaInk,
+                          letterSpacing: 1.5),
+                      decoration: _bareDeco('gg.aa.yyyy').copyWith(
+                        hintStyle: TextStyle(
+                            color: _doaInk3, letterSpacing: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: _miniBtn(Icons.calendar_month_rounded, 'Takvim',
+                child: _doaMethodTile(Icons.calendar_month_rounded, 'Takvim',
                     _pickDate, false),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: _miniBtn(Icons.camera_alt_rounded, 'Foto',
-                    _scanDateFromPhoto, false),
+                child: _doaMethodTile(
+                    Icons.camera_alt_rounded, 'Foto', _scanDateFromPhoto, false),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: _miniBtn(Icons.center_focus_strong_rounded, 'Hassas',
-                    _preciseDate, true),
+                child: _doaMethodTile(Icons.center_focus_strong_rounded,
+                    'Hassas', _preciseDate, true),
               ),
             ],
           ),
@@ -1147,52 +1367,48 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
   }
 
-  Widget _miniBtn(
+  Widget _doaMethodTile(
       IconData icon, String label, VoidCallback onTap, bool filled) {
-    final child = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 20, color: filled ? Colors.white : AppTheme.primary),
-        const SizedBox(height: 4),
-        Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: filled ? Colors.white : AppTheme.primary)),
-      ],
-    );
     return Material(
-      color: filled ? AppTheme.primary : AppTheme.primary.withOpacity(0.12),
+      color: filled ? _doaGreen : _doaGreen.withOpacity(0.10),
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: child,
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 19, color: filled ? Colors.white : _doaGreen),
+              const SizedBox(height: 3),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: filled ? Colors.white : _doaGreenDark)),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildQuantitySelector() {
-    // Klavye girisi ile senkron: alan degistikce _quantity guncellenir;
-    // -/+ butonlari da alani gunceller. Bos/gecersiz -> 1.
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
-      ),
+  // ── ADET KARTI ─────────────────────────────────────────────────────
+  Widget _qtyCard() {
+    return _fieldCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
         children: [
-          const Text('Adet',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          _iconBubble(Icons.inventory_2_outlined),
+          const SizedBox(width: 12),
+          Text('Adet',
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w700, color: _doaInk)),
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.remove_circle_outline),
-            color: AppTheme.primary,
-            onPressed: _quantity > 1
+          _stepBtn(
+            Icons.remove_rounded,
+            _quantity > 1
                 ? () {
                     setState(() => _quantity--);
                     _qtyCtrl.text = '$_quantity';
@@ -1201,22 +1417,23 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                   }
                 : null,
           ),
-          // KLAVYE GIRISI: sayiyi elle yazabilirsin.
           SizedBox(
-            width: 64,
+            width: 52,
             child: TextField(
               controller: _qtyCtrl,
               textAlign: TextAlign.center,
+              cursorColor: _doaGreen,
               keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-              ],
-              style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w800),
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: _doaInk),
               decoration: const InputDecoration(
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(vertical: 8),
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
               ),
               onChanged: (v) {
                 final n = int.tryParse(v.trim());
@@ -1229,30 +1446,44 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               },
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            color: AppTheme.primary,
-            onPressed: () {
-              setState(() => _quantity++);
-              _qtyCtrl.text = '$_quantity';
-              _qtyCtrl.selection = TextSelection.collapsed(
-                  offset: _qtyCtrl.text.length);
-            },
-          ),
+          _stepBtn(Icons.add_rounded, () {
+            setState(() => _quantity++);
+            _qtyCtrl.text = '$_quantity';
+            _qtyCtrl.selection =
+                TextSelection.collapsed(offset: _qtyCtrl.text.length);
+          }),
         ],
       ),
     );
   }
 
-  Widget _buildBottomBar(bool isEdit) {
+  Widget _stepBtn(IconData icon, VoidCallback? onTap) {
+    final enabled = onTap != null;
+    return Material(
+      color: enabled ? _doaGreen.withOpacity(0.12) : _doaHair,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon,
+              size: 20, color: enabled ? _doaGreen : _doaInk3),
+        ),
+      ),
+    );
+  }
+
+  // ── ALT AKSIYON CUBUGU (DOA pill butonlar) ────────────────────────
+  Widget _doaBottomBar(bool isEdit) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: _doaCard,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, -2),
+            color: AppTheme.primaryDark.withOpacity(0.10),
+            blurRadius: 18,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
@@ -1262,36 +1493,82 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Row(
             children: [
+              // Iptal — yesil cizgili pill.
               Expanded(
                 flex: 2,
-                child: OutlinedButton(
-                  onPressed:
-                      _saving ? null : () => Navigator.of(context).maybePop(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap:
+                        _saving ? null : () => Navigator.of(context).maybePop(),
+                    child: Container(
+                      height: 54,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                            color: _doaGreen.withOpacity(0.5), width: 1.4),
+                      ),
+                      child: Text('İptal',
+                          style: TextStyle(
+                              color: _doaGreenDark,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700)),
+                    ),
                   ),
-                  child: const Text('İptal'),
                 ),
               ),
               const SizedBox(width: 12),
+              // Kaydet/Guncelle — dolu yesil pill + parlama.
               Expanded(
                 flex: 3,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Material(
+                  color: _saving ? _doaGreen.withOpacity(0.6) : _doaGreen,
+                  borderRadius: BorderRadius.circular(16),
+                  elevation: 0,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: _saving ? null : _save,
+                    child: Container(
+                      height: 54,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: _saving
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: _doaGreenDark.withOpacity(0.4),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (_saving)
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          else
+                            const Icon(Icons.check_rounded,
+                                color: Colors.white, size: 22),
+                          const SizedBox(width: 8),
+                          Text(isEdit ? 'Güncelle' : 'Kaydet',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
                   ),
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.check_rounded),
-                  label: Text(isEdit ? 'Güncelle' : 'Kaydet',
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
             ],
@@ -1319,10 +1596,14 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
   // KARARLILIK: detectionSpeed = normal (noDuplicates DEGIL). Ayni barkodu
   // ust uste birden cok kez okuyup DOGRULAYABILMEK icin tekrarlar gerekli.
   // Tek karelik yanlis okuma (yansima/bulaniklik) hemen kabul edilmesin.
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
-  );
+  //
+  // Kamera yasam dongusu + hataya karsi yeniden yaratma tamamen
+  // ResilientScanner'a birakildi (asagida). Bu yuzden controller'i FABRIKA
+  // ile veriyoruz; ekran controller'i kendi tutmaz/dispose etmez.
+  MobileScannerController _createController() => MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        formats: const [BarcodeFormat.ean13, BarcodeFormat.code128],
+      );
   bool _handled = false;
 
   // ── COK KARELI DOGRULAMA ──────────────────────────────────────────
@@ -1339,12 +1620,6 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
       _candidate = null;
       _candidateHits = 0;
     });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   /// EAN-13 saglama basamagi (check digit) dogrulamasi. Yanlis okunan
@@ -1382,6 +1657,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
       if (_candidateHits >= _needed) {
         _handled = true;
         HapticFeedback.mediumImpact();
+        FeedbackService.instance.play(ScanFeedback.product);
         Navigator.of(context).pop(val);
       }
       return; // her capture'da tek aday isle
@@ -1409,7 +1685,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
           Row(
             children: [
               Text(_ean13 ? 'EAN-13' : 'Code 128',
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.w600)),
@@ -1424,8 +1700,8 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(
-            controller: _controller,
+          ResilientScanner(
+            create: _createController,
             onDetect: _onDetect,
           ),
           Container(
@@ -1442,7 +1718,7 @@ class _BarcodeScanPageState extends State<BarcodeScanPage> {
               _ean13
                   ? 'Barkodu çerçeveye getirin (EAN-13)'
                   : 'Barkodu çerçeveye getirin (Code 128)',
-              style: const TextStyle(color: Colors.white, fontSize: 15),
+              style: TextStyle(color: Colors.white, fontSize: 15),
             ),
           ),
         ],

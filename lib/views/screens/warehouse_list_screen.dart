@@ -408,7 +408,7 @@ class _WarehouseListScreenState extends State<WarehouseListScreen> {
                       color: AppTheme.accent.withOpacity(0.22),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.warehouse_rounded,
+                    child: Icon(Icons.warehouse_rounded,
                         color: AppTheme.accent, size: 26),
                   ),
                   const SizedBox(width: 14),
@@ -661,7 +661,7 @@ class _WarehouseWizardScreenState extends State<WarehouseWizardScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text('${i + 1}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800,
                         color: AppTheme.accent)),
               ),

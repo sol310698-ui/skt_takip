@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:excel/excel.dart' hide Border;
@@ -13,17 +12,26 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/services/feedback_service.dart';
+import '../../core/services/scan_engine.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/count_item.dart';
 import '../../viewmodels/providers.dart';
+import '../widgets/resilient_scanner.dart';
+import '../widgets/scan_mode_toggle.dart';
 import '../widgets/scan_overlay.dart';
+import '../widgets/ui_kit.dart';
 
 /// ════════════════════════════════════════════════════════════════════
-///  SAYIM (BAGIMSIZ)
+///  SAYIM — OTURUM TABANLI
 /// ────────────────────────────────────────────────────────────────────
-///  Basit sayim: barkod okut -> adet gir -> kaydet. Urun adi (varsa)
-///  barkod dizininden bulunur. Okunan tum kayitlar altta listelenir;
-///  duzeltilip silinebilir. PDF/Excel rapor alinabilir.
+///  Her sayim ayri bir OTURUMDUR (ör. "Reyon 3 · 05.08"). Boylece farkli
+///  sayimlar birbirine karismaz, gecmis oturumlar saklanir, biri kapatilip
+///  yeni bir tanesi acilabilir.
+///
+///  Bu ekran OTURUM LISTESIDIR: oturum ac / sec / kapat / sil / rapor al.
+///  Bir oturuma dokununca [_CountSessionScreen] acilir (asil sayim: barkod
+///  okut → adet gir).
 /// ════════════════════════════════════════════════════════════════════
 class CountScreen extends ConsumerStatefulWidget {
   const CountScreen({super.key});
@@ -33,24 +41,308 @@ class CountScreen extends ConsumerStatefulWidget {
 }
 
 class _CountScreenState extends ConsumerState<CountScreen> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-  );
+  List<CountSession> _sessions = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final list = await ref.read(countRepositoryProvider).getSessions();
+    if (mounted) {
+      setState(() {
+        _sessions = list;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _newSession() async {
+    final now = DateTime.now();
+    final def = 'Sayım · ${DateFormat('dd.MM HH:mm').format(now)}';
+    final name = await _promptName('Yeni Sayım', def);
+    if (name == null) return;
+    final id = await ref.read(countRepositoryProvider).createSession(name);
+    if (!mounted) return;
+    await _openSession(CountSession(id: id, name: name, createdAt: now));
+    _load();
+  }
+
+  Future<String?> _promptName(String title, String initial) async {
+    final ctrl = TextEditingController(text: initial);
+    ctrl.selection =
+        TextSelection(baseOffset: 0, extentOffset: initial.length);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Oturum adı',
+            hintText: 'ör. Reyon 3 sayımı',
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Vazgeç')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Tamam')),
+        ],
+      ),
+    ).then((v) => (v == null || v.isEmpty) ? null : v);
+  }
+
+  Future<void> _openSession(CountSession s) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _CountSessionScreen(session: s),
+    ));
+    _load(); // donunce ozetleri tazele
+  }
+
+  Future<void> _rename(CountSession s) async {
+    final name = await _promptName('Yeniden Adlandır', s.name);
+    if (name == null || s.id == null) return;
+    await ref.read(countRepositoryProvider).renameSession(s.id!, name);
+    _load();
+  }
+
+  Future<void> _toggleClosed(CountSession s) async {
+    if (s.id == null) return;
+    await ref.read(countRepositoryProvider).setClosed(s.id!, !s.isClosed);
+    _load();
+  }
+
+  Future<void> _delete(CountSession s) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('“${s.name}” silinsin mi?'),
+        content: Text(
+            'Bu oturum ve içindeki ${s.itemCount} kalem kalıcı olarak silinecek.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Vazgeç')),
+          FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.statusExpired),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok == true && s.id != null) {
+      await ref.read(countRepositoryProvider).deleteSession(s.id!);
+      _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sayım')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _newSession,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Yeni Sayım'),
+      ),
+      body: _loading
+          ? const LoadingState(message: 'Yükleniyor')
+          : _sessions.isEmpty
+              ? const EmptyState(
+                  icon: Icons.inventory_2_outlined,
+                  title: 'Henüz sayım oturumu yok',
+                  subtitle:
+                      'Sağ alttaki “Yeni Sayım” ile bir oturum başlat; barkod '
+                      'okutup adet gir. Her sayım ayrı tutulur.',
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                    itemCount: _sessions.length,
+                    itemBuilder: (_, i) => _sessionCard(_sessions[i]),
+                  ),
+                ),
+    );
+  }
+
+  Widget _sessionCard(CountSession s) {
+    final closed = s.isClosed;
+    final accent = closed ? AppTheme.textTertiary : AppTheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: AppTheme.card(),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.rLg),
+          onTap: () => _openSession(s),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: accent.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                      closed
+                          ? Icons.lock_outline_rounded
+                          : Icons.play_circle_fill_rounded,
+                      color: accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(s.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w800)),
+                          ),
+                          _statusChip(closed),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        DateFormat('dd.MM.yyyy · HH:mm').format(s.createdAt),
+                        style: TextStyle(
+                            fontSize: 12, color: AppTheme.textTertiary),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _miniStat('${s.itemCount}', 'kalem'),
+                          const SizedBox(width: 16),
+                          _miniStat('${s.totalQty}', 'adet'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                _menu(s),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusChip(bool closed) {
+    final c = closed ? AppTheme.textTertiary : AppTheme.statusSafe;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(closed ? 'Kapalı' : 'Açık',
+          style:
+              TextStyle(color: c, fontSize: 11, fontWeight: FontWeight.w800)),
+    );
+  }
+
+  Widget _miniStat(String value, String label) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.primary)),
+        const SizedBox(width: 3),
+        Text(label,
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+      ],
+    );
+  }
+
+  Widget _menu(CountSession s) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert_rounded, color: AppTheme.textTertiary),
+      onSelected: (v) {
+        switch (v) {
+          case 'rename':
+            _rename(s);
+            break;
+          case 'toggle':
+            _toggleClosed(s);
+            break;
+          case 'delete':
+            _delete(s);
+            break;
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(value: 'rename', child: Text('Yeniden adlandır')),
+        PopupMenuItem(
+            value: 'toggle',
+            child: Text(s.isClosed ? 'Yeniden aç' : 'Oturumu kapat')),
+        const PopupMenuItem(value: 'delete', child: Text('Sil')),
+      ],
+    );
+  }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  TEK OTURUM — asil sayim ekrani (barkod okut → adet gir).
+/// ════════════════════════════════════════════════════════════════════
+class _CountSessionScreen extends ConsumerStatefulWidget {
+  final CountSession session;
+  const _CountSessionScreen({required this.session});
+
+  @override
+  ConsumerState<_CountSessionScreen> createState() =>
+      _CountSessionScreenState();
+}
+
+class _CountSessionScreenState extends ConsumerState<_CountSessionScreen> {
+  MobileScannerController? _controller;
+  MobileScannerController _createController() => MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        facing: CameraFacing.back,
+        formats: ScanEngine.broadFormats,
+      );
+
+  bool _strictScan = true;
   final TextEditingController _qtyController = TextEditingController();
   final FocusNode _qtyFocus = FocusNode();
+
+  int get _sid => widget.session.id!;
+  late bool _closed = widget.session.isClosed;
+  late String _name = widget.session.name;
 
   List<CountItem> _items = [];
   bool _loading = true;
 
-  // O an okutulan barkod (adet bekleniyor).
   String? _activeBarcode;
   String? _activeName;
-  CountItem? _activeExisting; // bu barkod daha once sayildiysa
+  CountItem? _activeExisting;
   bool _scanPaused = false;
 
   String? _lastMsg;
-  bool _lastMsgError = false;
 
   @override
   void initState() {
@@ -60,14 +352,13 @@ class _CountScreenState extends ConsumerState<CountScreen> {
 
   @override
   void dispose() {
-    _controller.dispose();
     _qtyController.dispose();
     _qtyFocus.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
-    final items = await ref.read(countRepositoryProvider).getAll();
+    final items = await ref.read(countRepositoryProvider).getItems(_sid);
     if (mounted) {
       setState(() {
         _items = items;
@@ -80,21 +371,18 @@ class _CountScreenState extends ConsumerState<CountScreen> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_scanPaused || _activeBarcode != null) return;
-    for (final b in capture.barcodes) {
-      final raw = b.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      _handleBarcode(raw);
-      return;
-    }
+    final code = ScanEngine.accept(capture, strictEan13: _strictScan);
+    if (code == null) return;
+    _handleBarcode(code);
   }
 
   Future<void> _handleBarcode(String code) async {
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     setState(() => _scanPaused = true);
 
-    // Bu barkod daha once sayildi mi?
-    final existing = await ref.read(countRepositoryProvider).findByBarcode(code);
-    // Urun adini dizinden bul.
+    final existing =
+        await ref.read(countRepositoryProvider).findByBarcode(_sid, code);
     final name = await ref
         .read(barcodeDirectoryRepositoryProvider)
         .findProductName(code);
@@ -129,6 +417,7 @@ class _CountScreenState extends ConsumerState<CountScreen> {
       await repo.updateQty(existing.id!, qty);
     } else {
       await repo.insert(CountItem(
+        sessionId: _sid,
         barcode: code,
         productName: _activeName,
         qty: qty,
@@ -145,7 +434,6 @@ class _CountScreenState extends ConsumerState<CountScreen> {
       _scanPaused = false;
       _qtyController.clear();
       _lastMsg = '$savedName → $qty adet';
-      _lastMsgError = false;
     });
     await _load();
   }
@@ -177,7 +465,7 @@ class _CountScreenState extends ConsumerState<CountScreen> {
           TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('İptal')),
-          TextButton(
+          FilledButton(
               onPressed: () =>
                   Navigator.pop(ctx, int.tryParse(controller.text.trim())),
               child: const Text('Kaydet')),
@@ -196,26 +484,9 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     await _load();
   }
 
-  Future<void> _clearAll() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sayımı sıfırla'),
-        content: const Text('Tüm sayım kayıtları silinecek. Emin misiniz?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Vazgeç')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Sil')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ref.read(countRepositoryProvider).clearAll();
-      await _load();
-    }
+  Future<void> _toggleClosed() async {
+    await ref.read(countRepositoryProvider).setClosed(_sid, !_closed);
+    if (mounted) setState(() => _closed = !_closed);
   }
 
   // ── PDF RAPOR ──
@@ -233,9 +504,9 @@ class _CountScreenState extends ConsumerState<CountScreen> {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text('Sayım Raporu',
+                pw.Text('Sayım Raporu — $_name',
                     style: pw.TextStyle(
-                        fontSize: 20, fontWeight: pw.FontWeight.bold)),
+                        fontSize: 18, fontWeight: pw.FontWeight.bold)),
                 pw.SizedBox(height: 4),
                 pw.Text(
                     'Tarih: ${DateFormat('dd.MM.yyyy HH:mm').format(now)}',
@@ -354,52 +625,55 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     final file = File(
         '${dir.path}/sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.xlsx');
     await file.writeAsBytes(bytes);
-    await Share.shareXFiles([XFile(file.path)], text: 'Sayım raporu');
+    await Share.shareXFiles([XFile(file.path)], text: 'Sayım raporu · $_name');
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sayım'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
+        title: Text(_name, overflow: TextOverflow.ellipsis),
         actions: [
-          IconButton(
-            tooltip: 'El feneri',
-            icon: const Icon(Icons.flash_on_rounded),
-            onPressed: () => _controller.toggleTorch(),
-          ),
-          if (_items.isNotEmpty)
-            PopupMenuButton<String>(
-              tooltip: 'Rapor',
-              icon: const Icon(Icons.summarize_rounded),
-              onSelected: (v) {
-                if (v == 'pdf') _pdfReport();
-                if (v == 'xlsx') _excelReport();
-                if (v == 'clear') _clearAll();
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'pdf', child: Text('PDF rapor')),
-                PopupMenuItem(value: 'xlsx', child: Text('Excel rapor')),
-                PopupMenuItem(value: 'clear', child: Text('Sayımı sıfırla')),
-              ],
+          if (!_closed)
+            IconButton(
+              tooltip: 'El feneri',
+              icon: const Icon(Icons.flash_on_rounded),
+              onPressed: () => _controller?.toggleTorch(),
             ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (v) {
+              if (v == 'pdf') _pdfReport();
+              if (v == 'xlsx') _excelReport();
+              if (v == 'toggle') _toggleClosed();
+            },
+            itemBuilder: (_) => [
+              if (_items.isNotEmpty) ...[
+                const PopupMenuItem(value: 'pdf', child: Text('PDF rapor')),
+                const PopupMenuItem(value: 'xlsx', child: Text('Excel rapor')),
+              ],
+              PopupMenuItem(
+                  value: 'toggle',
+                  child: Text(_closed ? 'Yeniden aç' : 'Oturumu kapat')),
+            ],
+          ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState(message: 'Yükleniyor')
           : Column(
               children: [
                 _statsBar(),
-                SizedBox(height: 230, child: _scannerArea()),
-                if (_activeBarcode != null)
-                  _qtyEntry(cs)
-                else
-                  _lastMsgBar(cs),
+                if (!_closed) ...[
+                  SizedBox(height: 230, child: _scannerArea()),
+                  if (_activeBarcode != null)
+                    _qtyEntry()
+                  else
+                    _lastMsgBar(),
+                ] else
+                  _closedBanner(),
                 const Divider(height: 1),
-                Expanded(child: _list(cs)),
+                Expanded(child: _list()),
               ],
             ),
     );
@@ -428,7 +702,8 @@ class _CountScreenState extends ConsumerState<CountScreen> {
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: AppTheme.primary)),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        Text(label,
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
       ],
     );
   }
@@ -437,18 +712,55 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     return Stack(
       alignment: Alignment.center,
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
+        ResilientScanner(
+          create: _createController,
+          onDetect: _onDetect,
+          onReady: (c) => _controller = c,
+          accent: AppTheme.primary,
+        ),
         ScanOverlay(
-          hint: _activeBarcode != null
-              ? 'Adet girin'
-              : 'Ürün barkodunu okutun',
-          accent: _activeBarcode != null ? Colors.orange : AppTheme.primary,
+          hint: _activeBarcode != null ? 'Adet girin' : 'Ürün barkodunu okutun',
+          accent: _activeBarcode != null ? AppTheme.amber : AppTheme.primary,
+        ),
+        Positioned(
+          top: 12,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: ScanModeToggle(
+              value: _strictScan,
+              onChanged: (v) => setState(() => _strictScan = v),
+            ),
+          ),
         ),
       ],
     );
   }
 
-  Widget _qtyEntry(ColorScheme cs) {
+  Widget _closedBanner() {
+    return Container(
+      width: double.infinity,
+      color: AppTheme.surfaceAlt,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline_rounded, color: AppTheme.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('Bu oturum kapalı — salt görüntüleme.',
+                style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          TextButton.icon(
+            onPressed: _toggleClosed,
+            icon: const Icon(Icons.lock_open_rounded, size: 18),
+            label: const Text('Yeniden aç'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _qtyEntry() {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(
@@ -459,14 +771,16 @@ class _CountScreenState extends ConsumerState<CountScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(_activeName ?? '(dizinde yok)',
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          Text('Barkod: $_activeBarcode',
               style: TextStyle(
-                  fontSize: 12, color: cs.onSurface.withOpacity(0.6))),
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary)),
+          Text('Barkod: $_activeBarcode',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
           if (_activeExisting != null)
             Text('Önceki: ${_activeExisting!.qty} adet (üzerine yazılacak)',
-                style: TextStyle(fontSize: 11, color: AppTheme.statusWarning)),
+                style:
+                    TextStyle(fontSize: 11, color: AppTheme.statusWarning)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -492,9 +806,9 @@ class _CountScreenState extends ConsumerState<CountScreen> {
               const SizedBox(width: 10),
               SizedBox(
                 height: 52,
-                child: ElevatedButton(
+                child: FilledButton(
                   onPressed: _save,
-                  style: ElevatedButton.styleFrom(
+                  style: FilledButton.styleFrom(
                     backgroundColor: AppTheme.statusSuccess,
                     foregroundColor: Colors.white,
                   ),
@@ -514,17 +828,17 @@ class _CountScreenState extends ConsumerState<CountScreen> {
     );
   }
 
-  Widget _lastMsgBar(ColorScheme cs) {
+  Widget _lastMsgBar() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: _lastMsg == null
-          ? cs.surface
+          ? AppTheme.surface
           : AppTheme.statusSuccess.withOpacity(0.12),
       child: _lastMsg == null
           ? Text('Barkod okutun',
               textAlign: TextAlign.center,
-              style: TextStyle(color: cs.onSurface.withOpacity(0.6)))
+              style: TextStyle(color: AppTheme.textSecondary))
           : Row(
               children: [
                 Icon(Icons.check_circle_rounded,
@@ -532,17 +846,19 @@ class _CountScreenState extends ConsumerState<CountScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                     child: Text('$_lastMsg kaydedildi',
-                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary))),
               ],
             ),
     );
   }
 
-  Widget _list(ColorScheme cs) {
+  Widget _list() {
     if (_items.isEmpty) {
       return Center(
         child: Text('Henüz sayım yok',
-            style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
+            style: TextStyle(color: AppTheme.textTertiary)),
       );
     }
     return ListView.separated(
@@ -552,9 +868,11 @@ class _CountScreenState extends ConsumerState<CountScreen> {
         final e = _items[i];
         return Dismissible(
           key: ValueKey(e.id),
-          direction: DismissDirection.endToStart,
+          direction: _closed
+              ? DismissDirection.none
+              : DismissDirection.endToStart,
           background: Container(
-            color: Colors.red,
+            color: AppTheme.statusExpired,
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 20),
             child: const Icon(Icons.delete, color: Colors.white),
@@ -562,7 +880,7 @@ class _CountScreenState extends ConsumerState<CountScreen> {
           onDismissed: (_) => _deleteItem(e),
           child: ListTile(
             dense: true,
-            onTap: () => _editItem(e),
+            onTap: _closed ? null : () => _editItem(e),
             title: Text(e.productName ?? '(isimsiz)',
                 style: const TextStyle(
                     fontSize: 13, fontWeight: FontWeight.w600)),

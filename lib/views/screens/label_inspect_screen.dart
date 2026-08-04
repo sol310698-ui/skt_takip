@@ -6,6 +6,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/label_inspect_visibility.dart';
@@ -39,7 +41,11 @@ class LabelInspectScreen extends ConsumerStatefulWidget {
       _LabelInspectScreenState();
 }
 
-class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
+class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     autoStart: false,
@@ -454,7 +460,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                       padding: const EdgeInsets.all(14),
                       child: Row(
                         children: [
-                          const Icon(Icons.inventory_2_rounded,
+                          Icon(Icons.inventory_2_rounded,
                               color: AppTheme.primary, size: 20),
                           const SizedBox(width: 12),
                           Expanded(
@@ -476,9 +482,10 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
       ),
     );
     if (chosen == null || !mounted) return;
-    final wid = whs
-        .firstWhere((w) => true)
-        .id!; // palet zaten depoya bagli; detay kendi cozer
+    // Palet zaten bir depoya bagli; detay ekrani gerisini kendi cozer.
+    // Depo listesi bos donerse firstWhere StateError firlatiyordu.
+    final wid = whs.isEmpty ? null : whs.first.id;
+    if (wid == null) return;
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) =>
           PalletDetailScreen(palletId: chosen, warehouseId: wid),
@@ -664,7 +671,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
   Widget _buildScanner() {
     return Stack(
       children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
+        MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
         const ScanOverlay(hint: 'Etiket QR veya barkodunu çerçeveye getirin'),
         // ── EL TERMINALI GIRIS CUBUGU ──
         // Acilista imlec BURADA ama ekran klavyesi ACILMAZ
@@ -1078,7 +1085,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
+            children: [
               Icon(Icons.warehouse_rounded,
                   color: AppTheme.primary, size: 20),
               SizedBox(width: 8),
@@ -1110,7 +1117,7 @@ class _LabelInspectScreenState extends ConsumerState<LabelInspectScreen> {
                             color: AppTheme.textSecondary),
                       ),
                     ),
-                    const Icon(Icons.play_circle_outline_rounded,
+                    Icon(Icons.play_circle_outline_rounded,
                         size: 18, color: AppTheme.primary),
                   ],
                 ),

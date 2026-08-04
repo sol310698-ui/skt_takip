@@ -29,17 +29,60 @@ class AppTheme {
   // Turkuaz ACIK bir renktir: ustunde SIYAH metin dogru kontrasti verir
   // (uygulamadaki accent-ustu-siyah kullanimlarla uyumludur).
   // Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
-  static const Color primary = Color(0xFF2563EB);      // canli mavi (butonlar)
-  static const Color primaryLight = Color(0xFF60A5FA); // acik mavi
-  static const Color primaryDark = Color(0xFF1D4ED8);  // koyu mavi
-  static const Color accent = Color(0xFF2DD4BF);        // turkuaz (vurgu, ustu SIYAH)
+  // DOA yesil kimlik: ana renk YESIL (butonlar/basliklar), vurgu daha acik
+  // yesil. Durum renkleri (statusSafe/Warning/Critical/Expired) DEGISMEZ.
+  // MARKA / VURGU PALETI — artik `const` DEGIL: kullanici Ayarlar'dan vurgu
+  // rengini degistirebilir (#10). applyAccent() bu 7 rengi (ve gradyanlari)
+  // birlikte gunceller; 298+ kullanim runtime'da statik okudugu icin tumu
+  // otomatik yeni renge gecer. Varsayilan: DOA yesili.
+  static Color primary = _accentDefault.primary;      // ana renk (butonlar)
+  static Color primaryLight = _accentDefault.primaryLight; // acik ton
+  static Color primaryDark = _accentDefault.primaryDark;  // koyu ton
+  static Color accent = _accentDefault.accent;         // vurgu
   static const Color amber = Color(0xFFFBBF85);         // pastel sicak vurgu
   static const Color coral = Color(0xFFFB9CAE);         // pastel mercan/uyari
 
   // İmza gradyan paleti — header'lar, FAB'lar, vurgu yuzeyleri icin.
-  static const Color orchid = Color(0xFF3B82F6);  // mavi
-  static const Color blush = Color(0xFF14B8A6);   // koyu turkuaz
-  static const Color sky = Color(0xFF60A5FA);     // acik mavi
+  static Color orchid = _accentDefault.gradB;  // orta ton
+  static Color blush = _accentDefault.gradA;   // koyu ton (gradyan basi)
+  static Color sky = _accentDefault.primaryLight; // acik ton
+
+  // ─── VURGU PALETI SECIMI (#10) ─────────────────────────────────────
+  static const AccentPalette _accentDefault = AccentPalette.green;
+  static AccentPalette activeAccent = _accentDefault;
+
+  /// Secilebilir vurgu paletleri (Ayarlar'da gosterilir).
+  static const List<AccentPalette> accentPalettes = [
+    AccentPalette.green,
+    AccentPalette.blue,
+    AccentPalette.purple,
+    AccentPalette.orange,
+    AccentPalette.teal,
+  ];
+
+  /// Vurgu paletini uygular (ThemeData kurulmadan ONCE, main.dart'ta cagrilir).
+  /// Marka renklerini ve gradyanlari birlikte gunceller; boylece butonlarla
+  /// header/aurora renkleri asla ayrisik kalmaz.
+  static void applyAccent(AccentPalette p) {
+    activeAccent = p;
+    primary = p.primary;
+    primaryLight = p.primaryLight;
+    primaryDark = p.primaryDark;
+    accent = p.accent;
+    orchid = p.gradB;
+    blush = p.gradA;
+    sky = p.primaryLight;
+  }
+
+  /// id'den palet bul (kayitli tercih yuklenirken kullanilir).
+  static AccentPalette accentById(String id) => accentPalettes.firstWhere(
+        (p) => p.id == id,
+        orElse: () => _accentDefault,
+      );
+
+  // ─── LISTE YOGUNLUGU (#10) ─────────────────────────────────────────
+  // Ferah (standart) veya Kompakt. ThemeData.visualDensity'ye uygulanir.
+  static VisualDensity uiDensity = VisualDensity.standard;
 
   // ─── Durum renkleri (SKT) — okunabilirlik icin doygunlugu korunur ──
   static const Color statusSafe = Color(0xFF34D399);
@@ -55,28 +98,28 @@ class AppTheme {
   //  otomatik guncellenir.
   // ════════════════════════════════════════════════════════════════════
 
-  // Koyu palet — derin lavanta-gece (duz siyah degil, sicakligini korur).
-  static const Color _dkBackground = Color(0xFF14121F);
-  static const Color _dkSurface = Color(0xFF1E1B2E);
-  static const Color _dkSurfaceAlt = Color(0xFF272338);
-  static const Color _dkSurfaceHigh = Color(0xFF332D47);
-  static const Color _dkHairline = Color(0xFF3A3450);
-  static const Color _dkTextPrimary = Color(0xFFF5F3FA);
-  static const Color _dkTextSecondary = Color(0xFFAFA8C4);
-  static const Color _dkTextTertiary = Color(0xFF6F6889);
+  // Koyu palet — DOA'nin koyu yesil-gece varyanti (duz siyah degil).
+  static const Color _dkBackground = Color(0xFF0F1A14);
+  static const Color _dkSurface = Color(0xFF17231B);
+  static const Color _dkSurfaceAlt = Color(0xFF1F2E25);
+  static const Color _dkSurfaceHigh = Color(0xFF29392F);
+  static const Color _dkHairline = Color(0xFF31473A);
+  static const Color _dkTextPrimary = Color(0xFFF1F6F2);
+  static const Color _dkTextSecondary = Color(0xFFAAC0B2);
+  static const Color _dkTextTertiary = Color(0xFF6E8378);
   // Koyu temada "cam" beyaz degil, hafif aydinlatilmis lavanta katmanidir.
   static const Color _dkGlassTint = Color(0xFFFFFFFF);
   static const double _dkGlassOpacity = 0.06;
 
-  // Acik palet — "Soft Glass" varsayilani: lavanta-beyaz zemin.
-  static const Color _ltBackground = Color(0xFFF6F7FD); // hafif lavanta-gri
+  // Acik palet — DOA: mint-beyaz zemin, beyaz kartlar.
+  static const Color _ltBackground = Color(0xFFE8F5EC); // mint zemin
   static const Color _ltSurface = Color(0xFFFFFFFF);
-  static const Color _ltSurfaceAlt = Color(0xFFF0F1FA);
-  static const Color _ltSurfaceHigh = Color(0xFFE6E8F7);
-  static const Color _ltHairline = Color(0xFFE2E4F3);
-  static const Color _ltTextPrimary = Color(0xFF211E33);
-  static const Color _ltTextSecondary = Color(0xFF6B6585);
-  static const Color _ltTextTertiary = Color(0xFFA29DB8);
+  static const Color _ltSurfaceAlt = Color(0xFFEAF5EE);
+  static const Color _ltSurfaceHigh = Color(0xFFDCEEE3);
+  static const Color _ltHairline = Color(0xFFDBEBE1);
+  static const Color _ltTextPrimary = Color(0xFF1E2A22);
+  static const Color _ltTextSecondary = Color(0xFF61706A);
+  static const Color _ltTextTertiary = Color(0xFF9DA9A1);
   // Acik temada cam: beyazin yari-seffaf hali (frosted).
   static const Color _ltGlassTint = Color(0xFFFFFFFF);
   static const double _ltGlassOpacity = 0.62;
@@ -127,18 +170,18 @@ class AppTheme {
   static const double rXl = 32;
   static const double rPill = 999;
 
-  // ─── Imza gradyanlar — kirmizi-mavi ────────────────────────────────
-  static const LinearGradient bannerGradient = LinearGradient(
-    colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6), Color(0xFF14B8A6)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  // ─── Imza gradyanlar — aktif vurgu paletine gore (artik getter) ────
+  static LinearGradient get bannerGradient => LinearGradient(
+        colors: [activeAccent.gradA, activeAccent.gradB, activeAccent.gradC],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      );
 
-  static const LinearGradient accentGradient = LinearGradient(
-    colors: [Color(0xFF14B8A6), Color(0xFF60A5FA)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  static LinearGradient get accentGradient => LinearGradient(
+        colors: [orchid, primaryLight],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      );
 
   static const LinearGradient scannerGradient = LinearGradient(
     colors: [Color(0xFF0F1A33), Color(0xFF1A1020)],
@@ -148,12 +191,12 @@ class AppTheme {
 
   /// Aurora gradyani — header arka planlarinda yavasca kayan, daha cok
   /// renk katmani iceren versiyon (animasyonlu kullanim icin tasarlandi).
-  static const List<Color> auroraColors = [
-    Color(0xFF1D4ED8), // canli mavi
-    Color(0xFF3B82F6), // parlak mavi
-    Color(0xFF14B8A6), // turkuaz
-    Color(0xFF3B82F6), // parlak mavi (donguyu kapatir)
-  ];
+  static List<Color> get auroraColors => [
+        activeAccent.gradA,
+        activeAccent.gradB,
+        activeAccent.gradC,
+        activeAccent.gradB, // donguyu kapatir
+      ];
 
   // ─── Sistem cubugu (status bar) ────────────────────────────────────
   static SystemUiOverlayStyle systemBarForColor(Color bg) {
@@ -170,9 +213,11 @@ class AppTheme {
   }
 
   // ─── Golge tokenleri — Soft Glass: daha yumusak, daha dagilmis ─────
+  // Golgeler de temaya bagli: acik temada vurgu renginin koyu tonuyla
+  // renklenir (accent degisince golge tonu da degisir), koyu temada siyah.
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
+          color: (isLight ? primaryDark : Colors.black)
               .withOpacity(isLight ? 0.10 : 0.24),
           blurRadius: 16,
           offset: const Offset(0, 4),
@@ -181,7 +226,7 @@ class AppTheme {
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(
-          color: (isLight ? const Color(0xFF2563EB) : Colors.black)
+          color: (isLight ? primaryDark : Colors.black)
               .withOpacity(isLight ? 0.14 : 0.32),
           blurRadius: 28,
           offset: const Offset(0, 10),
@@ -230,27 +275,45 @@ class AppTheme {
   static ThemeData get light => _build(Brightness.light);
 
   static ThemeData _build(Brightness brightness) {
-    applyBrightness(brightness == Brightness.light);
+    // KENDI paletini yerelden kurar; global statikleri DEGISTIRMEZ/OKUMAZ
+    // (yan etkisiz). Boylece theme/darkTheme kurulurken statikler bozulmaz;
+    // statikleri yalnizca main.dart aktif temaya gore ayarlar.
+    final light = brightness == Brightness.light;
+    final bg = light ? _ltBackground : _dkBackground;
+    final surf = light ? _ltSurface : _dkSurface;
+    final surfAlt = light ? _ltSurfaceAlt : _dkSurfaceAlt;
+    final surfHigh = light ? _ltSurfaceHigh : _dkSurfaceHigh;
+    final hair = light ? _ltHairline : _dkHairline;
+    final txP = light ? _ltTextPrimary : _dkTextPrimary;
+    final txS = light ? _ltTextSecondary : _dkTextSecondary;
+    final txT = light ? _ltTextTertiary : _dkTextTertiary;
+    final gTint = light ? _ltGlassTint : _dkGlassTint;
+    final gOp = light ? _ltGlassOpacity : _dkGlassOpacity;
 
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
+      visualDensity: uiDensity,
+      // Premium tipografi (luks/minimal): Manrope. Eksik glif olursa NotoSans'a
+      // duser. Tum uygulama tek yerden bu fonta gecer.
+      fontFamily: 'Manrope',
+      fontFamilyFallback: const ['NotoSans'],
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         brightness: brightness,
-        surface: surface,
+        surface: surf,
         primary: primary,
         secondary: accent,
         error: statusExpired,
       ),
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: bg,
     );
 
     final barIcons =
         brightness == Brightness.light ? Brightness.dark : Brightness.light;
 
     return base.copyWith(
-      scaffoldBackgroundColor: background,
+      scaffoldBackgroundColor: bg,
       splashFactory: InkSparkle.splashFactory,
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -263,8 +326,8 @@ class AppTheme {
         },
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: background,
-        foregroundColor: textPrimary,
+        backgroundColor: bg,
+        foregroundColor: txP,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
@@ -274,39 +337,39 @@ class AppTheme {
           statusBarBrightness: brightness,
         ),
         titleTextStyle: TextStyle(
-          color: textPrimary,
+          color: txP,
           fontSize: 19,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.2,
         ),
       ),
       cardTheme: CardThemeData(
-        color: glassTint.withOpacity(glassOpacity),
+        color: gTint.withOpacity(gOp),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rLg),
           side: BorderSide(
-              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+              color: Colors.white.withOpacity(light ? 0.7 : 0.08)),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceAlt,
-        hintStyle: TextStyle(color: textTertiary),
-        labelStyle: TextStyle(color: textSecondary),
-        prefixIconColor: textSecondary,
-        suffixIconColor: textSecondary,
+        fillColor: surfAlt,
+        hintStyle: TextStyle(color: txT),
+        labelStyle: TextStyle(color: txS),
+        prefixIconColor: txS,
+        suffixIconColor: txS,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: BorderSide(color: hairline, width: 1),
+          borderSide: BorderSide(color: hair, width: 1),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(rMd),
-          borderSide: const BorderSide(color: primary, width: 1.8),
+          borderSide: BorderSide(color: primary, width: 1.8),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -315,8 +378,8 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: surfaceHigh,
-          disabledForegroundColor: textTertiary,
+          disabledBackgroundColor: surfHigh,
+          disabledForegroundColor: txT,
           padding: const EdgeInsets.symmetric(vertical: 16),
           textStyle:
               const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
@@ -345,57 +408,61 @@ class AppTheme {
         ),
       ),
       textTheme: base.textTheme
-          .apply(bodyColor: textPrimary, displayColor: textPrimary)
+          .apply(bodyColor: txP, displayColor: txP)
           .copyWith(
-            titleLarge: const TextStyle(
-                fontWeight: FontWeight.w800, letterSpacing: -0.4),
-            titleMedium: const TextStyle(
-                fontWeight: FontWeight.w700, letterSpacing: -0.2),
-            bodyMedium: const TextStyle(height: 1.4),
+            // KRITIK: color MUTLAKA verilmeli. Aksi halde bu uc stilin rengi
+            // null olur ve renk belirtmeyen her Text, temadan bagimsiz BEYAZ'a
+            // duser (koyu temada dogru gorunur ama AYDINLIK temada beyaz-uzeri-
+            // beyaz olup okunmaz). txP aydinlikta koyu, koyuda acik metindir.
+            titleLarge: TextStyle(
+                color: txP, fontWeight: FontWeight.w800, letterSpacing: -0.4),
+            titleMedium: TextStyle(
+                color: txP, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+            bodyMedium: TextStyle(color: txP, height: 1.4),
           ),
       dialogTheme: DialogThemeData(
-        backgroundColor: surface,
+        backgroundColor: surf,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rLg),
           side: BorderSide(
-              color: Colors.white.withOpacity(isLight ? 0.7 : 0.08)),
+              color: Colors.white.withOpacity(light ? 0.7 : 0.08)),
         ),
         titleTextStyle: TextStyle(
-            color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
+            color: txP, fontSize: 18, fontWeight: FontWeight.w700),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: surface,
-        modalBackgroundColor: surface,
+        backgroundColor: surf,
+        modalBackgroundColor: surf,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(rXl)),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: surfaceHigh,
-        contentTextStyle: TextStyle(color: textPrimary),
+        backgroundColor: surfHigh,
+        contentTextStyle: TextStyle(color: txP),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
         insetPadding: const EdgeInsets.all(16),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface,
+        backgroundColor: surf,
         indicatorColor: primary.withOpacity(0.18),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 11.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? primaryDark : textSecondary,
+            color: selected ? primaryDark : txS,
           );
         }),
       ),
-      dividerTheme: DividerThemeData(color: hairline, thickness: 1),
+      dividerTheme: DividerThemeData(color: hair, thickness: 1),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceAlt,
-        side: BorderSide(color: hairline),
-        labelStyle: TextStyle(color: textSecondary, fontSize: 12),
+        backgroundColor: surfAlt,
+        side: BorderSide(color: hair),
+        labelStyle: TextStyle(color: txS, fontSize: 12),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(rPill)),
       ),
@@ -551,15 +618,16 @@ class _AuroraBackgroundState extends State<AuroraBackground>
         // kirmizi kalir, renkler birbirine karismaz).
         final t = _AuroraSync.instance.value * 2 * math.pi;
         final mid = 0.5 + 0.12 * math.sin(t); // 0.38 ↔ 0.62 arasi salinim
-        const blue = Color(0xFF1D4ED8);
-        const red = Color(0xFF14B8A6); // artik turkuaz (isim eski API)
+        // Aktif vurgu paletine gore (isim eski API — blue/red tarihsel).
+        final blue = AppTheme.blush; // koyu ton
+        final red = AppTheme.accent; // acik ton
         return Container(
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: const [blue, blue, red, red],
+              colors: [blue, blue, red, red],
               stops: [
                 0.0,
                 (mid - 0.10).clamp(0.0, 1.0),
@@ -573,4 +641,99 @@ class _AuroraBackgroundState extends State<AuroraBackground>
       },
     );
   }
+}
+
+/// ════════════════════════════════════════════════════════════════════
+///  VURGU PALETI (#10) — kullanicinin secebilecegi renk aileleri.
+/// ────────────────────────────────────────────────────────────────────
+///  Her palet; ana renk (primary) + acik/koyu tonlar + vurgu + uclu
+///  header gradyanini birlikte tanimlar. Boylece buton, header, aurora,
+///  secili durum — hepsi tek renk ailesinde kalir.
+/// ════════════════════════════════════════════════════════════════════
+class AccentPalette {
+  final String id;
+  final String label;
+  final Color primary;
+  final Color primaryLight;
+  final Color primaryDark;
+  final Color accent;
+  final Color gradA; // gradyan basi (koyu)
+  final Color gradB; // gradyan ortasi
+  final Color gradC; // gradyan sonu (acik)
+
+  const AccentPalette({
+    required this.id,
+    required this.label,
+    required this.primary,
+    required this.primaryLight,
+    required this.primaryDark,
+    required this.accent,
+    required this.gradA,
+    required this.gradB,
+    required this.gradC,
+  });
+
+  /// Onizleme rozeti icin temsili renk.
+  Color get swatch => primary;
+
+  // ── Hazir paletler ──────────────────────────────────────────────
+  static const green = AccentPalette(
+    id: 'green',
+    label: 'Yeşil',
+    primary: Color(0xFF1E9E52),
+    primaryLight: Color(0xFF52C07E),
+    primaryDark: Color(0xFF157A3E),
+    accent: Color(0xFF34C77B),
+    gradA: Color(0xFF157A3E),
+    gradB: Color(0xFF23A055),
+    gradC: Color(0xFF3BB873),
+  );
+
+  static const blue = AccentPalette(
+    id: 'blue',
+    label: 'Mavi',
+    primary: Color(0xFF2563EB),
+    primaryLight: Color(0xFF60A5FA),
+    primaryDark: Color(0xFF1D4ED8),
+    accent: Color(0xFF38BDF8),
+    gradA: Color(0xFF1D4ED8),
+    gradB: Color(0xFF2563EB),
+    gradC: Color(0xFF3B82F6),
+  );
+
+  static const purple = AccentPalette(
+    id: 'purple',
+    label: 'Mor',
+    primary: Color(0xFF7C3AED),
+    primaryLight: Color(0xFFA78BFA),
+    primaryDark: Color(0xFF5B21B6),
+    accent: Color(0xFFC084FC),
+    gradA: Color(0xFF5B21B6),
+    gradB: Color(0xFF7C3AED),
+    gradC: Color(0xFF9333EA),
+  );
+
+  static const orange = AccentPalette(
+    id: 'orange',
+    label: 'Turuncu',
+    primary: Color(0xFFEA7317),
+    primaryLight: Color(0xFFFB923C),
+    primaryDark: Color(0xFFC2560E),
+    accent: Color(0xFFFDBA74),
+    gradA: Color(0xFFC2560E),
+    gradB: Color(0xFFEA7317),
+    gradC: Color(0xFFF97316),
+  );
+
+  static const teal = AccentPalette(
+    id: 'teal',
+    label: 'Deniz',
+    primary: Color(0xFF0D9488),
+    primaryLight: Color(0xFF2DD4BF),
+    primaryDark: Color(0xFF0F766E),
+    accent: Color(0xFF5EEAD4),
+    gradA: Color(0xFF0F766E),
+    gradB: Color(0xFF0D9488),
+    gradC: Color(0xFF14B8A6),
+  );
 }

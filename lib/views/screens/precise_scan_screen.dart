@@ -97,7 +97,7 @@ class _PreciseScanScreenState extends State<PreciseScanScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: AppTheme.card(accentColor: AppTheme.accent),
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.lightbulb_outline_rounded,
                       color: AppTheme.accent),

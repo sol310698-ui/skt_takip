@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../../core/services/feedback_service.dart';
+import '../widgets/scan_error_retry.dart';
+import '../../core/camera_lifecycle_mixin.dart';
 
 import '../../core/services/label_active_lists_service.dart';
 import '../../core/services/label_deleted_service.dart';
@@ -14,6 +17,7 @@ import '../../core/utils/scan_parser.dart';
 import '../../core/services/label_history_service.dart';
 import '../../core/services/label_pending_queue_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/barcode_entry.dart';
 import '../../data/models/label_history_entry.dart';
 import '../../data/models/label_item.dart';
 import '../../viewmodels/providers.dart';
@@ -98,6 +102,56 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
     // Baska ekranlardan (orn. Fiyat Degisim) "Etikete Gonder" ile
     // gelmis bekleyen urunleri kuyruktan al, ilgili sekmelere ekle.
     await _drainPendingQueue();
+    // Kayitli satirlarin adlarini veritabaniyla tazele: onceden "Bilinmeyen
+    // ürün" eklenip sonradan dizine adi girilenler guncel adiyla gorunsun.
+    await _refreshNamesFromDirectory();
+  }
+
+  /// Her acilista TUM gruplardaki satirlarin urun adi/kisa kodunu barkod
+  /// dizininden (veritabani) yeniden cozer. Dizinde adi bulunan satirlar
+  /// guncellenir; dizinde OLMAYAN barkodlarin mevcut adi KORUNUR (elle/baska
+  /// kaynaktan gelmis ad "Bilinmeyen ürün" ile ezilmez).
+  Future<void> _refreshNamesFromDirectory() async {
+    // Tum gruplardaki benzersiz barkodlar.
+    final barcodes = <String>{
+      for (final list in _lists.values)
+        for (final it in list) it.barcode,
+    };
+    if (barcodes.isEmpty) return;
+    final repo = ref.read(barcodeDirectoryRepositoryProvider);
+    final resolved = <String, BarcodeEntry?>{};
+    for (final b in barcodes) {
+      try {
+        resolved[b] = await repo.findEntryByBarcode(b);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final changedGroups = <LabelGroup>{};
+    setState(() {
+      for (final group in LabelGroup.values) {
+        final list = _lists[group]!;
+        for (int i = 0; i < list.length; i++) {
+          final it = list[i];
+          final entry = resolved[it.barcode];
+          final newName = entry?.productName.trim();
+          if (newName == null || newName.isEmpty) continue; // dizinde yok → koru
+          final newStock = entry?.stockCode;
+          final nameChanged = newName != it.productName;
+          final stockChanged = newStock != null && newStock != it.stockCode;
+          if (nameChanged || stockChanged) {
+            list[i] = it.copyWith(
+              productName: newName,
+              stockCode: newStock ?? it.stockCode,
+            );
+            changedGroups.add(group);
+          }
+        }
+      }
+    });
+    // Degisen gruplari kalici depoya yaz (bir dahaki acilista da guncel gelsin).
+    for (final g in changedGroups) {
+      await LabelActiveListsService.instance.saveGroup(g.name, _lists[g]!);
+    }
   }
 
   /// Aktif grubun listesini kalici depoya yazar. Liste degisen HER
@@ -653,7 +707,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           'Kısa kod: ${it.stockCode}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             color: AppTheme.accent,
                             fontWeight: FontWeight.w600,
@@ -673,7 +727,7 @@ class _LabelPrintScreenState extends ConsumerState<LabelPrintScreen>
                   child: Text(
                     '${it.quantity}',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 18,
                         color: AppTheme.accent),
@@ -788,7 +842,7 @@ class _QuantityInputDialogState extends State<_QuantityInputDialog> {
                     autofocus: true,
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 56,
                       fontWeight: FontWeight.w800,
                       color: AppTheme.accent,
@@ -1287,7 +1341,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                         padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
                         child: Text(
                           dayKey,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: AppTheme.accent,
@@ -1338,7 +1392,7 @@ class _LabelHistoryScreenState extends State<_LabelHistoryScreen> {
                                           ),
                                           child: Text(
                                             e.groupTitle,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.w700,
                                               color: AppTheme.primaryLight,
@@ -1384,7 +1438,11 @@ class _ContinuousScanScreen extends StatefulWidget {
   State<_ContinuousScanScreen> createState() => _ContinuousScanScreenState();
 }
 
-class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
+class _ContinuousScanScreenState extends State<_ContinuousScanScreen> with CameraLifecycleMixin {
+  // Kamera yasam dongusu: arka plandan donunce kamera unlem/takilma
+  // yasamasin diye durdur/yeniden baslat.
+  @override
+  List<MobileScannerController> get cameraControllers => [_controller];
   final MobileScannerController _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.normal,
     formats: const [
@@ -1494,6 +1552,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
     _lastScanTime = now;
 
     HapticFeedback.mediumImpact();
+    FeedbackService.instance.play(ScanFeedback.product);
     final newQty = await widget.onScan(value);
     if (!mounted) return;
 
@@ -1574,7 +1633,7 @@ class _ContinuousScanScreenState extends State<_ContinuousScanScreen> {
       body: Stack(
         alignment: Alignment.center,
         children: [
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(controller: _controller, onDetect: _onDetect, errorBuilder: (context, error, child) => ScanErrorRetry(controller: _controller)),
           Container(
             width: 260,
             height: 160,
