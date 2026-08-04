@@ -406,11 +406,15 @@ class AppTheme {
       textTheme: base.textTheme
           .apply(bodyColor: txP, displayColor: txP)
           .copyWith(
-            titleLarge: const TextStyle(
-                fontWeight: FontWeight.w800, letterSpacing: -0.4),
-            titleMedium: const TextStyle(
-                fontWeight: FontWeight.w700, letterSpacing: -0.2),
-            bodyMedium: const TextStyle(height: 1.4),
+            // KRITIK: color MUTLAKA verilmeli. Aksi halde bu uc stilin rengi
+            // null olur ve renk belirtmeyen her Text, temadan bagimsiz BEYAZ'a
+            // duser (koyu temada dogru gorunur ama AYDINLIK temada beyaz-uzeri-
+            // beyaz olup okunmaz). txP aydinlikta koyu, koyuda acik metindir.
+            titleLarge: TextStyle(
+                color: txP, fontWeight: FontWeight.w800, letterSpacing: -0.4),
+            titleMedium: TextStyle(
+                color: txP, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+            bodyMedium: TextStyle(color: txP, height: 1.4),
           ),
       dialogTheme: DialogThemeData(
         backgroundColor: surf,
