@@ -359,28 +359,78 @@ class AssistantActionService {
 
   static const int _defaultWarehouseFallback = 1;
 
-  /// Asistan cevabindaki ```action ... ``` bloklarini ayikla + parse et.
-  /// Bloklar cevaptan SILINIR; geriye kalan duz metin sohbette gosterilir.
+  /// Bilinen eylem tipleri (parse'in JSON/bare yollarinda yanlis-pozitifi
+  /// onlemek icin). ```action bloklari bu kontrolden MUAF (acik niyet).
+  static const Set<String> _knownTypes = {
+    'add_pallet_item', 'remove_pallet_item', 'create_pallet', 'delete_pallet',
+    'move_pallet', 'create_warehouse', 'create_shelf_unit', 'delete_shelf_unit',
+    'add_skt_product', 'set_theme', 'set_app_lock', 'change_pin',
+    'set_biometric', 'set_location_reveal', 'set_company_flow', 'add_teshir',
+    'remove_teshir', 'add_restock', 'clear_notifications', 'open_screen',
+    'tap_text', 'global_action', 'open_app', 'shell_exec', 'remember',
+    'add_barcode_entry', 'add_alarm', 'delete_alarm', 'db_write', 'prefs_set',
+  };
+
+  /// Asistan cevabindaki eylemleri ayikla + parse et. Bloklar cevaptan
+  /// SILINIR; geriye kalan duz metin sohbette gosterilir.
+  ///
+  /// SAGLAMLIK: Model her zaman tam olarak ```action citini kullanmayabilir;
+  /// çoğu zaman JSON'u ```json içine koyar ya da düz metne gömer. Bu yüzden
+  /// üç yol da desteklenir:
+  ///   1) ```action ... ```  → içindeki her nesne eylem sayılır (acik niyet).
+  ///   2) ```json   ... ```  → yalnizca "type" alani BILINEN bir eylemse.
+  ///   3) düz metindeki tek-düzey JSON nesneleri → yalnizca BILINEN "type".
+  /// Böylece "konuşuyor ama kart çıkmıyor" durumu büyük ölçüde kalkar.
   ({String cleanText, List<AssistantAction> actions}) parse(String reply) {
     final actions = <AssistantAction>[];
-    final re = RegExp(r'```action\s*([\s\S]*?)```', multiLine: true);
-    final clean = reply.replaceAllMapped(re, (m) {
-      final raw = (m.group(1) ?? '').trim();
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            if (e is Map<String, dynamic>) actions.add(_fromMap(e));
-          }
-        } else if (decoded is Map<String, dynamic>) {
-          actions.add(_fromMap(decoded));
-        }
-      } catch (_) {
-        // Bozuk JSON -> yok say (metinden yine de silinir).
-      }
+    var clean = reply;
+
+    // 1+2) ```action / ```json citli bloklar.
+    final fence =
+        RegExp(r'```(action|json)\s*([\s\S]*?)```', multiLine: true);
+    clean = clean.replaceAllMapped(fence, (m) {
+      final tag = m.group(1);
+      _collectActions((m.group(2) ?? '').trim(), actions,
+          onlyKnown: tag == 'json');
       return '';
     }).trim();
+
+    // 3) Citsiz, düz metne gömülü tek-düzey JSON nesneleri ("type" bilinen).
+    final bare = RegExp(r'\{[^{}]*\}');
+    clean = clean.replaceAllMapped(bare, (m) {
+      final raw = m.group(0)!;
+      if (!raw.contains('"type"')) return raw;
+      final before = actions.length;
+      _collectActions(raw, actions, onlyKnown: true);
+      // Sadece gercekten eyleme donustuyse metinden sil.
+      return actions.length > before ? '' : raw;
+    }).trim();
+
     return (cleanText: clean, actions: actions);
+  }
+
+  /// Bir JSON parcasindan (nesne veya liste) eylemleri toplar.
+  void _collectActions(String raw, List<AssistantAction> out,
+      {required bool onlyKnown}) {
+    void add(dynamic e) {
+      if (e is Map<String, dynamic>) {
+        final t = (e['type'] ?? '').toString().trim();
+        if (!onlyKnown || _knownTypes.contains(t)) out.add(_fromMap(e));
+      }
+    }
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        for (final e in decoded) {
+          add(e);
+        }
+      } else {
+        add(decoded);
+      }
+    } catch (_) {
+      // Bozuk JSON -> yok say.
+    }
   }
 
   AssistantAction _fromMap(Map<String, dynamic> m) {
