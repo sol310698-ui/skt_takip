@@ -108,9 +108,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// yanip soner.
   bool _listEntryAnimDone = false;
 
-  // Selam satiri eklendigi icin hero biraz yukseldi (aksi halde selam, ust
-  // satirdaki "SKT Takip" basligiyla cakisiyordu).
-  static const double _heroContentHeight = 182;
+  // Selam + arama; risk seridi kaldirildigi icin hero biraz kisaldi.
+  static const double _heroContentHeight = 158;
 
   @override
   void initState() {
@@ -274,13 +273,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _headline(counts, total),
-                            const SizedBox(height: 8),
-                            _RiskRibbon(
-                              counts: counts,
-                              active: active,
-                              onTap: _applyFilter,
-                            ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             _searchRow(),
                           ],
                         ),
