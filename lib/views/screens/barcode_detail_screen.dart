@@ -450,7 +450,8 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
     );
   }
 
-  /// POSTER BASLIK — kavisli, yuzen fotograf karti (dokun: tam ekran).
+  /// SADE BASLIK — geri + (varsa) yuvarlak gorsel karti + urun adi + barkod no.
+  /// "Lüks & Sade": agir renkli blok yok; ferah, editoryal duzen.
   Widget _posterHeader() {
     final hasImage = _localImagePath != null || _imageUrl != null;
     void openZoom() => openImageZoom(context,
@@ -459,89 +460,98 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
         heroTag: 'bc_img',
         title: _entry.productName);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: SizedBox(
-          height: 236,
-          child: Stack(
-            fit: StackFit.expand,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              GestureDetector(
-                onTap: hasImage ? openZoom : null,
-                child: Hero(
-                  tag: 'bc_img',
-                  child: _localImagePath != null
-                      ? Image.file(File(_localImagePath!),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _heroBg())
-                      : (_imageUrl != null
-                          ? SmartProductImage(
-                              networkUrl: _imageUrl,
-                              barcode: _entry.barcode,
-                              fit: BoxFit.cover,
-                              placeholder: _heroBgIcon,
-                            )
-                          : _heroBg()),
-                ),
-              ),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0x55000000),
-                      Colors.transparent,
-                      Color(0xE6000000),
-                    ],
-                    stops: [0.0, 0.42, 1.0],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 10,
-                left: 10,
-                child: _circleBtn(Icons.arrow_back_rounded,
-                    () => Navigator.of(context).pop(_changed)),
-              ),
-              if (hasImage)
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: _circleBtn(Icons.fullscreen_rounded, openZoom),
-                ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 14,
-                child: Text(
-                  _entry.productName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
-                      height: 1.15,
-                      shadows: [Shadow(color: Colors.black87, blurRadius: 10)]),
-                ),
-              ),
-              if (_loadingWeb && !hasImage)
-                const Center(
-                  child: SizedBox(
-                    width: 26,
-                    height: 26,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  ),
-                ),
+              _iconBtn(Icons.arrow_back_rounded,
+                  () => Navigator.of(context).pop(_changed)),
+              const Spacer(),
+              if (hasImage) _iconBtn(Icons.fullscreen_rounded, openZoom),
             ],
           ),
-        ),
+          if (hasImage) ...[
+            const SizedBox(height: 14),
+            GestureDetector(
+              onTap: openZoom,
+              child: Hero(
+                tag: 'bc_img',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: SizedBox(
+                    height: 200,
+                    width: double.infinity,
+                    child: _localImagePath != null
+                        ? Image.file(File(_localImagePath!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _phTile())
+                        : SmartProductImage(
+                            networkUrl: _imageUrl,
+                            barcode: _entry.barcode,
+                            fit: BoxFit.cover,
+                            placeholder: _phTile,
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ] else if (_loadingWeb) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: AppTheme.primary),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Text(
+            _entry.productName,
+            style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                height: 1.18,
+                letterSpacing: -0.4),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _entry.barcode,
+            style: TextStyle(
+                color: AppTheme.textTertiary,
+                fontSize: 13,
+                fontFamily: 'monospace',
+                letterSpacing: 0.6),
+          ),
+        ],
       ),
     );
   }
+
+  /// Sade dairesel buton (baslik ust satiri icin).
+  Widget _iconBtn(IconData icon, VoidCallback onTap) => Material(
+        color: AppTheme.surfaceAlt,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Icon(icon, color: AppTheme.textPrimary, size: 22),
+          ),
+        ),
+      );
+
+  /// Gorsel yuklenemezse / yokken kullanilan sade yer tutucu (gorsel slotu).
+  Widget _phTile() => Container(
+        color: AppTheme.surfaceAlt,
+        child: Center(
+          child: Icon(Icons.inventory_2_outlined,
+              color: AppTheme.textTertiary, size: 46),
+        ),
+      );
 
   Widget _circleBtn(IconData icon, VoidCallback onTap) => Material(
         color: Colors.black.withOpacity(0.4),
@@ -583,30 +593,8 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── BENTO UST SATIR: buyuk SKT hero + iki mini kutu ──
-          SizedBox(
-            height: 190,
-            child: Row(
-              children: [
-                Expanded(flex: 11, child: _sktHeroTile()),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 9,
-                  child: Column(
-                    children: [
-                      Expanded(
-                          child: _miniTile(Icons.inventory_2_rounded,
-                              '$totalQty', 'Toplam Adet', AppTheme.primary)),
-                      const SizedBox(height: 12),
-                      Expanded(
-                          child: _miniTile(Icons.place_rounded, '$locCount',
-                              'Konum', AppTheme.statusWarning)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // ── SADE OZET SERIDI: SKT · Adet · Konum (dengeli 3 sutun) ──
+          _summaryStrip(totalQty, locCount),
           // ── FIFO/FEFO uyarisi ──
           if (_fifo != null) ...[
             const SizedBox(height: 12),
@@ -674,6 +662,102 @@ class _BarcodeDetailScreenState extends ConsumerState<BarcodeDetailScreen> {
                 'Bu barkod için internette ek bilgi/görsel bulunamadı.'),
           ],
         ],
+      ),
+    );
+  }
+
+  /// Sade ozet seridi: en yakin SKT · toplam adet · konum sayisi.
+  Widget _summaryStrip(int totalQty, int locCount) {
+    final hasSkt = _sktProducts.isNotEmpty;
+    String sktValue;
+    String sktLabel;
+    Color sktColor;
+    IconData sktIcon;
+    VoidCallback? sktTap;
+    if (hasSkt) {
+      final sorted = [..._sktProducts]
+        ..sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+      final days = sorted.first.expiryDate.difference(DateTime.now()).inDays;
+      sktColor = days < 0
+          ? AppTheme.statusExpired
+          : days <= 7
+              ? AppTheme.statusCritical
+              : days <= 30
+                  ? AppTheme.statusWarning
+                  : AppTheme.statusSafe;
+      sktValue = days < 0 ? '${-days}' : '$days';
+      sktLabel = days < 0
+          ? 'gün geçti'
+          : days == 0
+              ? 'bugün'
+              : 'gün kaldı';
+      sktIcon = Icons.event_rounded;
+    } else {
+      sktColor = AppTheme.primary;
+      sktValue = '—';
+      sktLabel = 'SKT ekle';
+      sktIcon = Icons.add_circle_outline_rounded;
+      sktTap = _addSkt;
+    }
+    return Container(
+      decoration: AppTheme.card(),
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            Expanded(
+                child: _summaryCell(sktValue, sktLabel, sktColor,
+                    icon: sktIcon, onTap: sktTap)),
+            _vDivider(),
+            Expanded(
+                child: _summaryCell('$totalQty', 'adet', AppTheme.textPrimary,
+                    icon: Icons.inventory_2_outlined)),
+            _vDivider(),
+            Expanded(
+                child: _summaryCell('$locCount', 'konum', AppTheme.textPrimary,
+                    icon: Icons.place_outlined)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vDivider() => Container(
+        width: 1,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        color: AppTheme.hairline,
+      );
+
+  Widget _summaryCell(String value, String label, Color color,
+      {IconData? icon, VoidCallback? onTap}) {
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 18, color: color.withOpacity(0.9)),
+          const SizedBox(height: 7),
+        ],
+        Text(value,
+            style: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.w800,
+                height: 1.0,
+                color: color)),
+        const SizedBox(height: 3),
+        Text(label,
+            style: TextStyle(
+                fontSize: 11.5,
+                color: AppTheme.textSecondary,
+                fontWeight: FontWeight.w600)),
+      ],
+    );
+    if (onTap == null) return Center(child: content);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Center(child: content),
       ),
     );
   }
