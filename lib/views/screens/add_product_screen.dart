@@ -982,8 +982,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             ),
                             const SizedBox(width: 7),
                             Text('${st.label} · ${st.daysText}',
-                                style: TextStyle(
-                                    color: _doaInk,
+                                style: const TextStyle(
+                                    // Pill zemini HER TEMADA beyaz; bu yuzden
+                                    // yazi temaya bagli DEGIL, sabit koyu olmali
+                                    // (koyu temada _doaInk acik olup beyaz-uzeri-
+                                    // beyaz kaliyordu).
+                                    color: Color(0xFF1E2A22),
                                     fontSize: 12.5,
                                     fontWeight: FontWeight.w800)),
                           ],
