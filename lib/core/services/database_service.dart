@@ -110,6 +110,7 @@ class DatabaseService {
     await _createLabelPendingQueueTable(db);
     await _createLabelActiveListsTable(db);
     await _createControlListTable(db);
+    await _createCountSessionTable(db);
     await _createCountTable(db);
     await _createLabelDeletedTable(db);
     await _createShelfLayoutTables(db);
@@ -300,6 +301,32 @@ class DatabaseService {
         }
       }
     }
+    if (oldVersion < 32) {
+      // SAYIM OTURUMLARI: her sayim ayri oturum. count_items artik bir
+      // oturuma baglanir (session_id). Eski (oturumsuz) kayitlar varsa
+      // "Önceki Sayım" adli bir oturuma tasinir ki kaybolmasin.
+      await _createCountSessionTable(db);
+      try {
+        await db.execute(
+            'ALTER TABLE ${AppConstants.countTable} ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_count_session ON ${AppConstants.countTable}(session_id)');
+      } catch (_) {}
+      final existing = Sqflite.firstIntValue(await db
+              .rawQuery('SELECT COUNT(*) FROM ${AppConstants.countTable}')) ??
+          0;
+      if (existing > 0) {
+        final sid = await db.insert(AppConstants.countSessionTable, {
+          'name': 'Önceki Sayım',
+          'created_at': DateTime.now().millisecondsSinceEpoch,
+          'closed_at': null,
+        });
+        await db.update(AppConstants.countTable, {'session_id': sid},
+            where: 'session_id = 0 OR session_id IS NULL');
+      }
+    }
   }
 
   /// Reyon dizilim (planogram) tablolari.
@@ -359,6 +386,7 @@ class DatabaseService {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS ${AppConstants.countTable} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL DEFAULT 0,
         barcode TEXT NOT NULL,
         product_name TEXT,
         qty INTEGER NOT NULL,
@@ -367,6 +395,22 @@ class DatabaseService {
     ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_count_barcode ON ${AppConstants.countTable}(barcode)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_count_session ON ${AppConstants.countTable}(session_id)');
+  }
+
+  /// Sayim OTURUMLARI: her sayim ayri bir oturumdur (isim + acilis + kapanis).
+  /// Kalemler count_items.session_id ile bu oturuma baglanir.
+  Future<void> _createCountSessionTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ${AppConstants.countSessionTable} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        note TEXT,
+        created_at INTEGER NOT NULL,
+        closed_at INTEGER
+      )
+    ''');
   }
 
   Future<void> _createLabelHistoryTable(Database db) async {
