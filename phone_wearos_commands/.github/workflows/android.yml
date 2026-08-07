@@ -1,0 +1,29 @@
+name: Android CI
+
+# Bu workflow proje kendi deposuna tasindiginda (repo koku olarak) calisir.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Generate Gradle wrapper (yoksa)
+        run: gradle wrapper --gradle-version 8.7
+
+      - name: Build debug APKs
+        run: ./gradlew :mobile:assembleDebug :wear:assembleDebug --no-daemon --stacktrace

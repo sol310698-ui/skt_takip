@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Wear Commands (Saat)</string>
+    <string name="btn_ping">PING</string>
+    <string name="btn_vibrate">Telefonu titret</string>
+    <string name="btn_hello">HELLO</string>
+    <string name="last_empty">Komut bekleniyor…</string>
+</resources>

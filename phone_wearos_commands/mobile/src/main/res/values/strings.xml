@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Wear Commands (Telefon)</string>
+    <string name="title">Telefon &#8594; Saat komut kontrolu</string>
+    <string name="hint_command">Ozel komut yaz (or. HELLO)</string>
+    <string name="btn_send_ping">PING gonder</string>
+    <string name="btn_send_vibrate">Saati titret (VIBRATE)</string>
+    <string name="btn_send_custom">Ozel komutu gonder</string>
+    <string name="log_title">Gelen / giden komutlar</string>
+    <string name="log_empty">Henuz komut yok.</string>
+</resources>

@@ -1,0 +1,1 @@
+# Varsayilan ProGuard kurallari.
