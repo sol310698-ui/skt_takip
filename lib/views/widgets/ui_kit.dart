@@ -1,24 +1,7 @@
-import 'dart:io';
-
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_theme.dart';
-import '../../core/services/database_service.dart';
-import '../../data/datasources/barcode_directory_datasource.dart';
-
-/// ════════════════════════════════════════════════════════════════════
-///  Paylasilan UI bilesenleri — tum ekranlarda tutarli gorunum.
-/// ════════════════════════════════════════════════════════════════════
-
-/// Sik bos durum gostergesi (ikon + baslik + alt metin + opsiyonel aksiyon).
+/// Shared UI building blocks used across app screens.
 class EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Widget? action;
-  final Color? iconColor;
-
   const EmptyState({
     super.key,
     required this.icon,
@@ -28,12 +11,18 @@ class EmptyState extends StatelessWidget {
     this.iconColor,
   });
 
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? action;
+  final Color? iconColor;
+
   @override
   Widget build(BuildContext context) {
     final c = iconColor ?? AppTheme.primary;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(AppTheme.s32),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -41,40 +30,31 @@ class EmptyState extends StatelessWidget {
               width: 96,
               height: 96,
               decoration: BoxDecoration(
+                shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: [c.withOpacity(0.22), c.withOpacity(0.06)],
+                  colors: [c.withOpacity(0.18), c.withOpacity(0.06)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                shape: BoxShape.circle,
-                border: Border.all(color: c.withOpacity(0.25), width: 1.5),
               ),
               child: Icon(icon, size: 44, color: c),
             ),
-            const SizedBox(height: AppTheme.s20),
+            const SizedBox(height: 20),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
-              ),
+              style: Theme.of(context).textTheme.titleLarge,
             ),
             if (subtitle != null) ...[
-              const SizedBox(height: AppTheme.s8),
+              const SizedBox(height: 8),
               Text(
                 subtitle!,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  color: AppTheme.textSecondary,
-                  height: 1.4,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
             if (action != null) ...[
-              const SizedBox(height: AppTheme.s24),
+              const SizedBox(height: 20),
               action!,
             ],
           ],
@@ -84,504 +64,158 @@ class EmptyState extends StatelessWidget {
   }
 }
 
-/// Tutarli yukleniyor gostergesi (opsiyonel metin).
-class LoadingState extends StatelessWidget {
-  final String? message;
-  const LoadingState({super.key, this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(
-            width: 34,
-            height: 34,
-            child: CircularProgressIndicator(
-                strokeWidth: 3, color: AppTheme.primary),
-          ),
-          if (message != null) ...[
-            const SizedBox(height: AppTheme.s16),
-            Text(message!,
-                style: TextStyle(color: AppTheme.textSecondary)),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// ════════════════════════════════════════════════════════════════════
-///  SKELETON SHIMMER — veri yuklenirken gercek kart sekillerinde parlayan
-///  gri placeholder'lar (donen cember yerine). Paket gerektirmez; kendi
-///  gradyan animasyonuyla soldan saga akan bir isik bandi cizer.
-/// ════════════════════════════════════════════════════════════════════
-
-/// Tek bir shimmer bloku — verilen boyut/yuvarlaklikta parlayan dikdortgen.
-class SkeletonBox extends StatelessWidget {
-  final double? width;
-  final double height;
-  final double radius;
-  const SkeletonBox({
+class SectionHeader extends StatelessWidget {
+  const SectionHeader({
     super.key,
-    this.width,
-    this.height = 14,
-    this.radius = 8,
+    required this.title,
+    this.trailing,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return _Shimmer(
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceAlt,
-          borderRadius: BorderRadius.circular(radius),
-        ),
-      ),
-    );
-  }
-}
-
-/// Liste iskeleti: [count] adet kart-benzeri satir (sol kare + iki metin
-/// cizgisi). Cogu liste ekraninin yuklenme hali icin hazir sablon.
-class SkeletonList extends StatelessWidget {
-  final int count;
-  final EdgeInsets padding;
-  const SkeletonList({
-    super.key,
-    this.count = 6,
-    this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 16),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: padding,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: count,
-      itemBuilder: (_, __) => Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(AppTheme.rLg),
-          border: Border.all(color: AppTheme.hairline),
-        ),
-        child: Row(
-          children: [
-            const SkeletonBox(width: 46, height: 46, radius: 12),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  SkeletonBox(width: 180, height: 13),
-                  SizedBox(height: 8),
-                  SkeletonBox(width: 110, height: 11),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            const SkeletonBox(width: 40, height: 22, radius: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Kart izgarasi iskeleti (reyon listesi gibi galeri/grid ekranlar icin).
-class SkeletonGrid extends StatelessWidget {
-  final int count;
-  final int crossAxisCount;
-  final double childAspectRatio;
-  const SkeletonGrid({
-    super.key,
-    this.count = 6,
-    this.crossAxisCount = 2,
-    this.childAspectRatio = 1.6,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: childAspectRatio,
-      ),
-      itemCount: count,
-      itemBuilder: (_, __) => _Shimmer(
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceAlt,
-            borderRadius: BorderRadius.circular(AppTheme.rLg),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Soldan saga akan isik bandiyla cocugunu parlatan sarici.
-class _Shimmer extends StatefulWidget {
-  final Widget child;
-  const _Shimmer({required this.child});
-  @override
-  State<_Shimmer> createState() => _ShimmerState();
-}
-
-class _ShimmerState extends State<_Shimmer>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1300),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final base = AppTheme.isLight
-        ? Colors.white.withOpacity(0.55)
-        : Colors.white.withOpacity(0.06);
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, child) {
-        return ShaderMask(
-          blendMode: BlendMode.srcATop,
-          shaderCallback: (rect) {
-            final dx = (rect.width + 200) * _c.value - 100;
-            return LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: [
-                Colors.transparent,
-                base,
-                Colors.transparent,
-              ],
-              stops: const [0.35, 0.5, 0.65],
-              transform: _SlideGradient(dx / rect.width),
-            ).createShader(rect);
-          },
-          child: child,
-        );
-      },
-      child: widget.child,
-    );
-  }
-}
-
-/// Gradyani yatayda kaydiran yardimci transform.
-class _SlideGradient extends GradientTransform {
-  final double t; // -1..1 civari, gradyanin merkez konumu
-  const _SlideGradient(this.t);
-  @override
-  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
-    return Matrix4.translationValues(bounds.width * t, 0, 0);
-  }
-}
-
-/// Hata durumu gostergesi.
-class ErrorStateView extends StatelessWidget {
-  final String message;
-  final VoidCallback? onRetry;
-  const ErrorStateView({super.key, required this.message, this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.s32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded,
-                size: 48, color: AppTheme.statusExpired),
-            const SizedBox(height: AppTheme.s16),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.textSecondary)),
-            if (onRetry != null) ...[
-              const SizedBox(height: AppTheme.s20),
-              OutlinedButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Tekrar Dene'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Form/sayfa bolum basligi (kucuk, ikincil renk, harf araligi).
-class SectionLabel extends StatelessWidget {
-  final String text;
-  final EdgeInsets padding;
-  const SectionLabel(this.text,
-      {super.key,
-      this.padding = const EdgeInsets.only(left: 4, bottom: AppTheme.s8)});
+  final String title;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: padding,
-      child: Text(
-        text.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
-          color: AppTheme.textTertiary,
-        ),
-      ),
-    );
-  }
-}
-
-/// Kucuk renkli istatistik/metrik karti.
-class StatTile extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-  final IconData icon;
-  const StatTile({
-    super.key,
-    required this.label,
-    required this.count,
-    required this.color,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(AppTheme.rLg),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-        boxShadow: AppTheme.shadowSm,
-      ),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              shape: BoxShape.circle,
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(height: 8),
-          Text('$count',
-              style: TextStyle(
-                  color: color,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  height: 1)),
-          const SizedBox(height: 3),
-          Text(label,
-              style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600)),
+          if (trailing != null) trailing!,
         ],
       ),
     );
   }
 }
 
-/// Urun gorseli — ONCELIK: TELEFONDAKI (yerel) foto 1., internet 2. planda.
-/// "Telefondaki foto her zaman internetten daha degerlidir" kurali: yerel
-/// foto varsa internet gorseline HIC bakilmaz; yerel yoksa internete duser;
-/// o da yoksa yer tutucu ikon gosterilir.
-///
-/// - [directLocalPath] verilmisse (orn. reyon slotunun kendi fotografi) dogrudan
-///   o dosya kullanilir (en oncelikli).
-/// - [barcode] verilmisse barkod dizinindeki local_image_path once cozulur;
-///   varsa gosterilir (internet beklemeden).
-/// - [networkUrl] yalnizca yerel foto YOKKEN devreye girer (2. plan).
-class SmartProductImage extends StatefulWidget {
-  final String? networkUrl;
-  final String? barcode;
-  final String? directLocalPath;
-  final double? width;
-  final double? height;
-  final BoxFit fit;
-  final Widget Function()? placeholder;
-
-  const SmartProductImage({
+class SectionCard extends StatelessWidget {
+  const SectionCard({
     super.key,
-    this.networkUrl,
-    this.barcode,
-    this.directLocalPath,
-    this.width,
-    this.height,
-    this.fit = BoxFit.cover,
-    this.placeholder,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.margin,
+    this.color,
   });
 
-  @override
-  State<SmartProductImage> createState() => _SmartProductImageState();
-}
-
-class _SmartProductImageState extends State<SmartProductImage> {
-  String? _localPath;
-  bool _resolving = false;
-  bool _networkFailed = false;
-  // Yerel foto arama TAMAMLANDI mi? Tamamlanana kadar internet gosterilmez
-  // (yerel foto varsa internet hic gorunmesin, titreme olmasin).
-  bool _localResolved = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _localPath = widget.directLocalPath;
-    // ONCELIK: TELEFONDAKI (yerel) fotograf her zaman internetten daha
-    // degerlidir. Bu yuzden barkod verilmisse — internet URL'i olsa bile —
-    // once yerel fotografi cozmeye calisiriz; varsa onu gosteririz, yoksa
-    // internete duseriz.
-    if (_localPath == null) {
-      _resolveLocal();
-    }
-  }
-
-  Future<void> _resolveLocal() async {
-    if (_resolving) return;
-    if (widget.barcode == null || widget.barcode!.isEmpty) {
-      // Cozecek barkod yok; internete gecebilmek icin cozumlemeyi bitmis say.
-      if (mounted) setState(() => _localResolved = true);
-      return;
-    }
-    _resolving = true;
-    try {
-      final ds = BarcodeDirectoryDataSource(DatabaseService.instance);
-      final path = await ds.getLocalImage(widget.barcode!);
-      if (mounted) {
-        setState(() {
-          if (path != null && File(path).existsSync()) _localPath = path;
-          _localResolved = true;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _localResolved = true);
-    }
-  }
-
-  Widget _ph() =>
-      widget.placeholder?.call() ??
-      Container(
-        color: AppTheme.surfaceAlt,
-        child: Icon(Icons.inventory_2_rounded, color: AppTheme.textTertiary),
-      );
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? margin;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    // ONCELIK 1: Telefondaki (yerel) fotograf. Varsa her zaman o gosterilir,
-    // internet fotografina hic bakilmaz.
-    if (_localPath != null) return _localFile();
-
-    // Yerel foto aramasi henuz bitmediyse: internete gecmeden once bekle
-    // (yerel foto varsa aninda gosterilsin, arada internet flash'i olmasin).
-    if (!_localResolved &&
-        widget.barcode != null &&
-        widget.barcode!.isNotEmpty) {
-      return _ph();
-    }
-
-    // ONCELIK 2: Yerel foto yoksa internet fotografi (varsa) denenir.
-    final hasNet = widget.networkUrl != null &&
-        widget.networkUrl!.isNotEmpty &&
-        !_networkFailed;
-
-    if (hasNet) {
-      return CachedNetworkImage(
-        imageUrl: widget.networkUrl!,
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        placeholder: (c, _) => _ph(),
-        errorWidget: (c, _, __) {
-          // Internet fotografi da yuklenemedi -> yer tutucu.
-          if (!_networkFailed) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _networkFailed = true);
-            });
-          }
-          return _ph();
-        },
-      );
-    }
-
-    return _ph();
+    return Container(
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: padding,
+      decoration: BoxDecoration(
+        color: color ?? Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 1),
+      ),
+      child: child,
+    );
   }
-
-  Widget _localFile() => Image.file(
-        File(_localPath!),
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        errorBuilder: (_, __, ___) => _ph(),
-      );
 }
 
-class CachedImage extends StatelessWidget {
-  final String url;
-  final double? width;
-  final double? height;
-  final BoxFit fit;
-  final Widget Function()? placeholder;
-
-  const CachedImage({
+class GlassPanel extends StatelessWidget {
+  const GlassPanel({
     super.key,
-    required this.url,
-    this.width,
-    this.height,
-    this.fit = BoxFit.cover,
-    this.placeholder,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.margin,
   });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? margin;
 
   @override
   Widget build(BuildContext context) {
-    return CachedNetworkImage(
-      imageUrl: url,
-      width: width,
-      height: height,
-      fit: fit,
-      placeholder: (c, _) => placeholder != null
-          ? placeholder!()
-          : Container(
-              color: AppTheme.surfaceAlt,
-              child: const Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: AppTheme.primary),
-                ),
-              ),
-            ),
-      errorWidget: (c, _, __) => placeholder != null
-          ? placeholder!()
-          : Container(
-              color: AppTheme.surfaceAlt,
-              child: Icon(Icons.inventory_2_rounded,
-                  color: AppTheme.textTertiary),
-            ),
+    return Container(
+      margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface.withOpacity(0.76),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.border.withOpacity(0.7), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class StatusPill extends StatelessWidget {
+  const StatusPill({
+    super.key,
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.35), width: 1),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: color),
+      ),
+    );
+  }
+}
+
+class AppButton extends StatelessWidget {
+  const AppButton({
+    super.key,
+    required this.label,
+    this.onPressed,
+    this.icon,
+    this.isPrimary = true,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final bool isPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isPrimary ? AppTheme.primary : AppTheme.surface;
+    final fg = isPrimary ? AppTheme.white : AppTheme.text;
+    final border = isPrimary ? Colors.transparent : AppTheme.border;
+
+    return FilledButton.icon(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: bg,
+        foregroundColor: fg,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: border, width: 1),
+        ),
+      ),
+      icon: icon == null ? const SizedBox() : Icon(icon),
+      label: Text(label),
     );
   }
 }
