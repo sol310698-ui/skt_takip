@@ -19,7 +19,6 @@ import 'log_viewer_screen.dart';
 import 'work_location_picker_screen.dart';
 import 'work_schedule_screen.dart';
 
-/// Ayarlar ekranı: banner ikonlarını + bildirim yönetimini toplar.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -31,28 +30,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
 
-  // Kullanicinin secebilecegi ANA RENK paleti — canli, modern tonlar.
   static const List<Color> _palette = [
-    Color(0xFF2563EB), // mavi (varsayilan)
-    Color(0xFF7C3AED), // mor
-    Color(0xFFDB2777), // pembe/magenta
-    Color(0xFFDC2626), // kirmizi
-    Color(0xFFEA580C), // turuncu
-    Color(0xFFD97706), // amber
-    Color(0xFF16A34A), // yesil
-    Color(0xFF059669), // zumrut
-    Color(0xFF0891B2), // camgobegi
-    Color(0xFF4F46E5), // indigo
-    Color(0xFF0D9488), // teal
-    Color(0xFF475569), // kurumsal gri
+    Color(0xFF2563EB),
+    Color(0xFF7C3AED),
+    Color(0xFFDB2777),
+    Color(0xFFDC2626),
+    Color(0xFFEA580C),
+    Color(0xFFD97706),
+    Color(0xFF16A34A),
+    Color(0xFF059669),
+    Color(0xFF0891B2),
+    Color(0xFF4F46E5),
+    Color(0xFF0D9488),
+    Color(0xFF475569),
   ];
 
   List<PendingNotificationRequest> _notifications = [];
   bool _loadingNotifs = true;
   bool _exporting = false;
   bool _deduping = false;
-
-  // Bildirimler sekmesinde hangi urun grubu acik (genisletilmis).
   final Set<int> _expandedGroups = <int>{};
 
   @override
@@ -89,16 +85,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       builder: (ctx) => AlertDialog(
         title: const Text('Tüm Bildirimleri Sil'),
         content: const Text(
-            'Tüm planlanmış SKT bildirimleri iptal edilecek. '
-            'Ürünleri yeniden açarak yeniden oluşturabilirsiniz.'),
+          'Tüm planlanmış SKT bildirimleri iptal edilecek. Ürünleri yeniden açarak yeniden oluşturabilirsiniz.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('İptal')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.statusExpired),
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.statusExpired),
             child: const Text('Hepsini İptal Et'),
           ),
         ],
@@ -113,7 +109,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   Future<void> _export() async {
     setState(() => _exporting = true);
     try {
-      // Urunleri provider'dan cek.
       final products = ref.read(productListProvider).valueOrNull ?? [];
       final active = products.where((p) => p.isActive).toList();
       final history = products.where((p) => !p.isActive).toList();
@@ -122,8 +117,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Excel dosyası paylaşıldı'),
-              backgroundColor: AppTheme.statusSafe),
+            content: Text('Excel dosyası paylaşıldı'),
+            backgroundColor: AppTheme.statusSafe,
+          ),
         );
       }
     } catch (e) {
@@ -136,24 +132,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  /// Mukerrer (ayni barkod + ayni SKT) urunleri temizler. Once onay sorar.
   Future<void> _removeDuplicates() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Tekrar Eden Ürünleri Temizle'),
         content: const Text(
-            'Aynı barkoda VE aynı son kullanma tarihine sahip kayıtlardan '
-            'her birinden yalnızca bir tane bırakılacak, fazlalıklar '
-            'silinecek.\n\nFarklı tarihli aynı barkodlar (gerçek farklı '
-            'partiler) korunur. Bu işlem geri alınamaz. Devam edilsin mi?'),
+          'Aynı barkoda ve aynı son kullanma tarihine sahip kayıtların her birinden yalnızca bir tane bırakılacak. Fazlalıklar silinecek.\n\nFarklı tarihli aynı barkodlar korunur. Bu işlem geri alınamaz. Devam edilsin mi?',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Vazgeç')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Vazgeç'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Temizle')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Temizle'),
+          ),
         ],
       ),
     );
@@ -161,18 +156,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
     setState(() => _deduping = true);
     try {
-      final removed =
-          await ref.read(productRepositoryProvider).removeDuplicates();
-      // Listeyi yenile ki ekranlar guncellensin.
+      final removed = await ref.read(productRepositoryProvider).removeDuplicates();
       await ref.read(productListProvider.notifier).refresh();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(removed > 0
-                ? '$removed tekrar eden kayıt silindi'
-                : 'Tekrar eden kayıt bulunamadı'),
-            backgroundColor:
-                removed > 0 ? AppTheme.statusSafe : AppTheme.surfaceHigh,
+            content: Text(
+              removed > 0 ? '$removed tekrar eden kayıt silindi' : 'Tekrar eden kayıt bulunamadı',
+            ),
+            backgroundColor: removed > 0 ? AppTheme.statusSafe : AppTheme.surfaceHigh,
           ),
         );
       }
@@ -187,46 +179,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _fullBackup() async {
-    // Fotograflar dahil oldugu icin biraz surebilir; kullaniciya durum goster.
     final messenger = ScaffoldMessenger.of(context);
     try {
-      messenger.showSnackBar(const SnackBar(
-          duration: Duration(minutes: 5),
-          content: Text('Yedek hazırlanıyor…')));
+      messenger.showSnackBar(
+        const SnackBar(duration: Duration(minutes: 5), content: Text('Yedek hazırlanıyor…')),
+      );
       await BackupService.instance.exportAll(
         onProgress: (s) {
           messenger.clearSnackBars();
-          messenger.showSnackBar(SnackBar(
-              duration: const Duration(minutes: 5), content: Text(s)));
+          messenger.showSnackBar(
+            SnackBar(duration: const Duration(minutes: 5), content: Text(s)),
+          );
         },
       );
       messenger.clearSnackBars();
     } catch (e) {
       messenger.clearSnackBars();
       if (mounted) {
-        messenger.showSnackBar(
-            SnackBar(content: Text('Yedek alınamadı: $e')));
+        messenger.showSnackBar(SnackBar(content: Text('Yedek alınamadı: $e')));
       }
     }
   }
 
   Future<void> _restoreBackup() async {
-    // Geri yukleme mevcut TUM veriyi siler — once onay al.
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Geri Yükle'),
         content: const Text(
-            'Seçeceğiniz yedek dosyası mevcut TÜM verilerin (barkod + SKT) '
-            'üzerine yazılır ve şu anki veriler silinir. Devam edilsin mi?'),
+          'Seçeceğiniz yedek dosyası mevcut tüm verilerin üzerine yazılır. Devam edilsin mi?',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('İptal')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Geri Yükle',
-                  style: TextStyle(color: AppTheme.statusExpired))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Geri Yükle',
+              style: TextStyle(color: AppTheme.statusExpired),
+            ),
+          ),
         ],
       ),
     );
@@ -236,29 +230,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.any);
       if (result != null && result.files.single.path != null) {
-        messenger.showSnackBar(const SnackBar(
-            duration: Duration(minutes: 5),
-            content: Text('Geri yükleniyor…')));
+        messenger.showSnackBar(
+          const SnackBar(duration: Duration(minutes: 5), content: Text('Geri yükleniyor…')),
+        );
         await BackupService.instance.restoreAll(
           result.files.single.path!,
           onProgress: (s) {
             messenger.clearSnackBars();
-            messenger.showSnackBar(SnackBar(
-                duration: const Duration(minutes: 5), content: Text(s)));
+            messenger.showSnackBar(
+              SnackBar(duration: const Duration(minutes: 5), content: Text(s)),
+            );
           },
         );
         messenger.clearSnackBars();
         if (mounted) {
-          messenger.showSnackBar(const SnackBar(
-              content:
-                  Text('Geri yüklendi. Lütfen uygulamayı yeniden başlatın.')));
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Geri yüklendi. Lütfen uygulamayı yeniden başlatın.')),
+          );
         }
       }
     } catch (e) {
       messenger.clearSnackBars();
       if (mounted) {
-        messenger.showSnackBar(
-            SnackBar(content: Text('Geri yükleme hatası: $e')));
+        messenger.showSnackBar(SnackBar(content: Text('Geri yükleme hatası: $e')));
       }
     }
   }
@@ -279,9 +273,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           indicatorColor: Colors.white,
           tabs: const [
             Tab(text: 'Araçlar', icon: Icon(Icons.build_rounded, size: 18)),
-            Tab(
-                text: 'Bildirimler',
-                icon: Icon(Icons.notifications_rounded, size: 18)),
+            Tab(text: 'Bildirimler', icon: Icon(Icons.notifications_rounded, size: 18)),
           ],
         ),
       ),
@@ -309,16 +301,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         Widget option(ThemeMode mode, IconData icon, String label) {
           final selected = ThemePrefs.instance.mode == mode;
           return ListTile(
-            leading: Icon(icon,
-                color: selected ? AppTheme.primary : AppTheme.textSecondary),
-            title: Text(label,
-                style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight:
-                        selected ? FontWeight.w700 : FontWeight.w500)),
-            trailing: selected
-                ? Icon(Icons.check_rounded, color: AppTheme.primary)
-                : null,
+            leading: Icon(icon, color: selected ? AppTheme.primary : AppTheme.textSecondary),
+            title: Text(
+              label,
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            trailing: selected ? Icon(Icons.check_rounded, color: AppTheme.primary) : null,
             onTap: () async {
               await ThemePrefs.instance.setMode(mode);
               if (mounted) setState(() {});
@@ -345,15 +336,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text('Tema',
-                      style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800)),
+                  child: Text(
+                    'Tema',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
               ),
-              option(ThemeMode.system, Icons.brightness_auto_rounded,
-                  'Sistem (otomatik)'),
+              option(ThemeMode.system, Icons.brightness_auto_rounded, 'Sistem (otomatik)'),
               option(ThemeMode.light, Icons.light_mode_rounded, 'Aydınlık'),
               option(ThemeMode.dark, Icons.dark_mode_rounded, 'Koyu'),
               const SizedBox(height: 12),
@@ -364,7 +357,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
-  // ── Araçlar sekmesi ────────────────────────────────────────────────
   Widget _buildTools() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -387,15 +379,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               children: [
                 SwitchListTile(
                   value: LabelInspectButtonPrefs.instance.animationEnabled,
-                  onChanged: (v) => LabelInspectButtonPrefs.instance
-                      .setAnimationEnabled(v),
+                  onChanged: (v) => LabelInspectButtonPrefs.instance.setAnimationEnabled(v),
                   activeColor: AppTheme.accent,
-                  title: const Text('Etiket İncele Animasyonu',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  title: const Text('Etiket İncele Animasyonu', style: TextStyle(fontWeight: FontWeight.w700)),
                   subtitle: Text(
-                      'Tüm sayfalarda gezen butonun nabız efektini aç/kapat',
-                      style: TextStyle(
-                          fontSize: 12, color: AppTheme.textSecondary)),
+                    'Tüm sayfalarda gezen butonun nabız efektini aç/kapat',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                  ),
                 ),
                 if (LabelInspectButtonPrefs.instance.hasCustomPosition)
                   Padding(
@@ -405,17 +395,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         Expanded(
                           child: Text(
                             'Butonu uzun basıp sürükleyerek taşıdın',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textTertiary),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textTertiary),
                           ),
                         ),
                         TextButton.icon(
-                          onPressed: () =>
-                              LabelInspectButtonPrefs.instance
-                                  .resetPosition(),
-                          icon: const Icon(Icons.restart_alt_rounded,
-                              size: 16),
+                          onPressed: () => LabelInspectButtonPrefs.instance.resetPosition(),
+                          icon: const Icon(Icons.restart_alt_rounded, size: 16),
                           label: const Text('Konumu Sıfırla'),
                           style: TextButton.styleFrom(
                             foregroundColor: AppTheme.accent,
@@ -439,12 +424,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               value: LocationRevealPrefs.instance.enabled,
               onChanged: (v) => LocationRevealPrefs.instance.setEnabled(v),
               activeColor: AppTheme.accent,
-              title: const Text('Reyon Konum Animasyonu',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+              title: const Text('Reyon Konum Animasyonu', style: TextStyle(fontWeight: FontWeight.w700)),
               subtitle: Text(
-                  'Etiket İncele\'de ürünün reyondaki yeri bulununca oynayan kamera inişini aç/kapat',
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.textSecondary)),
+                'Etiket İncele\'de ürünün reyondaki yeri bulununca oynayan kamera inişini aç/kapat',
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
             ),
           ),
         ),
@@ -457,7 +441,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           title: 'Çalışma Programı',
           subtitle: 'Haftalık program oluştur, günlük alarm kur',
           onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WorkScheduleScreen())),
+            MaterialPageRoute(builder: (_) => const WorkScheduleScreen()),
+          ),
         ),
         const SizedBox(height: 16),
         const SectionLabel('İnternet Veri Tabanı'),
@@ -509,7 +494,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           title: 'İmha & İade Geçmişi',
           subtitle: 'Geçmişteki imha ve iade kayıtları',
           onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const HistoryScreen())),
+            MaterialPageRoute(builder: (_) => const HistoryScreen()),
+          ),
         ),
         const SizedBox(height: 16),
         const SectionLabel('Tanılama'),
@@ -520,7 +506,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           title: 'Alarm Kayıtları (Log)',
           subtitle: 'Alarm sorununu tespit için kayıtları görüntüle/paylaş',
           onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LogViewerScreen())),
+            MaterialPageRoute(builder: (_) => const LogViewerScreen()),
+          ),
         ),
         const SizedBox(height: 16),
         const SectionLabel('Hakkında'),
@@ -531,15 +518,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('SKT Takip',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 16)),
-              SizedBox(height: 4),
               Text(
-                'Son kullanma tarihi takip, barkod dizini, '
-                'depo yönetimi, fiyat değişim ve mesai modülleri.',
-                style: TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13),
+                'SKT Takip',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Son kullanma tarihi takip, barkod dizini, depo yönetimi, fiyat değişim ve mesai modülleri.',
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
               ),
             ],
           ),
@@ -561,8 +547,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       child: ListTile(
         onTap: onTap,
         tileColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppTheme.rLg)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.rLg)),
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
@@ -573,28 +558,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               ? SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: color))
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                )
               : Icon(icon, color: color, size: 22),
         ),
-        title: Text(title,
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, fontSize: 14.5)),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+        ),
         subtitle: subtitle != null
-            ? Text(subtitle,
-                style: TextStyle(
-                    fontSize: 12, color: AppTheme.textSecondary))
+            ? Text(
+                subtitle,
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              )
             : null,
-        trailing: Icon(Icons.chevron_right_rounded,
-            color: AppTheme.textTertiary),
+        trailing: Icon(Icons.chevron_right_rounded, color: AppTheme.textTertiary),
       ),
     );
   }
 
-  // ── Bildirimler sekmesi ────────────────────────────────────────────
-  // Duz liste yerine URUNE GORE gruplanir: once urun adi (kac bildirim),
-  // ustune basinca o urunun esik bildirimleri (30/15/7/3/1 gun) acilir.
-  // Urune bagli olmayan "Bagimsiz bildirimler" ayri bir grupta toplanir.
   Widget _buildNotifications() {
     final groups = _groupedNotifications();
     final totalCount = _notifications.length;
@@ -607,11 +589,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             children: [
               Expanded(
                 child: Text(
-                  _loadingNotifs
-                      ? 'Yükleniyor...'
-                      : '$totalCount planlı bildirim · ${groups.length} grup',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 14),
+                  _loadingNotifs ? 'Yükleniyor...' : '$totalCount planlı bildirim · ${groups.length} grup',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
               ),
               IconButton(
@@ -622,15 +601,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               if (_notifications.isNotEmpty)
                 TextButton.icon(
                   onPressed: _cancelAll,
-                  icon: const Icon(Icons.delete_sweep_rounded,
-                      size: 18, color: AppTheme.statusExpired),
-                  label: const Text('Hepsini Sil',
-                      style: TextStyle(color: AppTheme.statusExpired)),
+                  icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: AppTheme.statusExpired),
+                  label: const Text('Hepsini Sil', style: TextStyle(color: AppTheme.statusExpired)),
                 ),
             ],
           ),
         ),
-        // Manuel bildirim ekle butonu (barkoddan/urunden bagimsiz).
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
           child: SizedBox(
@@ -649,8 +625,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   ? const EmptyState(
                       icon: Icons.notifications_off_rounded,
                       title: 'Bildirim yok',
-                      subtitle:
-                          'Planlanmış bildirim yok. Manuel ekleyebilirsiniz.',
+                      subtitle: 'Planlanmış bildirim yok. Manuel ekleyebilirsiniz.',
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
@@ -662,8 +637,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
-  /// Pending bildirimleri urune gore gruplar.
-  /// Grup anahtari: standalone ise -1, degilse id ~/ 1000 (urun id).
   List<_NotifGroup> _groupedNotifications() {
     final svc = NotificationService.instance;
     final Map<int, _NotifGroup> map = {};
@@ -674,9 +647,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         key,
         () => _NotifGroup(
           key: key,
-          title: isStd
-              ? 'Bağımsız bildirimler'
-              : _productNameFromTitle(n.title) ?? 'Ürün #$key',
+          title: isStd ? 'Bağımsız bildirimler' : _productNameFromTitle(n.title) ?? 'Ürün #$key',
           isStandalone: isStd,
           items: [],
         ),
@@ -684,19 +655,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       group.items.add(n);
     }
     final list = map.values.toList();
-    // Bagimsiz grubu en uste al, sonra urunler alfabetik.
     list.sort((a, b) {
       if (a.isStandalone != b.isStandalone) return a.isStandalone ? -1 : 1;
       return a.title.toLowerCase().compareTo(b.title.toLowerCase());
     });
-    // Her grubun bildirimlerini gun esigine gore (buyukten kucuge) sirala.
     for (final g in list) {
       g.items.sort((a, b) => (b.id % 1000).compareTo(a.id % 1000));
     }
     return list;
   }
 
-  /// "SKT Yaklaşıyor: Koska helva" -> "Koska helva"
   String? _productNameFromTitle(String? title) {
     if (title == null) return null;
     final idx = title.indexOf(':');
@@ -713,7 +681,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       decoration: AppTheme.card(),
       child: Column(
         children: [
-          // Ust satir: urun adi + bildirim sayisi, basinca acilir/kapanir.
           InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: () => setState(() {
@@ -724,14 +691,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               }
             }),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
               child: Row(
                 children: [
                   Icon(
-                    g.isStandalone
-                        ? Icons.campaign_rounded
-                        : Icons.inventory_2_rounded,
+                    g.isStandalone ? Icons.campaign_rounded : Icons.inventory_2_rounded,
                     color: AppTheme.primary,
                     size: 22,
                   ),
@@ -739,37 +703,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   Expanded(
                     child: Text(
                       g.title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 14.5),
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 9, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                     decoration: BoxDecoration(
                       color: AppTheme.primary.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Text('${g.items.length}',
-                        style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary)),
+                    child: Text(
+                      '${g.items.length}',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 6),
                   AnimatedRotation(
                     turns: expanded ? 0.5 : 0,
                     duration: const Duration(milliseconds: 200),
-                    child: Icon(Icons.expand_more_rounded,
-                        color: AppTheme.textSecondary),
+                    child: Icon(Icons.expand_more_rounded, color: AppTheme.textSecondary),
                   ),
                 ],
               ),
             ),
           ),
-          // Acilinca: o urunun esik bildirimleri.
           if (expanded) ...[
             const Divider(height: 1),
             ...g.items.map(_notifSubTile),
@@ -785,28 +748,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       padding: const EdgeInsets.fromLTRB(14, 8, 8, 0),
       child: Row(
         children: [
-          const Icon(Icons.notifications_active_rounded,
-              color: AppTheme.primaryLight, size: 18),
+          const Icon(Icons.notifications_active_rounded, color: AppTheme.primaryLight, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (n.body != null)
-                  Text(n.body!,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis),
-                Text('ID: ${n.id}',
-                    style: TextStyle(
-                        fontSize: 11, color: AppTheme.textTertiary)),
+                  Text(
+                    n.body!,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                Text(
+                  'ID: ${n.id}',
+                  style: TextStyle(fontSize: 11, color: AppTheme.textTertiary),
+                ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close_rounded,
-                size: 20, color: AppTheme.statusExpired),
+            icon: const Icon(Icons.close_rounded, size: 20, color: AppTheme.statusExpired),
             tooltip: 'İptal Et',
             onPressed: () => _cancelNotification(n.id),
           ),
@@ -815,8 +778,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
-  /// Barkoddan/urunden bagimsiz, elle bildirim ekleme akisi:
-  /// baslik + tarih + saat sor, sonra planla.
   Future<void> _addStandaloneNotification() async {
     final titleCtrl = TextEditingController();
     DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
@@ -834,21 +795,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           builder: (ctx, setSheet) {
             return Padding(
               padding: EdgeInsets.fromLTRB(
-                  20, 18, 20, 18 + MediaQuery.of(ctx).viewInsets.bottom),
+                20,
+                18,
+                20,
+                18 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Manuel Bildirim',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w800)),
+                  const Text(
+                    'Manuel Bildirim',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: titleCtrl,
                     autofocus: true,
                     textInputAction: TextInputAction.done,
-                    onTapOutside: (_) =>
-                        FocusManager.instance.primaryFocus?.unfocus(),
+                    onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
                     decoration: const InputDecoration(
                       labelText: 'Bildirim metni',
                       hintText: 'Örn: Reyon temizliği yap',
@@ -860,20 +825,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_today_rounded,
-                              size: 18),
+                          icon: const Icon(Icons.calendar_today_rounded, size: 18),
                           label: Text(
-                            '${selectedDate.day.toString().padLeft(2, '0')}.'
-                            '${selectedDate.month.toString().padLeft(2, '0')}.'
-                            '${selectedDate.year}',
+                            '${selectedDate.day.toString().padLeft(2, '0')}.''${selectedDate.month.toString().padLeft(2, '0')}.''${selectedDate.year}',
                           ),
                           onPressed: () async {
                             final d = await showDatePicker(
                               context: ctx,
                               initialDate: selectedDate,
                               firstDate: DateTime.now(),
-                              lastDate: DateTime.now()
-                                  .add(const Duration(days: 3650)),
+                              lastDate: DateTime.now().add(const Duration(days: 3650)),
                             );
                             if (d != null) setSheet(() => selectedDate = d);
                           },
@@ -882,8 +843,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          icon: const Icon(Icons.access_time_rounded,
-                              size: 18),
+                          icon: const Icon(Icons.access_time_rounded, size: 18),
                           label: Text(selectedTime.format(ctx)),
                           onPressed: () async {
                             final t = await showTimePicker(
@@ -933,34 +893,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
     final id = await NotificationService.instance.scheduleStandalone(
       title: text,
-      body: '${selectedDate.day.toString().padLeft(2, '0')}.'
-          '${selectedDate.month.toString().padLeft(2, '0')}.'
-          '${selectedDate.year} ${selectedTime.format(context)}',
+      body: '${selectedDate.day.toString().padLeft(2, '0')}.''${selectedDate.month.toString().padLeft(2, '0')}.''${selectedDate.year} ${selectedTime.format(context)}',
       when: when,
     );
 
     if (!mounted) return;
     if (id == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Bildirim kurulamadı (tarih geçmiş olabilir).')),
+        const SnackBar(content: Text('Bildirim kurulamadı (tarih geçmiş olabilir).')),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bildirim kuruldu.')),
       );
-      _expandedGroups.add(-1); // bagimsiz grubu acik gelsin
+      _expandedGroups.add(-1);
       _loadNotifications();
     }
   }
 }
 
-/// Bildirimler sekmesinde bir urun (veya "bagimsiz") grubu.
 class _NotifGroup {
   final int key;
   final String title;
   final bool isStandalone;
   final List<PendingNotificationRequest> items;
+
   _NotifGroup({
     required this.key,
     required this.title,
@@ -969,8 +926,6 @@ class _NotifGroup {
   });
 }
 
-/// Ayarlar — Güvenlik bölümü: kilit aç/kapa, PIN değiştir, biyometri,
-/// iş yeri konumu (haritadan otomatik tespit için).
 class _SecuritySection extends StatefulWidget {
   const _SecuritySection();
 
@@ -998,442 +953,60 @@ class _SecuritySectionState extends State<_SecuritySection> {
     final hasWork = await AppLockService.instance.hasWorkLocation();
     if (!mounted) return;
     setState(() {
+      _loading = false;
       _lockEnabled = lockEnabled;
       _biometricAvailable = bioAvailable;
       _biometricEnabled = bioEnabled;
       _hasWorkLocation = hasWork;
-      _loading = false;
     });
-  }
-
-  Future<void> _toggleLock(bool value) async {
-    if (!value) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Kilidi kapat'),
-          content: const Text(
-              'Uygulama açılışında artık PIN/parmak izi sorulmayacak. Emin misiniz?'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Vazgeç')),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.statusExpired),
-              child: const Text('Kapat'),
-            ),
-          ],
-        ),
-      );
-      if (ok != true) return;
-    }
-    await AppLockService.instance.setLockEnabled(value);
-    setState(() => _lockEnabled = value);
-  }
-
-  Future<void> _changePin() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const _ChangePinScreen()),
-    );
-    if (result == true) _load();
-  }
-
-  Future<void> _toggleBiometric(bool value) async {
-    if (value) {
-      // Acmadan once bir kez dogrulama iste (gercekten calistigindan emin ol).
-      final ok = await AppLockService.instance.authenticateWithBiometrics();
-      if (!ok) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Doğrulama başarısız, biyometri açılamadı.')),
-          );
-        }
-        return;
-      }
-    }
-    await AppLockService.instance.setBiometricEnabled(value);
-    setState(() => _biometricEnabled = value);
-  }
-
-  Future<void> _openWorkLocationPicker() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-          builder: (_) => const WorkLocationPickerScreen()),
-    );
-    if (result == true) _load();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
-        child: Center(
-            child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2))),
+      return const SizedBox(
+        height: 120,
+        child: Center(child: CircularProgressIndicator()),
       );
     }
+
     return Column(
       children: [
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: AppTheme.card(),
-          child: SwitchListTile(
-            value: _lockEnabled,
-            onChanged: _toggleLock,
+        SwitchListTile(
+          value: _lockEnabled,
+          onChanged: (v) async {
+            await AppLockService.instance.setLockEnabled(v);
+            if (mounted) setState(() => _lockEnabled = v);
+          },
+          activeColor: AppTheme.accent,
+          title: const Text('Uygulama Kilidi', style: TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text(
+            'Uygulamaya erişimi PIN/biometri ile koru',
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+          ),
+        ),
+        if (_biometricAvailable)
+          SwitchListTile(
+            value: _biometricEnabled,
+            onChanged: (v) async {
+              await AppLockService.instance.setBiometricEnabled(v);
+              if (mounted) setState(() => _biometricEnabled = v);
+            },
             activeColor: AppTheme.accent,
-            title: const Text('Uygulama Kilidi',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('Açılışta PIN/parmak izi sor',
-                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          ),
-        ),
-        if (_lockEnabled) ...[
-          Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              onTap: _changePin,
-              tileColor: AppTheme.surface,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.rLg)),
-              leading: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.password_rounded,
-                    color: AppTheme.primary, size: 22),
-              ),
-              title: const Text('PIN Değiştir',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              trailing: Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.textTertiary),
+            title: const Text('Biyometrik Kilit', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text(
+              'Parmak izi veya yüz tanıma ile aç',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
             ),
           ),
-          if (_biometricAvailable)
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: AppTheme.card(),
-              child: SwitchListTile(
-                value: _biometricEnabled,
-                onChanged: _toggleBiometric,
-                activeColor: AppTheme.accent,
-                title: const Text('Parmak İzi / Yüz ile Aç',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text('PIN yerine hızlı biyometrik giriş',
-                    style: TextStyle(
-                        fontSize: 12, color: AppTheme.textSecondary)),
-              ),
+        if (_hasWorkLocation)
+          ListTile(
+            title: const Text('İş Yeri Konumu', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text(
+              'Konum otomatik olarak kaydedildi',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
             ),
-          Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              onTap: _openWorkLocationPicker,
-              tileColor: AppTheme.surface,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.rLg)),
-              leading: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppTheme.statusSafe.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.location_on_rounded,
-                    color: AppTheme.statusSafe, size: 22),
-              ),
-              title: const Text('İş Yeri Konumu',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text(
-                _hasWorkLocation
-                    ? 'Tanımlı — konumdaysanız bilgi notu gösterilir'
-                    : 'Tanımlı değil — haritadan işaretleyin',
-                style: TextStyle(
-                    fontSize: 12, color: AppTheme.textSecondary),
-              ),
-              trailing: Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.textTertiary),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// PIN değiştirme ekranı: önce mevcut PIN doğrulanır, sonra yeni PIN
-/// iki kez girilir.
-class _ChangePinScreen extends StatefulWidget {
-  const _ChangePinScreen();
-
-  @override
-  State<_ChangePinScreen> createState() => _ChangePinScreenState();
-}
-
-class _ChangePinScreenState extends State<_ChangePinScreen> {
-  static const int _pinLength = 6;
-  final List<String> _entered = [];
-  String? _newFirstPin;
-  String? _errorText;
-  bool _verifiedOld = false;
-
-  void _onDigit(String d) {
-    if (_entered.length >= _pinLength) return;
-    setState(() {
-      _entered.add(d);
-      _errorText = null;
-    });
-    if (_entered.length == _pinLength) _onComplete();
-  }
-
-  void _onBackspace() {
-    if (_entered.isEmpty) return;
-    setState(() => _entered.removeLast());
-  }
-
-  Future<void> _onComplete() async {
-    final pin = _entered.join();
-
-    if (!_verifiedOld) {
-      final ok = await AppLockService.instance.verifyPin(pin);
-      if (ok) {
-        setState(() {
-          _verifiedOld = true;
-          _entered.clear();
-        });
-      } else {
-        setState(() {
-          _errorText = 'Mevcut PIN yanlış';
-          _entered.clear();
-        });
-      }
-      return;
-    }
-
-    if (_newFirstPin == null) {
-      setState(() {
-        _newFirstPin = pin;
-        _entered.clear();
-      });
-      return;
-    }
-
-    if (pin == _newFirstPin) {
-      await AppLockService.instance.setPin(pin);
-      if (mounted) Navigator.of(context).pop(true);
-    } else {
-      setState(() {
-        _errorText = 'Yeni PIN’ler eşleşmedi';
-        _newFirstPin = null;
-        _entered.clear();
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final title = !_verifiedOld
-        ? 'Mevcut PIN'
-        : (_newFirstPin == null ? 'Yeni PIN belirleyin' : 'Yeni PIN’i onaylayın');
-
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('PIN Değiştir'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        systemOverlayStyle: AppTheme.systemBarForColor(AppTheme.primary),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(),
-            Text(title,
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary)),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_pinLength, (i) {
-                final filled = i < _entered.length;
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: filled ? AppTheme.primary : AppTheme.surfaceHigh,
-                  ),
-                );
-              }),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 18,
-              child: _errorText != null
-                  ? Text(_errorText!,
-                      style: const TextStyle(
-                          color: AppTheme.statusExpired, fontSize: 12))
-                  : null,
-            ),
-            const Spacer(),
-            _buildKeypad(),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKeypad() {
-    const rows = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-    ];
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final row in rows)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [for (final d in row) _key(d)],
-            ),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(width: 64, height: 64),
-              _key('0'),
-              SizedBox(
-                width: 64,
-                height: 64,
-                child: IconButton(
-                  onPressed: _onBackspace,
-                  icon: Icon(Icons.backspace_outlined,
-                      color: AppTheme.textSecondary),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _key(String digit) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: InkWell(
-        onTap: () => _onDigit(digit),
-        borderRadius: BorderRadius.circular(32),
-        child: Container(
-          width: 64,
-          height: 64,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppTheme.surface,
-          ),
-          child: Text(digit,
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary)),
-        ),
-      ),
-    );
-  }
-}
-
-/// Internet barkod sorgularinda hangi acik veri tabanlarinin kullanilacagi
-/// (OFF/OBF). Ikisi de acik/biri acik/ikisi kapali olabilir. Tercih
-/// DbSourcePrefs'te kalici saklanir ve tum uygulamayi (merkezi sorgu
-/// noktasi BarcodeLookupService uzerinden) etkiler.
-class _DbSourceSection extends StatefulWidget {
-  const _DbSourceSection();
-
-  @override
-  State<_DbSourceSection> createState() => _DbSourceSectionState();
-}
-
-class _DbSourceSectionState extends State<_DbSourceSection> {
-  bool _off = DbSourcePrefs.instance.offEnabled;
-  bool _obf = DbSourcePrefs.instance.obfEnabled;
-
-  Future<void> _setOff(bool v) async {
-    await DbSourcePrefs.instance.setOff(v);
-    setState(() => _off = v);
-  }
-
-  Future<void> _setObf(bool v) async {
-    await DbSourcePrefs.instance.setObf(v);
-    setState(() => _obf = v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: AppTheme.card(),
-          child: SwitchListTile(
-            value: _off,
-            onChanged: _setOff,
-            activeColor: AppTheme.primary,
-            secondary: const Icon(Icons.restaurant_rounded,
-                color: AppTheme.primary),
-            title: const Text('Open Food Facts',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('Gıda / market ürünleri',
-                style:
-                    TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          ),
-        ),
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: AppTheme.card(),
-          child: SwitchListTile(
-            value: _obf,
-            onChanged: _setObf,
-            activeColor: AppTheme.accent,
-            secondary: const Icon(Icons.spa_rounded, color: AppTheme.accent),
-            title: const Text('Open Beauty Facts',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('Kozmetik / kişisel bakım ürünleri',
-                style:
-                    TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          ),
-        ),
-        if (!_off && !_obf)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded,
-                    size: 16, color: AppTheme.textTertiary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Her ikisi de kapalı: barkodlar internette aranmayacak (sadece yerel kayıtlar).',
-                    style: TextStyle(
-                        fontSize: 11, color: AppTheme.textTertiary),
-                  ),
-                ),
-              ],
-            ),
+            trailing: Icon(Icons.location_on_rounded, color: AppTheme.primary),
           ),
       ],
     );
