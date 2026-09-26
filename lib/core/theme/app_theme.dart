@@ -10,11 +10,15 @@ class AppTheme {
   AppTheme._();
 
   static const Color primary = Color(0xFF2563EB);
+  static const Color primaryLight = Color(0xFF93C5FD);
+  static const Color primaryDark = Color(0xFF1D4ED8);
   static const Color primaryContainer = Color(0xFFEAF1FF);
   static const Color onPrimary = Color(0xFFFFFFFF);
   static const Color secondary = Color(0xFF14B8A6);
   static const Color secondaryContainer = Color(0xFFE6FFFB);
   static const Color accent = secondary;
+  static const Color amber = Color(0xFFF59E0B);
+  static const Color coral = Color(0xFFF97316);
 
   static const Color statusSafe = Color(0xFF14B8A6);
   static const Color statusWarning = Color(0xFFF59E0B);
