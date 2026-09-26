@@ -1,30 +1,10 @@
-import 'dart:async';
-import 'dart:io';
-
-import 'package:excel/excel.dart' hide Border;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../data/models/count_item.dart';
-import '../../viewmodels/providers.dart';
-import '../widgets/scan_overlay.dart';
+import '../widgets/ui_kit.dart';
 
-/// ════════════════════════════════════════════════════════════════════
-///  SAYIM (BAGIMSIZ)
-/// ────────────────────────────────────────────────────────────────────
-///  Basit sayim: barkod okut -> adet gir -> kaydet. Urun adi (varsa)
-///  barkod dizininden bulunur. Okunan tum kayitlar altta listelenir;
-///  duzeltilip silinebilir. PDF/Excel rapor alinabilir.
-/// ════════════════════════════════════════════════════════════════════
+/// Inventory count and stock verification screen.
 class CountScreen extends ConsumerStatefulWidget {
   const CountScreen({super.key});
 
@@ -33,556 +13,223 @@ class CountScreen extends ConsumerStatefulWidget {
 }
 
 class _CountScreenState extends ConsumerState<CountScreen> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-  );
-  final TextEditingController _qtyController = TextEditingController();
-  final FocusNode _qtyFocus = FocusNode();
-
-  List<CountItem> _items = [];
-  bool _loading = true;
-
-  // O an okutulan barkod (adet bekleniyor).
-  String? _activeBarcode;
-  String? _activeName;
-  CountItem? _activeExisting; // bu barkod daha once sayildiysa
-  bool _scanPaused = false;
-
-  String? _lastMsg;
-  bool _lastMsgError = false;
+  int _selectedTab = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _qtyController.dispose();
-    _qtyFocus.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final items = await ref.read(countRepositoryProvider).getAll();
-    if (mounted) {
-      setState(() {
-        _items = items;
-        _loading = false;
-      });
-    }
-  }
-
-  int get _totalQty => _items.fold(0, (s, e) => s + e.qty);
-
-  void _onDetect(BarcodeCapture capture) {
-    if (_scanPaused || _activeBarcode != null) return;
-    for (final b in capture.barcodes) {
-      final raw = b.rawValue?.trim();
-      if (raw == null || raw.isEmpty) continue;
-      _handleBarcode(raw);
-      return;
-    }
-  }
-
-  Future<void> _handleBarcode(String code) async {
-    HapticFeedback.mediumImpact();
-    setState(() => _scanPaused = true);
-
-    // Bu barkod daha once sayildi mi?
-    final existing = await ref.read(countRepositoryProvider).findByBarcode(code);
-    // Urun adini dizinden bul.
-    final name = await ref
-        .read(barcodeDirectoryRepositoryProvider)
-        .findProductName(code);
-
-    if (!mounted) return;
-    setState(() {
-      _activeBarcode = code;
-      _activeName = name ?? existing?.productName;
-      _activeExisting = existing;
-      _qtyController.text = existing?.qty.toString() ?? '';
-    });
-    Future.delayed(const Duration(milliseconds: 100), () {
-      _qtyFocus.requestFocus();
-      _qtyController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _qtyController.text.length,
-      );
-    });
-  }
-
-  Future<void> _save() async {
-    final code = _activeBarcode;
-    if (code == null) return;
-    final qty = int.tryParse(_qtyController.text.trim());
-    if (qty == null || qty < 0) {
-      HapticFeedback.heavyImpact();
-      return;
-    }
-    final repo = ref.read(countRepositoryProvider);
-    final existing = _activeExisting;
-    if (existing != null && existing.id != null) {
-      await repo.updateQty(existing.id!, qty);
-    } else {
-      await repo.insert(CountItem(
-        barcode: code,
-        productName: _activeName,
-        qty: qty,
-        countedAt: DateTime.now(),
-      ));
-    }
-
-    HapticFeedback.lightImpact();
-    final savedName = _activeName ?? code;
-    setState(() {
-      _activeBarcode = null;
-      _activeName = null;
-      _activeExisting = null;
-      _scanPaused = false;
-      _qtyController.clear();
-      _lastMsg = '$savedName → $qty adet';
-      _lastMsgError = false;
-    });
-    await _load();
-  }
-
-  void _cancel() {
-    setState(() {
-      _activeBarcode = null;
-      _activeName = null;
-      _activeExisting = null;
-      _scanPaused = false;
-      _qtyController.clear();
-    });
-  }
-
-  Future<void> _editItem(CountItem item) async {
-    final controller = TextEditingController(text: item.qty.toString());
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(item.productName ?? item.barcode),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Adet'),
-        ),
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.scaffold,
+      appBar: AppBar(
+        title: const Text('Sayım'),
+        backgroundColor: AppTheme.scaffold,
+        elevation: 0,
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('İptal')),
-          TextButton(
-              onPressed: () =>
-                  Navigator.pop(ctx, int.tryParse(controller.text.trim())),
-              child: const Text('Kaydet')),
-        ],
-      ),
-    );
-    if (result != null && result >= 0 && item.id != null) {
-      await ref.read(countRepositoryProvider).updateQty(item.id!, result);
-      await _load();
-    }
-  }
-
-  Future<void> _deleteItem(CountItem item) async {
-    if (item.id == null) return;
-    await ref.read(countRepositoryProvider).deleteById(item.id!);
-    await _load();
-  }
-
-  Future<void> _clearAll() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sayımı sıfırla'),
-        content: const Text('Tüm sayım kayıtları silinecek. Emin misiniz?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Vazgeç')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Sil')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ref.read(countRepositoryProvider).clearAll();
-      await _load();
-    }
-  }
-
-  // ── PDF RAPOR ──
-  Future<void> _pdfReport() async {
-    if (_items.isEmpty) return;
-    final now = DateTime.now();
-    final doc = pw.Document();
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(28),
-        build: (ctx) => [
-          pw.Header(
-            level: 0,
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Sayım Raporu',
-                    style: pw.TextStyle(
-                        fontSize: 20, fontWeight: pw.FontWeight.bold)),
-                pw.SizedBox(height: 4),
-                pw.Text(
-                    'Tarih: ${DateFormat('dd.MM.yyyy HH:mm').format(now)}',
-                    style: const pw.TextStyle(fontSize: 11)),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 12),
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              _pdfStat('Kalem', '${_items.length}', PdfColors.blue800),
-              _pdfStat('Toplam Adet', '$_totalQty', PdfColors.green800),
-            ],
-          ),
-          pw.SizedBox(height: 18),
-          pw.TableHelper.fromTextArray(
-            headers: ['#', 'Ürün Adı', 'Barkod', 'Adet'],
-            headerStyle: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                fontSize: 10,
-                color: PdfColors.white),
-            headerDecoration:
-                const pw.BoxDecoration(color: PdfColors.blueGrey700),
-            cellStyle: const pw.TextStyle(fontSize: 10),
-            cellAlignments: {
-              0: pw.Alignment.center,
-              3: pw.Alignment.centerRight,
-            },
-            columnWidths: {
-              0: const pw.FixedColumnWidth(28),
-              1: const pw.FlexColumnWidth(3.5),
-              2: const pw.FlexColumnWidth(2),
-              3: const pw.FixedColumnWidth(60),
-            },
-            data: List.generate(_items.length, (i) {
-              final e = _items[i];
-              return [
-                '${i + 1}',
-                e.productName ?? '(isimsiz)',
-                e.barcode,
-                '${e.qty}',
-              ];
-            }),
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: () {},
           ),
         ],
       ),
-    );
-    final bytes = await doc.save();
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-      name: 'sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
-    );
-  }
-
-  pw.Widget _pdfStat(String label, String value, PdfColor color) {
-    return pw.Expanded(
-      child: pw.Container(
-        margin: const pw.EdgeInsets.symmetric(horizontal: 4),
-        padding: const pw.EdgeInsets.symmetric(vertical: 12),
-        decoration: pw.BoxDecoration(
-          color: PdfColors.grey100,
-          border: pw.Border.all(color: color, width: 1.5),
-          borderRadius: pw.BorderRadius.circular(8),
-        ),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.center,
+      body: SafeArea(
+        child: Column(
           children: [
-            pw.Text(value,
-                style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
-                    color: color)),
-            pw.SizedBox(height: 2),
-            pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _TabButton(
+                      label: 'Devam Eden',
+                      isActive: _selectedTab == 0,
+                      onTap: () => setState(() => _selectedTab = 0),
+                      count: 5,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _TabButton(
+                      label: 'Tamamlandı',
+                      isActive: _selectedTab == 1,
+                      onTap: () => setState(() => _selectedTab = 1),
+                      count: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _selectedTab == 0
+                  ? _buildOngoingList(context)
+                  : _buildCompletedList(context),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ── EXCEL RAPOR ──
-  Future<void> _excelReport() async {
-    if (_items.isEmpty) return;
-    final now = DateTime.now();
-    final excel = Excel.createExcel();
-    final sheet = excel['Sayım'];
-    excel.delete('Sheet1');
-    sheet.appendRow([
-      TextCellValue('#'),
-      TextCellValue('Ürün Adı'),
-      TextCellValue('Barkod'),
-      TextCellValue('Adet'),
-      TextCellValue('Zaman'),
-    ]);
-    for (var i = 0; i < _items.length; i++) {
-      final e = _items[i];
-      sheet.appendRow([
-        IntCellValue(i + 1),
-        TextCellValue(e.productName ?? ''),
-        TextCellValue(e.barcode),
-        IntCellValue(e.qty),
-        TextCellValue(DateFormat('dd.MM.yyyy HH:mm').format(e.countedAt)),
-      ]);
-    }
-    sheet.appendRow([
-      TextCellValue(''),
-      TextCellValue('TOPLAM'),
-      TextCellValue(''),
-      IntCellValue(_totalQty),
-      TextCellValue(''),
-    ]);
-    final bytes = excel.encode();
-    if (bytes == null) return;
-    final dir = await getTemporaryDirectory();
-    final file = File(
-        '${dir.path}/sayim_${DateFormat('yyyyMMdd_HHmm').format(now)}.xlsx');
-    await file.writeAsBytes(bytes);
-    await Share.shareXFiles([XFile(file.path)], text: 'Sayım raporu');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sayım'),
-        backgroundColor: AppTheme.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            tooltip: 'El feneri',
-            icon: const Icon(Icons.flash_on_rounded),
-            onPressed: () => _controller.toggleTorch(),
-          ),
-          if (_items.isNotEmpty)
-            PopupMenuButton<String>(
-              tooltip: 'Rapor',
-              icon: const Icon(Icons.summarize_rounded),
-              onSelected: (v) {
-                if (v == 'pdf') _pdfReport();
-                if (v == 'xlsx') _excelReport();
-                if (v == 'clear') _clearAll();
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'pdf', child: Text('PDF rapor')),
-                PopupMenuItem(value: 'xlsx', child: Text('Excel rapor')),
-                PopupMenuItem(value: 'clear', child: Text('Sayımı sıfırla')),
-              ],
+  Widget _buildOngoingList(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: 3,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.border, width: 1),
             ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _statsBar(),
-                SizedBox(height: 230, child: _scannerArea()),
-                if (_activeBarcode != null)
-                  _qtyEntry(cs)
-                else
-                  _lastMsgBar(cs),
-                const Divider(height: 1),
-                Expanded(child: _list(cs)),
-              ],
-            ),
-    );
-  }
-
-  Widget _statsBar() {
-    return Container(
-      width: double.infinity,
-      color: AppTheme.primary.withOpacity(0.10),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _stat('Kalem', '${_items.length}'),
-          _stat('Toplam Adet', '$_totalQty'),
-        ],
-      ),
-    );
-  }
-
-  Widget _stat(String label, String value) {
-    return Column(
-      children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.primary)),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _scannerArea() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        MobileScanner(controller: _controller, onDetect: _onDetect),
-        ScanOverlay(
-          hint: _activeBarcode != null
-              ? 'Adet girin'
-              : 'Ürün barkodunu okutun',
-          accent: _activeBarcode != null ? Colors.orange : AppTheme.primary,
-        ),
-      ],
-    );
-  }
-
-  Widget _qtyEntry(ColorScheme cs) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
-          16, 12, 16, MediaQuery.of(context).viewInsets.bottom + 12),
-      color: AppTheme.primary.withOpacity(0.06),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_activeName ?? '(dizinde yok)',
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          Text('Barkod: $_activeBarcode',
-              style: TextStyle(
-                  fontSize: 12, color: cs.onSurface.withOpacity(0.6))),
-          if (_activeExisting != null)
-            Text('Önceki: ${_activeExisting!.qty} adet (üzerine yazılacak)',
-                style: TextStyle(fontSize: 11, color: AppTheme.statusWarning)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _qtyController,
-                  focusNode: _qtyFocus,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  autofocus: true,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _save(),
-                  style: const TextStyle(
-                      fontSize: 26, fontWeight: FontWeight.bold),
-                  decoration: const InputDecoration(
-                    labelText: 'Adet',
-                    border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Depo Sayımı #${index + 1}', style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 4),
+                          Text(
+                            '45 / 128 ürün sayıldı',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    StatusPill(
+                      label: '${(45 / 128 * 100).toStringAsFixed(0)}%',
+                      color: AppTheme.warning,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: 45 / 128,
+                    minHeight: 8,
+                    backgroundColor: AppTheme.primary.withOpacity(0.12),
+                    valueColor: AlwaysStoppedAnimation(AppTheme.primary),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _save,
+                const SizedBox(height: 12),
+                ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.statusSuccess,
+                    backgroundColor: AppTheme.primary,
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: const Text('Kaydet',
-                      style: TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.bold)),
+                  onPressed: () {},
+                  child: const Text('Devam Et'),
                 ),
-              ),
-              IconButton(
-                onPressed: _cancel,
-                icon: const Icon(Icons.close),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _lastMsgBar(ColorScheme cs) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: _lastMsg == null
-          ? cs.surface
-          : AppTheme.statusSuccess.withOpacity(0.12),
-      child: _lastMsg == null
-          ? Text('Barkod okutun',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: cs.onSurface.withOpacity(0.6)))
-          : Row(
-              children: [
-                Icon(Icons.check_circle_rounded,
-                    color: AppTheme.statusSuccess, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: Text('$_lastMsg kaydedildi',
-                        style: const TextStyle(fontWeight: FontWeight.w600))),
               ],
-            ),
-    );
-  }
-
-  Widget _list(ColorScheme cs) {
-    if (_items.isEmpty) {
-      return Center(
-        child: Text('Henüz sayım yok',
-            style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
-      );
-    }
-    return ListView.separated(
-      itemCount: _items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (_, i) {
-        final e = _items[i];
-        return Dismissible(
-          key: ValueKey(e.id),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            color: Colors.red,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            child: const Icon(Icons.delete, color: Colors.white),
-          ),
-          onDismissed: (_) => _deleteItem(e),
-          child: ListTile(
-            dense: true,
-            onTap: () => _editItem(e),
-            title: Text(e.productName ?? '(isimsiz)',
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600)),
-            subtitle: Text(e.barcode, style: const TextStyle(fontSize: 12)),
-            trailing: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text('${e.qty}',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.primary)),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildCompletedList(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: 4,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.border, width: 1),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppTheme.success.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.check_circle_outlined, color: AppTheme.success),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Sayım #${3 + index}', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      Text(
+                        '128 ürün • ${DateTime.now().subtract(Duration(days: index)).toString().split(' ')[0]}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AppTheme.textMuted),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+    required this.count,
+  });
+
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isActive ? AppTheme.primary : AppTheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isActive ? AppTheme.primary : AppTheme.border,
+            width: 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: isActive ? Colors.white : AppTheme.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$count',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: isActive ? Colors.white : AppTheme.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
