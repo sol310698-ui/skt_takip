@@ -4,25 +4,44 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
+  // ─── Primary Colors ───────────────────────────────────────────────
   static const Color primary = Color(0xFF2563EB);
   static const Color primaryStrong = Color(0xFF1D4ED8);
+  static const Color primaryDark = Color(0xFF1E40AF);
   static const Color secondary = Color(0xFF7C3AED);
   static const Color accent = Color(0xFF0EA5E9);
+
+  // ─── Status Colors ───────────────────────────────────────────────
   static const Color success = Color(0xFF16A34A);
   static const Color warning = Color(0xFFF59E0B);
   static const Color danger = Color(0xFFEF4444);
   static const Color info = Color(0xFF3B82F6);
 
+  // ─── Status-specific semantic colors (for backward compat) ───────
+  static const Color statusWarning = Color(0xFFF59E0B);
+  static const Color statusExpired = Color(0xFFEF4444);
+  static const Color statusSafe = Color(0xFF16A34A);
+
+  // ─── Neutral/Surface Colors ───────────────────────────────────────
   static const Color scaffold = Color(0xFFF5F7FB);
   static const Color surface = Color(0xFFFFFFFF);
   static const Color surfaceAlt = Color(0xFFEAF2FF);
+  static const Color surfaceHigh = Color(0xFFF8FAFC);
+  static const Color background = Color(0xFFF5F7FB);
   static const Color border = Color(0xFFE2E8F0);
+
+  // ─── Text Colors ───────────────────────────────────────────────────
   static const Color text = Color(0xFF0F172A);
+  static const Color textPrimary = Color(0xFF0F172A);
   static const Color textSecondary = Color(0xFF475569);
+  static const Color textTertiary = Color(0xFF64748B);
   static const Color textMuted = Color(0xFF64748B);
+
+  // ─── Basic Colors ───────────────────────────────────────────────────
   static const Color white = Color(0xFFFFFFFF);
   static const Color black = Color(0xFF0F172A);
 
+  // ─── Spacing Constants ──────────────────────────────────────────────
   static const double s4 = 4;
   static const double s8 = 8;
   static const double s12 = 12;
@@ -35,6 +54,9 @@ class AppTheme {
   static const double s48 = 48;
   static const double s56 = 56;
   static const double s64 = 64;
+
+  static ThemeData get light => lightTheme;
+  static ThemeData get dark => darkTheme;
 
   static ThemeData get lightTheme {
     final scheme = ColorScheme.fromSeed(
@@ -111,9 +133,11 @@ class AppTheme {
     const darkBackground = Color(0xFF0B1220);
     const darkSurface = Color(0xFF111C2E);
     const darkSurfaceAlt = Color(0xFF16233B);
+    const darkSurfaceHigh = Color(0xFF1A2742);
     const darkBorder = Color(0xFF24314D);
     const darkText = Color(0xFFE5EEF9);
     const darkTextSecondary = Color(0xFFB9C7DA);
+    const darkTextTertiary = Color(0xFF94A3B8);
 
     final scheme = ColorScheme.fromSeed(
       seedColor: primary,
@@ -183,4 +207,13 @@ class AppTheme {
       ),
     );
   }
+
+  /// Static brightness mode (used by main.dart to set color palette once).
+  static bool _isLight = true;
+
+  static void applyBrightness(bool isLight) {
+    _isLight = isLight;
+  }
+
+  static bool get isLight => _isLight;
 }
